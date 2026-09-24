@@ -1,0 +1,9 @@
+ultralytics
+fastapi
+uvicorn
+opencv-python
+python-multipart
+websockets
+omegaconf
+python-dotenv
+requests
