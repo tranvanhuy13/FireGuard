@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,8 @@ from contextlib import asynccontextmanager
 import uvicorn
 
 logger = logging.getLogger(__name__)
+
+CAMERA_FPS = 30
 
 load_dotenv()
 logging.basicConfig(
@@ -41,7 +43,7 @@ async def lifespan(app: FastAPI):
     
     yield 
     # Shutdown
-    camera_manager.running = False
+    camera_manager.shutdown()
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
 
@@ -103,45 +105,60 @@ def broadcast_alert(alert_data):
 def read_root():
     return {"status": "ok", "message": "Fire Detection System API is running"}
 
-def generate_camera_stream(camera_id):
-    """Generator for camera stream with CPU protection sleep."""
+STREAM_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate"}
+
+async def generate_camera_stream(camera_id: int, request: Request):
+    """
+    Push every new frame as soon as the capture thread publishes it (~30 FPS).
+    No fixed sleep, no re-sending of old frames, JPEG encoded once per frame.
+    """
     frames_sent = 0
+    last_id = -1
     logger.info("[Stream %s] Client connected", camera_id)
     try:
         while True:
-            frame = camera_manager.get_frame(camera_id)
-            if frame is not None:
-                ret, buffer = cv2.imencode('.jpg', frame)
-                if ret:
-                    frame_bytes = buffer.tobytes()
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                    frames_sent += 1
-                    if frames_sent == 1 or frames_sent % 300 == 0:
-                        logger.info("[Stream %s] Sent %s frames (latest JPEG: %s bytes)", camera_id, frames_sent, len(frame_bytes))
-                    time.sleep(0.03)
-                else:
-                    logger.error("[Stream %s] JPEG encoding failed", camera_id)
-                    time.sleep(0.2)
-            else:
-                time.sleep(0.2)
+            if await request.is_disconnected():
+                break
+
+            frame_id = camera_manager.get_frame_id(camera_id)
+            if frame_id is None:                      # unknown camera
+                await asyncio.sleep(0.2)
+                continue
+            if frame_id == last_id:                   # nothing new yet
+                await asyncio.sleep(0.005)
+                continue
+
+            result = await asyncio.to_thread(camera_manager.get_jpeg, camera_id)
+            if result is None:                        # no frame available yet
+                await asyncio.sleep(0.05)
+                continue
+
+            last_id, jpeg = result
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + jpeg + b'\r\n')
+            frames_sent += 1
+            if frames_sent == 1 or frames_sent % 300 == 0:
+                logger.info("[Stream %s] Sent %s frames (latest JPEG: %s bytes)",
+                            camera_id, frames_sent, len(jpeg))
     finally:
         logger.info("[Stream %s] Client disconnected after %s frames", camera_id, frames_sent)
 
 @app.get("/video_feed")
-def video_feed_default():
+async def video_feed_default(request: Request):
     """Default video feed for backwards compatibility (VideoFeed.tsx)"""
-    first_active_cam = next(iter(camera_manager.cameras.keys()), 1)
-    logger.info("[Stream %s] Default stream requested", first_active_cam)
-    return StreamingResponse(generate_camera_stream(first_active_cam), 
-                             media_type="multipart/x-mixed-replace; boundary=frame")
+    first_cam = next(iter(camera_manager.cameras.keys()), 1)
+    logger.info("[Stream %s] Default stream requested", first_cam)
+    return StreamingResponse(generate_camera_stream(first_cam, request),
+                             media_type="multipart/x-mixed-replace; boundary=frame",
+                             headers=STREAM_HEADERS)
 
 @app.get("/video_feed/{camera_id}")
-def video_feed_by_id(camera_id: int):
+async def video_feed_by_id(camera_id: int, request: Request):
     """Endpoint for grid view (CameraGrid.tsx)"""
     logger.info("[Stream %s] Camera stream requested", camera_id)
-    return StreamingResponse(generate_camera_stream(camera_id), 
-                             media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(generate_camera_stream(camera_id, request),
+                             media_type="multipart/x-mixed-replace; boundary=frame",
+                             headers=STREAM_HEADERS)
 
 class CameraModel(BaseModel):
     source: str
@@ -256,15 +273,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-
-@app.get("/stats")
-def get_stats():
-
-    return {"stats": [
-        {"label": "Today", "value": 0},
-        {"label": "Yesterday", "value": 0}
-    ]}
-
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, log_level="info")

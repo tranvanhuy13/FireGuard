@@ -41,7 +41,7 @@ const VideoFeed = () => {
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
         <div className="flex justify-between items-end">
           <div className="text-xs text-gray-400 font-mono">
-            FPS: 24.1 | RES: 1080p | AI: YOLOv8
+            FPS: 30 | RES: 1080p | AI: YOLOv8
           </div>
         </div>
       </div>
