@@ -26,6 +26,9 @@ backend/fire_guard.db
 backend/snapshots/
 *.sqlite3
 
+# Runtime artifacts
+backend/runtime*.log
+
 # OS
 .DS_Store
 Thumbs.db

@@ -237,7 +237,7 @@ def get_settings():
     """Get all settings (masking secrets)."""
     settings = database.get_all_settings()
     # Mask secrets for frontend display
-    masked_keys = ["smtp_password", "telegram_bot_token"]
+    masked_keys = ["zalo_bot_token", "telegram_bot_token"]
     for key in masked_keys:
         if key in settings and settings[key]:
             settings[key] = "********"

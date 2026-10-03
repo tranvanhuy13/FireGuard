@@ -1,10 +1,7 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
 import requests
 import os
 import time
+from urllib.parse import quote
 from database import get_setting
 
 # Store last notification time to prevent spamming
@@ -12,41 +9,57 @@ from database import get_setting
 last_notification = {}
 NOTIFICATION_COOLDOWN = 60 # seconds
 
-def send_email(subject, body, snapshot_path=None):
-    """Send an email using SMTP settings from database."""
+# Zalo Bot Platform (create a bot at https://bot.zapps.me)
+ZALO_API_BASE = "https://bot-api.zaloplatforms.com"
+
+def _zalo_call(token, method, payload):
+    """Call a Zalo Bot API method. Returns (ok, error_text)."""
+    url = f"{ZALO_API_BASE}/bot{token}/{method}"
+    response = requests.post(url, json=payload, timeout=15)
     try:
-        smtp_server = get_setting("smtp_server")
-        smtp_port = get_setting("smtp_port")
-        smtp_user = get_setting("smtp_user")
-        smtp_password = get_setting("smtp_password")
-        receiver_email = get_setting("receiver_email")
-        
-        if not all([smtp_server, smtp_port, smtp_user, smtp_password, receiver_email]):
-            print("Email notification skipped: Missing SMTP settings.")
+        data = response.json()
+    except ValueError:
+        data = {}
+    if response.status_code == 200 and data.get("ok", False):
+        return True, ""
+    return False, data.get("description") or response.text
+
+def send_zalo(message, snapshot_path=None):
+    """
+    Send a Zalo message using Bot API settings from database.
+
+    Zalo's sendPhoto only accepts a public image URL (no file upload), so the
+    snapshot is sent only when "public_base_url" is set to an address that
+    reaches this backend from the internet (domain / tunnel). Otherwise a
+    text-only message is sent.
+    """
+    try:
+        bot_token = get_setting("zalo_bot_token")
+        chat_id = get_setting("zalo_chat_id")
+        public_base_url = (get_setting("public_base_url") or "").strip()
+
+        if not all([bot_token, chat_id]):
+            print("Zalo notification skipped: Missing Bot settings.")
             return False
 
-        msg = MIMEMultipart()
-        msg["Subject"] = subject
-        msg["From"] = smtp_user
-        msg["To"] = receiver_email
-        
-        msg.attach(MIMEText(body, "plain"))
-        
-        if snapshot_path and os.path.exists(snapshot_path):
-            with open(snapshot_path, "rb") as f:
-                img_data = f.read()
-                image = MIMEImage(img_data, name=os.path.basename(snapshot_path))
-                msg.attach(image)
-        
-        with smtplib.SMTP(smtp_server, int(smtp_port)) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.send_message(msg)
-            
-        print(f"Email sent to {receiver_email}")
-        return True
+        if snapshot_path and public_base_url and os.path.exists(snapshot_path):
+            photo_url = f"{public_base_url.rstrip('/')}/snapshots/{quote(os.path.basename(snapshot_path))}"
+            ok, error = _zalo_call(bot_token, "sendPhoto",
+                                   {"chat_id": chat_id, "photo": photo_url, "caption": message})
+            if ok:
+                print(f"Zalo photo sent to {chat_id}")
+                return True
+            print(f"Zalo sendPhoto failed ({error}), falling back to text only.")
+
+        ok, error = _zalo_call(bot_token, "sendMessage", {"chat_id": chat_id, "text": message})
+        if ok:
+            print(f"Zalo message sent to {chat_id}")
+            return True
+        print(f"Zalo failed: {error}")
+        return False
+
     except Exception as e:
-        print(f"Failed to send email: {e}")
+        print(f"Failed to send zalo: {e}")
         return False
 
 def send_telegram(message, snapshot_path=None):
@@ -94,17 +107,16 @@ def trigger_notifications(event_type, confidence, snapshot_path=None):
         return
 
     confidence_percent = f"{confidence * 100:.1f}%"
-    subject = f"EMERGENCY: {event_type.upper()} Detected!"
     body = f"WARNING!\n\nThe system detected {event_type} with {confidence_percent} confidence.\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}\n\nPlease check the dashboard immediately."
     
     # Threading could be added here to not block the main loop, 
     # but for now synchronous call is safer to ensure delivery log visibility.
     
-    email_enabled = get_setting("email_enabled") == "true"
+    zalo_enabled = get_setting("zalo_enabled") == "true"
     telegram_enabled = get_setting("telegram_enabled") == "true"
     
-    if email_enabled:
-        send_email(subject, body, snapshot_path)
+    if zalo_enabled:
+        send_zalo(body, snapshot_path)
         
     if telegram_enabled:
         send_telegram(body, snapshot_path)
