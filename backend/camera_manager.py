@@ -233,6 +233,9 @@ class CameraManager:
     def __init__(self, detector):
         self.cameras = {}
         self.detector = detector
+        # One model, many callers (live cameras + uploaded-video analysis):
+        # serialize inference so the model is never called from two threads at once.
+        self.detector_lock = threading.Lock()
         self.running = True
         self.alert_callback = None
 
@@ -291,6 +294,11 @@ class CameraManager:
         for cam in list(self.cameras.values()):
             cam.stop()
 
+    def detect(self, frame):
+        """Run the shared AI model (thread-safe). Returns (annotated_frame, detections)."""
+        with self.detector_lock:
+            return self.detector.process_frame(frame)
+
     # ---------------------------------------------------------------- streaming
     def get_frame_id(self, camera_id):
         """Cheap check used by the stream loop to know if a new frame exists."""
@@ -344,7 +352,7 @@ class CameraManager:
 
                 try:
                     # Pass a copy: the detector may draw on the image in place
-                    annotated_frame, detections = self.detector.process_frame(frame.copy())
+                    annotated_frame, detections = self.detect(frame.copy())
                 except Exception:
                     logger.exception("[Camera %s] Detection failed", cam.id)
                     continue

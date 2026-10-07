@@ -32,3 +32,8 @@ backend/runtime*.log
 # OS
 .DS_Store
 Thumbs.db
+
+backend/venv/
+backend/__pycache__/
+*.pt
+*.db

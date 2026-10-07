@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
+import VideoAnalysisModal from "./VideoAnalysisModal";
 
 interface Camera {
   id: number;
@@ -19,6 +20,8 @@ const CameraGrid = () => {
   const [newCamSource, setNewCamSource] = useState("");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
+  const [toggling, setToggling] = useState<Record<number, boolean>>({});
 
   const fetchCameras = async () => {
     console.info("[Frontend Camera] Fetching camera statuses", {
@@ -99,13 +102,37 @@ const CameraGrid = () => {
   };
 
   const handleToggleCamera = async (id: number, active: boolean) => {
+    if (toggling[id]) return;
+    setToggling((prev) => ({ ...prev, [id]: true }));
+    // Optimistic update so the switch reacts instantly
+    setCameras((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? {
+              ...c,
+              is_active: active,
+              status: active ? "connecting" : "disconnected",
+            }
+          : c,
+      ),
+    );
     try {
-      await fetch(`${API_URL}/cameras/${id}/toggle?active=${active}`, {
-        method: "POST",
-      });
-      fetchCameras();
+      const res = await fetch(
+        `${API_URL}/cameras/${id}/toggle?active=${active}`,
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
     } catch (e) {
       alert("Failed to toggle camera status");
+    } finally {
+      setToggling((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      fetchCameras(); // resync with the real state
     }
   };
 
@@ -129,12 +156,20 @@ const CameraGrid = () => {
         <h2 className="text-white font-bold">
           {t.camera.activeCameras} ({cameras.length})
         </h2>
-        <button
-          onClick={() => setIsAdding(true)}
-          className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition-colors"
-        >
-          + {t.camera.addCamera}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsAnalyzerOpen(true)}
+            className="px-3 py-1 bg-amber-600 hover:bg-amber-500 rounded text-xs text-white transition-colors"
+          >
+            Analyze video
+          </button>
+          <button
+            onClick={() => setIsAdding(true)}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs text-white transition-colors"
+          >
+            + {t.camera.addCamera}
+          </button>
+        </div>
       </div>
 
       {/* Add Camera Form */}
@@ -185,62 +220,35 @@ const CameraGrid = () => {
             className="relative rounded-xl overflow-hidden bg-black border border-gray-800 group h-[200px] md:h-[250px]"
           >
             {/* Controls Overlay */}
-            <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              {/* Toggle Active Button */}
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+              {/* ON / OFF switch (always visible) */}
               <button
+                role="switch"
+                aria-checked={cam.is_active}
                 onClick={() => handleToggleCamera(cam.id, !cam.is_active)}
-                className={`p-1.5 rounded transition-colors ${cam.is_active ? "bg-gray-800/80 hover:bg-gray-700 text-green-400" : "bg-gray-800/80 hover:bg-gray-700 text-gray-400"}`}
-                title={
-                  cam.is_active
-                    ? "Pasifleştir (Deactivate)"
-                    : "Aktifleştir (Activate)"
-                }
+                disabled={!!toggling[cam.id]}
+                className="flex items-center gap-2 px-2 py-1 bg-black/70 backdrop-blur-md rounded-lg border border-white/5 hover:border-white/20 transition-colors disabled:opacity-60"
+                title={cam.is_active ? "Turn camera off" : "Turn camera on"}
               >
-                {cam.is_active ? (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <rect
-                      x="3"
-                      y="3"
-                      width="18"
-                      height="18"
-                      rx="2"
-                      ry="2"
-                    ></rect>
-                    <line x1="9" y1="9" x2="15" y2="15"></line>
-                    <line x1="15" y1="9" x2="9" y2="15"></line>
-                  </svg>
-                ) : (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                )}
+                <span
+                  className={`text-[10px] font-bold font-mono ${cam.is_active ? "text-green-400" : "text-gray-400"}`}
+                >
+                  {cam.is_active ? "ON" : "OFF"}
+                </span>
+                <span
+                  className={`relative w-8 h-4 rounded-full transition-colors ${cam.is_active ? "bg-green-500" : "bg-gray-600"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${cam.is_active ? "translate-x-4" : ""}`}
+                  />
+                </span>
               </button>
 
               {/* Delete Button */}
               {cam.id !== 1 && ( // Protect default seeded camera
                 <button
                   onClick={() => handleDeleteCamera(cam.id)}
-                  className="p-1.5 bg-red-500/80 text-white rounded hover:bg-red-500 transition-colors"
+                  className="p-1.5 bg-red-500/80 text-white rounded hover:bg-red-500 transition-all opacity-0 group-hover:opacity-100"
                   title={t.camera.deleteVideo}
                 >
                   <svg
@@ -308,6 +316,13 @@ const CameraGrid = () => {
                 <span className="font-medium font-sans">
                   Camera is Inactive
                 </span>
+                <button
+                  onClick={() => handleToggleCamera(cam.id, true)}
+                  disabled={!!toggling[cam.id]}
+                  className="mt-1 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded text-[11px] font-medium transition-colors disabled:opacity-50"
+                >
+                  Turn on camera
+                </button>
               </div>
             ) : cam.status === "disconnected" ? (
               <div className="w-full h-full flex flex-col items-center justify-center bg-red-950/20 border border-red-500/10 text-red-400 text-xs gap-2">
@@ -368,6 +383,11 @@ const CameraGrid = () => {
           </div>
         ))}
       </div>
+
+      <VideoAnalysisModal
+        isOpen={isAnalyzerOpen}
+        onClose={() => setIsAnalyzerOpen(false)}
+      />
     </div>
   );
 };

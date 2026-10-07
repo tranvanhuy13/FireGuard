@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,8 +7,10 @@ from typing import List
 from dotenv import load_dotenv
 from detection import FireDetector
 from camera_manager import CameraManager
+from video_analyzer import VideoAnalyzer, ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR
 import database
 import os
+import uuid
 import cv2
 import asyncio
 import time
@@ -61,6 +63,8 @@ database.init_db()
 # Initialize components
 detector = FireDetector()
 camera_manager = CameraManager(detector)
+# Uploaded-video check uses the very same model (and lock) as the live cameras
+video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
 
 
 # Mount snapshots directory
@@ -198,6 +202,63 @@ def toggle_camera(camera_id: int, active: bool):
         return {"status": "ok", "message": f"Camera {'enabled' if active else 'disabled'}"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
+# ---------------------------------------------------------------------------
+# Video upload analysis (requires: pip install python-multipart)
+# ---------------------------------------------------------------------------
+@app.post("/video-analysis")
+def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5)):
+    """Upload a video; it is analysed in the background with the live-camera model."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400,
+                            detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXT))}")
+
+    sample_fps = max(1, min(sample_fps, 15))
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    tmp_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
+    limit = MAX_UPLOAD_MB * 1024 * 1024
+    size = 0
+    try:
+        with open(tmp_path, "wb") as out:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status_code=413,
+                                        detail=f"Video is too large (max {MAX_UPLOAD_MB} MB).")
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="The uploaded file is empty.")
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
+
+    job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
+    logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
+    return {"job_id": job_id}
+
+@app.get("/video-analysis")
+def list_video_analyses():
+    """Recent video analysis jobs (newest first)."""
+    return {"jobs": video_analyzer.list()}
+
+@app.get("/video-analysis/{job_id}")
+def get_video_analysis(job_id: str):
+    """Progress and result of one video analysis job."""
+    job = video_analyzer.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+    return job
+
+@app.post("/video-analysis/{job_id}/cancel")
+def cancel_video_analysis(job_id: str):
+    if video_analyzer.cancel(job_id):
+        return {"status": "ok", "message": "Cancelling"}
+    raise HTTPException(status_code=404, detail="Job not found or already finished")
+
 @app.get("/alerts")
 def get_alerts():
     # Fetch recent events from database
@@ -237,7 +298,7 @@ def get_settings():
     """Get all settings (masking secrets)."""
     settings = database.get_all_settings()
     # Mask secrets for frontend display
-    masked_keys = ["zalo_bot_token", "telegram_bot_token"]
+    masked_keys = ["zalo_bot_token", "zalo_oa_access_token", "zalo_oa_refresh_token", "zalo_oa_secret_key", "telegram_bot_token"]
     for key in masked_keys:
         if key in settings and settings[key]:
             settings[key] = "********"
