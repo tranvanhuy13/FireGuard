@@ -1,9 +1,11 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import { en } from "../locales/en";
+import { vi } from "../locales/vi";
 
-type Language = "en";
+type Language = "en" | "vi";
 type Translations = typeof en;
 
 interface LanguageContextType {
@@ -15,12 +17,24 @@ interface LanguageContextType {
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
-  const language: Language = "en";
-  const handleSetLanguage = (lang: Language) => {
-    // No-op, system is locked to English
-  };
+  const [language, setLanguageState] = useState<Language>("en");
+  const [t, setT] = useState<Translations>(en);
 
-  const t = en;
+  useEffect(() => {
+    const savedLang = localStorage.getItem("language") as Language;
+    if (savedLang && (savedLang === "en" || savedLang === "vi")) {
+      setLanguageState(savedLang);
+    }
+  }, []);
+
+  useEffect(() => {
+    setT(language === "en" ? en : vi);
+  }, [language]);
+
+  const handleSetLanguage = (lang: Language) => {
+    setLanguageState(lang);
+    localStorage.setItem("language", lang);
+  };
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage: handleSetLanguage, t }}>
