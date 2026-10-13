@@ -7,3 +7,5 @@ websockets
 omegaconf
 python-dotenv
 requests
+passlib
+sqlalchemy
