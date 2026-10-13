@@ -29,9 +29,17 @@ export default function HistoryPage() {
 
   const fetchAlerts = () => {
     setLoading(true);
-    fetch(`${API_URL}/alerts`)
+    fetch(`${API_URL}/history`)
       .then(res => res.json())
-      .then(data => { setAlerts(data.alerts || []); setLoading(false); })
+      .then(data => { 
+        const rawEvents = data.events || data.alerts || [];
+        const mappedEvents = rawEvents.map((e: any) => ({
+          ...e,
+          snapshot: e.snapshot || e.snapshot_path
+        }));
+        setAlerts(mappedEvents); 
+        setLoading(false); 
+      })
       .catch(() => setLoading(false));
   };
 

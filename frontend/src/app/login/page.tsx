@@ -1,7 +1,7 @@
 /* eslint-disable */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -13,7 +13,7 @@ import { api } from "@/lib/api/auth";
 import { isMockMode } from "@/lib/api/client";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
-import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
 const getLoginSchema = (t: any) => z.object({
@@ -29,7 +29,18 @@ export default function LoginPage() {
   const loginSchema = getLoginSchema(t);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const toast = sessionStorage.getItem("loginToastSuccess");
+      if (toast) {
+        setSuccessMsg(toast);
+        sessionStorage.removeItem("loginToastSuccess");
+      }
+    }
+  }, []);
 
   const {
     register,
@@ -76,6 +87,14 @@ export default function LoginPage() {
             {t.auth.loginTitle}
           </h2>
         </div>
+
+        {successMsg && (
+          <div className="bg-green-50 border border-green-200 text-green-800 text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
+            <CheckCircle className="w-5 h-5 text-green-600 shrink-0" />
+            <span className="font-medium text-xs sm:text-sm">{successMsg}</span>
+          </div>
+        )}
+
         <form className="mt-8 space-y-5" onSubmit={handleSubmit(onSubmit)}>
           <div className="space-y-4">
             <div>

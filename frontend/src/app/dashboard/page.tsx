@@ -9,10 +9,18 @@ import SettingsModal from "@/components/SettingsModal";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import { API_URL, WS_URL } from "@/config";
+import { 
+  normalizeAlert, 
+  normalizeAlerts, 
+  normalizeCameras, 
+  calculateDashboardKPIs, 
+  NormalizedCamera 
+} from "@/lib/api/client";
 
 export default function Home() {
   const { t, language, setLanguage } = useLanguage();
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [cameras, setCameras] = useState<NormalizedCamera[]>([]);
   const [error, setError] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -26,7 +34,7 @@ export default function Home() {
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error("Backend unavailable");
         const data = await res.json();
-        setAlerts(data.alerts);
+        setAlerts(normalizeAlerts(data.alerts || []));
         setError(false);
       } catch (err) {
         clearTimeout(timeoutId);
@@ -35,6 +43,20 @@ export default function Home() {
       }
     };
     fetchAlerts();
+
+    const fetchCameras = async () => {
+      try {
+        const res = await fetch(`${API_URL}/cameras`);
+        if (res.ok) {
+          const data = await res.json();
+          setCameras(normalizeCameras(data.cameras || []));
+        }
+      } catch (err) {
+        console.warn("Failed to fetch cameras in dashboard", err);
+      }
+    };
+    fetchCameras();
+    const camInterval = setInterval(fetchCameras, 3000);
 
     // 2. Establish WebSocket connection for real-time updates
     let ws: WebSocket | null = null;
@@ -50,7 +72,8 @@ export default function Home() {
 
       ws.onmessage = (event) => {
         try {
-          const newAlert = JSON.parse(event.data);
+          const rawAlert = JSON.parse(event.data);
+          const newAlert = normalizeAlert(rawAlert);
           setAlerts(prevAlerts => {
             // Avoid duplicate additions in state
             if (prevAlerts.some(a => a.id === newAlert.id || (a.timestamp === newAlert.timestamp && a.type === newAlert.type))) {
@@ -81,8 +104,11 @@ export default function Home() {
         ws.close();
       }
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      clearInterval(camInterval);
     };
   }, []);
+
+  const kpis = calculateDashboardKPIs(cameras, alerts);
 
   return (
     <div className="h-full flex flex-col relative">
@@ -90,7 +116,7 @@ export default function Home() {
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       
       {/* Red flashing banner if there is a new fire alert within last 15 seconds */}
-      {alerts.some(a => a.type === 'fire' && (Date.now() - new Date(a.timestamp).getTime() < 15000)) && (
+      {alerts.some(a => a.type === 'fire' && (Date.now() - new Date(a.timestamp.replace(' ', 'T')).getTime() < 15000)) && (
         <div className="absolute top-0 left-0 w-full bg-red-600/90 text-white text-center py-2 text-sm font-bold animate-pulse z-50 rounded-lg mb-4">
           {t.alerts.warningFireDetected}
         </div>
@@ -112,11 +138,11 @@ export default function Home() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         {[
-          { label: t.dashboard.totalCameras, value: "4", color: "text-navy-900" },
-          { label: t.dashboard.activeCameras, value: "2", color: "text-green-600" },
-          { label: t.dashboard.totalDetections, value: alerts.length.toString(), color: "text-sky-600" },
-          { label: t.dashboard.fireAlerts, value: alerts.filter(a => a.type === 'fire').length.toString(), color: "text-red-600" },
-          { label: t.dashboard.smokeAlerts, value: alerts.filter(a => a.type === 'smoke').length.toString(), color: "text-yellow-500" }
+          { label: t.dashboard.totalCameras, value: kpis.totalCameras.toString(), color: "text-navy-900" },
+          { label: t.dashboard.activeCameras, value: kpis.activeCameras.toString(), color: "text-green-600" },
+          { label: t.dashboard.totalDetections, value: kpis.totalDetections.toString(), color: "text-sky-600" },
+          { label: t.dashboard.fireAlerts, value: kpis.fireAlerts.toString(), color: "text-red-600" },
+          { label: t.dashboard.smokeAlerts, value: kpis.smokeAlerts.toString(), color: "text-yellow-500" }
         ].map((kpi, idx) => (
           <div key={idx} className="bg-white rounded-xl p-4 shadow-sm border border-sky-100 flex flex-col justify-center items-center">
              <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold mb-1">{kpi.label}</span>
@@ -148,7 +174,7 @@ export default function Home() {
           {/* Daily Count Widget */}
           <div className="h-32 shrink-0 rounded-2xl bg-white border border-sky-100 shadow-sm p-4 flex flex-col justify-center items-center relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-sky-50 to-white opacity-0 group-hover:opacity-100 transition-opacity" />
-            <span className="text-4xl font-bold text-navy-900 mb-2 relative z-10">{alerts.filter(a => new Date(a.timestamp).toDateString() === new Date().toDateString()).length}</span>
+            <span className="text-4xl font-bold text-navy-900 mb-2 relative z-10">{alerts.filter(a => new Date(a.timestamp.replace(' ', 'T')).toDateString() === new Date().toDateString()).length}</span>
             <span className="text-xs text-gray-500 uppercase tracking-widest relative z-10">
               {t.stats.dailyCount}
             </span>

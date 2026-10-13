@@ -293,7 +293,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                   
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-[10px] text-gray-600 truncate">{alert.camera_name || "Camera"}</span>
-                    <span className="text-[10px] font-medium text-gray-500">â€¢</span>
+                    <span className="text-[10px] font-medium text-gray-500">&bull;</span>
                     <span className="text-[10px] text-gray-600">
                       {t.alerts.confidence}: {(alert.confidence * 100).toFixed(0)}%
                     </span>

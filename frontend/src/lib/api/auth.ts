@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { apiClient, isMockMode } from "./client";
+import { apiClient, isMockAuth, ApiError } from "./client";
 
 export interface User {
   id: string;
@@ -11,7 +11,7 @@ export interface User {
 
 export const api = {
   login: async (credentials: any): Promise<{ user: User; token: string }> => {
-    if (isMockMode) {
+    if (isMockAuth) {
       return new Promise((resolve, reject) =>
         setTimeout(() => {
           if (typeof window !== 'undefined') {
@@ -54,7 +54,7 @@ export const api = {
     });
   },
   register: async (data: any): Promise<{ message: string }> => {
-    if (isMockMode) {
+    if (isMockAuth) {
       return new Promise((resolve, reject) =>
         setTimeout(() => {
           if (typeof window !== 'undefined') {
@@ -95,7 +95,7 @@ export const api = {
     });
   },
   me: async (): Promise<{ user: User }> => {
-    if (isMockMode) {
+    if (isMockAuth) {
       return new Promise((resolve) =>
         setTimeout(() => {
           if (typeof window !== 'undefined') {
@@ -124,7 +124,7 @@ export const api = {
     return apiClient<{ user: User }>("/api/auth/me");
   },
   logout: async (): Promise<{ message: string }> => {
-    if (isMockMode) {
+    if (isMockAuth) {
       return new Promise((resolve) =>
         setTimeout(() => resolve({ message: "Logged out" }), 500)
       );
@@ -134,12 +134,130 @@ export const api = {
     });
   },
   disconnect: async (provider: string): Promise<{ message: string }> => {
-    if (isMockMode) {
+    if (isMockAuth) {
       return new Promise((resolve) => setTimeout(() => resolve({ message: "Disconnected" }), 500));
     }
     return apiClient<{ message: string }>("/api/auth/disconnect", {
       method: "POST",
       body: JSON.stringify({ provider })
+    });
+  },
+  forgotPassword: async (email: string): Promise<{ message: string; cooldown?: number }> => {
+    if (isMockAuth) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            const lastSent = sessionStorage.getItem('mockForgotLastSent');
+            const now = Date.now();
+            if (lastSent && now - parseInt(lastSent) < 5000) {
+              const waitSec = Math.ceil((5000 - (now - parseInt(lastSent))) / 1000);
+              return reject(new ApiError("TOO_MANY_REQUESTS", 429, { retryAfter: waitSec }));
+            }
+            sessionStorage.setItem('mockForgotLastSent', now.toString());
+            resolve({ 
+              message: "neutralNotice",
+              cooldown: 30
+            });
+          } else {
+            resolve({ message: "neutralNotice" });
+          }
+        }, 500);
+      });
+    }
+    return apiClient<{ message: string; cooldown?: number }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    });
+  },
+  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ resetToken: string; expiresIn: number }> => {
+    if (isMockAuth) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            const lockedUntil = parseInt(sessionStorage.getItem('resetLockedUntil') || '0', 10);
+            const now = Date.now();
+
+            if (lockedUntil > now) {
+              const remainingSec = Math.ceil((lockedUntil - now) / 1000);
+              return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { remainingSec }));
+            }
+
+            const expiresAt = parseInt(sessionStorage.getItem('resetExpiresAt') || '0', 10);
+            if (expiresAt > 0 && now > expiresAt) {
+              return reject(new ApiError("OTP_EXPIRED", 400));
+            }
+
+            let attempts = parseInt(sessionStorage.getItem('resetAttempts') || '5', 10);
+
+            if (data.otp !== '123456') {
+              attempts -= 1;
+              sessionStorage.setItem('resetAttempts', Math.max(0, attempts).toString());
+
+              if (attempts <= 0) {
+                const lockTime = now + 5 * 60 * 1000; // Lock 5 minutes
+                sessionStorage.setItem('resetLockedUntil', lockTime.toString());
+                return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { remainingSec: 300 }));
+              }
+
+              return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));
+            }
+
+            // Valid OTP -> return resetToken valid for 10 mins (600s)
+            const resetToken = `mock-reset-token-${Date.now()}`;
+            resolve({
+              resetToken,
+              expiresIn: 600,
+            });
+          } else {
+            resolve({
+              resetToken: `mock-reset-token-${Date.now()}`,
+              expiresIn: 600,
+            });
+          }
+        }, 500);
+      });
+    }
+    return apiClient<{ resetToken: string; expiresIn: number }>("/auth/verify-reset-otp", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+  resetPassword: async (data: { resetToken: string; newPassword: string; email?: string }): Promise<{ message: string }> => {
+    if (isMockAuth) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            if (!data.resetToken) {
+              return reject(new ApiError("INVALID_RESET_TOKEN", 400));
+            }
+
+            // Success: update password in mockUsers if user exists
+            const targetEmail = data.email || sessionStorage.getItem('resetEmail');
+            const usersStr = localStorage.getItem('mockUsers');
+            if (usersStr && targetEmail) {
+              try {
+                const users = JSON.parse(usersStr);
+                const userIndex = users.findIndex((u: any) => u.email === targetEmail);
+                if (userIndex !== -1) {
+                  users[userIndex].password = data.newPassword;
+                  localStorage.setItem('mockUsers', JSON.stringify(users));
+                }
+              } catch (e) {}
+            }
+
+            resolve({ message: "RESET_SUCCESS" });
+          } else {
+            resolve({ message: "RESET_SUCCESS" });
+          }
+        }, 500);
+      });
+    }
+    return apiClient<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        resetToken: data.resetToken,
+        newPassword: data.newPassword,
+      }),
     });
   },
 };

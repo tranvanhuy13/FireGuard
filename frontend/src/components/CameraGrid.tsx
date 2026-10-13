@@ -6,6 +6,7 @@ import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import { useAuth } from "../context/AuthContext";
+import { isMockData } from "../lib/api/client";
 
 interface Camera {
   id: number;
@@ -23,8 +24,18 @@ const CameraGrid = () => {
   const [newCamSource, setNewCamSource] = useState("");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [layoutMode, setLayoutMode] = useState<"auto" | "1" | "4">("auto");
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
   const [toggling, setToggling] = useState<Record<number, boolean>>({});
+
+  const toggleFullscreen = (camId: number) => {
+    const el = document.getElementById(`cam-container-${camId}`);
+    if (!document.fullscreenElement) {
+      el?.requestFullscreen().catch(err => console.error(err));
+    } else {
+      document.exitFullscreen();
+    }
+  };
 
   const canManage = user?.role === "admin";
   const canToggle = user?.role === "admin" || user?.role === "operator";
@@ -141,6 +152,23 @@ const CameraGrid = () => {
 
   const activeCount = cameras.filter(c => c.is_active && c.status === 'connected').length;
 
+  let gridCols = "grid-cols-1";
+  let itemsToRender = cameras;
+
+  if (layoutMode === "1") {
+    gridCols = "grid-cols-1";
+    itemsToRender = cameras.slice(0, 1);
+  } else if (layoutMode === "4") {
+    gridCols = "grid-cols-1 md:grid-cols-2";
+    itemsToRender = cameras.slice(0, 4);
+  } else {
+    // auto
+    if (cameras.length === 1) gridCols = "grid-cols-1";
+    else if (cameras.length === 2) gridCols = "grid-cols-1 md:grid-cols-2";
+    else if (cameras.length === 3 || cameras.length === 4) gridCols = "grid-cols-1 md:grid-cols-2";
+    else gridCols = "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"; // or whatever fits best
+  }
+
   return (
     <div className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-4 px-2">
@@ -151,6 +179,26 @@ const CameraGrid = () => {
           <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>
         </div>
         <div className="flex items-center gap-2">
+          <div className="hidden md:flex bg-navy-900/50 rounded-lg p-0.5 border border-sky-900/30">
+            <button
+              onClick={() => setLayoutMode("auto")}
+              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "auto" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
+            >
+              Auto
+            </button>
+            <button
+              onClick={() => setLayoutMode("1")}
+              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "1" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
+            >
+              1
+            </button>
+            <button
+              onClick={() => setLayoutMode("4")}
+              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "4" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
+            >
+              4
+            </button>
+          </div>
           {canToggle && (
             <button
               onClick={() => setIsAnalyzerOpen(true)}
@@ -209,9 +257,9 @@ const CameraGrid = () => {
       )}
 
       <div
-        className={`grid gap-4 flex-1 overflow-y-auto min-h-0 ${cameras.length <= 1 ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"}`}
+        className={`grid gap-4 flex-1 min-h-0 overflow-y-auto ${gridCols} ${itemsToRender.length === 1 ? 'place-items-center' : ''}`}
       >
-        {cameras.map((cam, idx) => {
+        {itemsToRender.map((cam, idx) => {
           const isSmoke = idx % 2 === 1;
           const boxType = isSmoke ? "SMOKE" : "FIRE";
           const boxColor = isSmoke ? "border-yellow-400 bg-yellow-400/10 text-yellow-400" : "border-red-500 bg-red-500/10 text-white";
@@ -226,7 +274,9 @@ const CameraGrid = () => {
           return (
           <div
             key={cam.id}
-            className="relative rounded-xl overflow-hidden bg-[#0B2540] border border-sky-900/50 group h-[200px] md:h-[250px] shadow-sm flex items-center justify-center"
+            id={`cam-container-${cam.id}`}
+            className={`relative rounded-xl overflow-hidden bg-[#0B2540] border border-sky-900/50 group shadow-sm flex items-center justify-center w-full ${itemsToRender.length === 1 ? 'max-w-[800px]' : ''}`}
+            style={{ aspectRatio: '4/3' }}
           >
             {/* Controls Overlay */}
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
@@ -253,6 +303,14 @@ const CameraGrid = () => {
                   </span>
                 </button>
               )}
+
+              <button
+                onClick={() => toggleFullscreen(cam.id)}
+                className="p-1.5 bg-black/60 backdrop-blur-md text-white rounded-lg border border-white/10 hover:bg-black/80 transition-all opacity-0 group-hover:opacity-100"
+                title="Toàn màn hình"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+              </button>
 
               {canManage && cam.id !== 1 && (
                 <button
@@ -326,7 +384,7 @@ const CameraGrid = () => {
               </div>
             ) : (
               <div className="relative w-full h-full bg-[#071728]">
-                {/* Mocking a bounding box overlay for demo/connected state */}
+                {isMockData && (
                 <div className="absolute inset-0 pointer-events-none z-10 p-4 overflow-hidden">
                    <div className={`absolute bottom-0 left-0 w-full h-1 ${isSmoke ? 'bg-yellow-400' : 'bg-red-500'} animate-pulse`}></div>
                    
@@ -343,10 +401,11 @@ const CameraGrid = () => {
                      {new Date().toLocaleTimeString()}
                    </div>
                 </div>
+                )}
                 <img
                   src={`${API_URL}/video_feed/${cam.id}`}
                   alt={cam.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                     e.currentTarget.parentElement!.style.backgroundImage = 'linear-gradient(45deg, #0f2027, #203a43, #2c5364)';

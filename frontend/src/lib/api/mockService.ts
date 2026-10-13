@@ -616,6 +616,10 @@ export const setupMockService = () => {
         return new Response(JSON.stringify({ cameras: data.cameras }), { status: 200 });
       }
       
+      if (url.includes('/history')) {
+        return new Response(JSON.stringify({ events: data.alerts }), { status: 200 });
+      }
+
       if (url.includes('/alerts')) {
           if (init?.method === 'PUT') {
               const idMatch = url.match(/\/alerts\/([^/]+)/);
