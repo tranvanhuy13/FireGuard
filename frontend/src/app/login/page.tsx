@@ -1,16 +1,16 @@
 /* eslint-disable */
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api/auth";
-import { isMockMode } from "@/lib/api/client";
+import { isMockAuth } from "@/lib/api/client";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
@@ -23,48 +23,84 @@ const getLoginSchema = (t: any) => z.object({
 
 type LoginForm = z.infer<ReturnType<typeof getLoginSchema>>;
 
-export default function LoginPage() {
+function LoginFormContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = useLanguage();
   const loginSchema = getLoginSchema(t);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const toast = sessionStorage.getItem("loginToastSuccess");
-      if (toast) {
-        setSuccessMsg(toast);
-        sessionStorage.removeItem("loginToastSuccess");
-      }
-    }
-  }, []);
+  const redirectUrl = searchParams.get("redirect") || "/dashboard";
+  const verifiedParam = searchParams.get("verified");
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
   });
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      // Check verified parameter
+      if (verifiedParam === "true") {
+        setSuccessMsg(t.auth.verifySuccess);
+      }
+
+      // Check session toast
+      const toast = sessionStorage.getItem("loginToastSuccess");
+      if (toast) {
+        setSuccessMsg(toast);
+        sessionStorage.removeItem("loginToastSuccess");
+      }
+
+      // Remember me logic: ONLY save username in localStorage (never password)
+      const savedUser = localStorage.getItem("remembered_username");
+      if (savedUser) {
+        setValue("identifier", savedUser);
+        setRememberMe(true);
+      }
+    }
+  }, [verifiedParam, setValue, t]);
+
   const onSubmit = async (data: LoginForm) => {
     try {
       setIsLoading(true);
       setError("");
+
+      if (rememberMe) {
+        localStorage.setItem("remembered_username", data.identifier.trim());
+      } else {
+        localStorage.removeItem("remembered_username");
+      }
+
       await api.login({ identifier: data.identifier, password: data.password });
-      router.push("/dashboard");
+      router.push(redirectUrl);
     } catch (err: any) {
-      const msg = err.message;
-      if (msg === "invalidCredentials") {
+      if (err.status === 403 || err.message === "accountNotVerified") {
+        setError(t.auth.errors.accountNotVerified);
+        setTimeout(() => {
+          router.push(`/verify-otp?target=${encodeURIComponent(data.identifier.trim())}`);
+        }, 1500);
+      } else if (err.status === 401 || err.message === "invalidCredentials") {
         setError(t.auth.errors.invalidCredentials);
       } else {
-        setError(msg === "An error occurred" ? t.auth.errors.genericError : msg || t.auth.errors.genericError);
+        setError(err.message === "An error occurred" ? t.auth.errors.genericError : err.message || t.auth.errors.genericError);
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSocialClick = () => {
+    if (!isMockAuth) {
+      setError(t.auth.errors.socialNotImplemented);
     }
   };
 
@@ -144,9 +180,11 @@ export default function LoginPage() {
                 id="remember-me"
                 name="remember-me"
                 type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
                 className="h-4 w-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500"
               />
-              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
+              <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 cursor-pointer">
                 {t.auth.rememberMe}
               </label>
             </div>
@@ -158,7 +196,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {error && <div className="text-red-600 text-sm text-center bg-red-50 p-2 rounded mt-4">{error}</div>}
+          {error && <div className="text-red-600 text-sm text-center bg-red-50 p-2.5 rounded-lg border border-red-200 mt-4">{error}</div>}
 
           <div className="pt-2">
             <Button
@@ -182,7 +220,7 @@ export default function LoginPage() {
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3">
-            <Button variant="outline" onClick={() => {}} className="w-full flex items-center justify-center gap-2 h-11 border-gray-200 text-gray-700 font-medium">
+            <Button variant="outline" type="button" onClick={handleSocialClick} className="w-full flex items-center justify-center gap-2 h-11 border-gray-200 text-gray-700 font-medium">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
                 <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
@@ -191,7 +229,7 @@ export default function LoginPage() {
               </svg>
               Google
             </Button>
-            <Button variant="outline" onClick={() => {}} className="w-full flex items-center justify-center gap-2 h-11 border-gray-200 text-gray-700 font-medium">
+            <Button variant="outline" type="button" onClick={handleSocialClick} className="w-full flex items-center justify-center gap-2 h-11 border-gray-200 text-gray-700 font-medium">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" fill="#1877F2"/>
               </svg>
@@ -210,5 +248,13 @@ export default function LoginPage() {
         </div>
       </motion.div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
+      <LoginFormContent />
+    </Suspense>
   );
 }

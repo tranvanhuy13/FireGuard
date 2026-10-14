@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { API_URL } from "../config";
+import { useAuth } from "../context/AuthContext";
 
 interface CameraInfo {
   id: number;
@@ -13,6 +14,7 @@ interface CameraInfo {
 }
 
 const VideoFeed = () => {
+  const { streamToken, refreshStreamToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState<CameraInfo | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -20,7 +22,7 @@ const VideoFeed = () => {
 
   // /video_feed always streams the first camera, so we control that same camera here.
   // The key forces the <img> to open a fresh stream after the camera is turned back on.
-  const videoUrl = `${API_URL}/video_feed?k=${streamKey}`;
+  const videoUrl = `${API_URL}/video_feed?k=${streamKey}${streamToken ? `&token=${encodeURIComponent(streamToken)}` : ''}`;
 
   const fetchCamera = useCallback(async () => {
     try {
@@ -135,7 +137,10 @@ const VideoFeed = () => {
               alt="Live Video Stream"
               className="w-full h-full object-contain"
               onLoad={() => setLoading(false)}
-              onError={() => setLoading(true)}
+              onError={() => {
+                refreshStreamToken();
+                setLoading(true);
+              }}
             />
 
             {(loading || status !== "connected") && (

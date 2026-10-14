@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { apiClient, isMockAuth, ApiError } from "./client";
+import { apiClient, isMockAuth, ApiError, getAuthHeader, setAuthHeader, clearAuthSession } from "./client";
 
 export interface User {
   id: string;
@@ -7,10 +7,11 @@ export interface User {
   fullName: string;
   email: string;
   role: "admin" | "operator" | "viewer";
+  is_active?: boolean;
 }
 
 export const api = {
-  login: async (credentials: any): Promise<{ user: User; token: string }> => {
+  login: async (credentials: { identifier: string; password: string }): Promise<{ user: User; token: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) =>
         setTimeout(() => {
@@ -38,22 +39,58 @@ export const api = {
               localStorage.setItem('mockUsername', user.username);
               localStorage.setItem('mockUserFull', JSON.stringify(user));
               resolve({
-                user: { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role },
+                user: { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true },
                 token: "mock-jwt-token",
               });
             } else {
-              reject(new Error("invalidCredentials"));
+              reject(new ApiError("invalidCredentials", 401));
             }
           }
         }, 500)
       );
     }
-    return apiClient<{ user: User; token: string }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify(credentials),
-    });
+
+    const rawCreds = `${credentials.identifier.trim()}:${credentials.password}`;
+    const basicHeader = "Basic " + (typeof window !== 'undefined' ? btoa(unescape(encodeURIComponent(rawCreds))) : Buffer.from(rawCreds).toString('base64'));
+
+    try {
+      const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean }>("/auth/login", {
+        method: "GET",
+        headers: {
+          Authorization: basicHeader,
+        },
+      });
+
+      // Session saved in memory and sessionStorage only
+      setAuthHeader(basicHeader);
+      const user: User = {
+        id: String(res.id),
+        username: res.username,
+        fullName: res.username,
+        email: res.email,
+        role: "viewer", // Real backend has no roles, default to viewer
+        is_active: res.is_active,
+      };
+
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('user_profile', JSON.stringify(user));
+      }
+
+      return { user, token: basicHeader };
+    } catch (err: any) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          throw new ApiError("invalidCredentials", 401);
+        }
+        if (err.status === 403 || err.message === "Account not verified") {
+          throw new ApiError("accountNotVerified", 403, { email: credentials.identifier });
+        }
+      }
+      throw err;
+    }
   },
-  register: async (data: any): Promise<{ message: string }> => {
+
+  register: async (data: { username: string; email: string; password: string }): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) =>
         setTimeout(() => {
@@ -71,14 +108,14 @@ export const api = {
 
             const exists = users.some((u: any) => u.username === data.username || u.email === data.email);
             if (exists) {
-              reject(new Error("emailExists"));
+              reject(new ApiError("emailExists", 400));
             } else {
               const newUser = {
                 id: Date.now().toString(),
                 username: data.username,
                 email: data.email,
                 password: data.password,
-                fullName: data.fullName,
+                fullName: data.username,
                 role: "viewer"
               };
               users.push(newUser);
@@ -89,11 +126,57 @@ export const api = {
         }, 500)
       );
     }
-    return apiClient<{ message: string }>("/api/auth/register", {
+
+    await apiClient<{ id: number; username: string }>("/auth/signup", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        username: data.username.trim(),
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+      }),
+    });
+    return { message: "Registration successful" };
+  },
+
+  verifyOtp: async (data: { email: string; otp: string }): Promise<{ message: string }> => {
+    if (isMockAuth) {
+      return new Promise((resolve, reject) =>
+        setTimeout(() => {
+          if (data.otp === "123456") {
+            resolve({ message: "Account verified" });
+          } else {
+            reject(new ApiError("invalidOtp", 400));
+          }
+        }, 500)
+      );
+    }
+
+    return apiClient<{ message: string }>("/auth/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+        otp: data.otp.trim(),
+      }),
     });
   },
+
+  resendOtp: async (data: { email: string }): Promise<{ message: string }> => {
+    if (isMockAuth) {
+      return new Promise((resolve) =>
+        setTimeout(() => {
+          resolve({ message: "OTP sent" });
+        }, 500)
+      );
+    }
+
+    return apiClient<{ message: string }>("/auth/resend-otp", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+      }),
+    });
+  },
+
   me: async (): Promise<{ user: User }> => {
     if (isMockAuth) {
       return new Promise((resolve) =>
@@ -106,9 +189,10 @@ export const api = {
                 user: {
                   id: u.id,
                   username: u.username,
-                  fullName: u.fullName,
+                  fullName: u.fullName || u.username,
                   email: u.email,
                   role: u.role,
+                  is_active: true,
                 },
               });
               return;
@@ -116,32 +200,53 @@ export const api = {
           }
           // fallback
           resolve({
-            user: { id: "0", username: "guest", fullName: "Guest", email: "guest@fireguard.ai", role: "viewer" },
+            user: { id: "0", username: "guest", fullName: "Guest", email: "guest@fireguard.ai", role: "viewer", is_active: false },
           });
         }, 500)
       );
     }
-    return apiClient<{ user: User }>("/api/auth/me");
-  },
-  logout: async (): Promise<{ message: string }> => {
-    if (isMockAuth) {
-      return new Promise((resolve) =>
-        setTimeout(() => resolve({ message: "Logged out" }), 500)
-      );
+
+    const authHeader = getAuthHeader();
+    if (!authHeader) {
+      throw new ApiError("UNAUTHORIZED", 401);
     }
-    return apiClient<{ message: string }>("/api/auth/logout", {
-      method: "POST",
-    });
+
+    const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean }>("/users/me");
+    const user: User = {
+      id: String(res.id),
+      username: res.username,
+      fullName: res.username,
+      email: res.email,
+      role: "viewer", // Real backend defaults to viewer
+      is_active: res.is_active,
+    };
+
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('user_profile', JSON.stringify(user));
+    }
+
+    return { user };
   },
+
+  getStreamToken: async (): Promise<{ token: string; expires_in: number }> => {
+    if (isMockAuth) {
+      return { token: "mock-stream-token", expires_in: 3600 };
+    }
+    return apiClient<{ token: string; expires_in: number }>("/auth/stream-token");
+  },
+
+  logout: async (): Promise<{ message: string }> => {
+    clearAuthSession();
+    return { message: "Logged out" };
+  },
+
   disconnect: async (provider: string): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve) => setTimeout(() => resolve({ message: "Disconnected" }), 500));
     }
-    return apiClient<{ message: string }>("/api/auth/disconnect", {
-      method: "POST",
-      body: JSON.stringify({ provider })
-    });
+    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
   },
+
   forgotPassword: async (email: string): Promise<{ message: string; cooldown?: number }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
@@ -164,11 +269,9 @@ export const api = {
         }, 500);
       });
     }
-    return apiClient<{ message: string; cooldown?: number }>("/auth/forgot-password", {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    });
+    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
   },
+
   verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ resetToken: string; expiresIn: number }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
@@ -217,11 +320,9 @@ export const api = {
         }, 500);
       });
     }
-    return apiClient<{ resetToken: string; expiresIn: number }>("/auth/verify-reset-otp", {
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
   },
+
   resetPassword: async (data: { resetToken: string; newPassword: string; email?: string }): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
@@ -252,13 +353,7 @@ export const api = {
         }, 500);
       });
     }
-    return apiClient<{ message: string }>("/auth/reset-password", {
-      method: "POST",
-      body: JSON.stringify({
-        resetToken: data.resetToken,
-        newPassword: data.newPassword,
-      }),
-    });
+    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
   },
 };
 

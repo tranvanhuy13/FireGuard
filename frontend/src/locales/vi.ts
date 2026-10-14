@@ -127,6 +127,14 @@ export const vi = {
       invalidOtp: "Mã OTP không hợp lệ",
       invalidCredentials: "Tên đăng nhập/email hoặc mật khẩu không chính xác",
       emailExists: "Email hoặc tên đăng nhập này đã được đăng ký",
+      usernameNoSpecialChars: "Tên đăng nhập không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
+      passwordNoSpecialChars: "Mật khẩu không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
+      emailGmailOnly: "Vui lòng sử dụng địa chỉ Gmail hợp lệ (@gmail.com)",
+      accountNotVerified: "Tài khoản chưa được kích hoạt OTP. Vui lòng xác thực tài khoản.",
+      featureNotImplemented: "Tính năng chưa được kích hoạt trên máy chủ",
+      socialNotImplemented: "Tính năng đăng nhập qua Google/Facebook chưa được kích hoạt trên máy chủ",
+      forgotNotImplemented: "Tính năng quên mật khẩu chưa được kích hoạt trên máy chủ",
+      resendWait: "Vui lòng đợi {seconds} giây trước khi yêu cầu mã mới.",
       genericError: "Đã xảy ra lỗi. Vui lòng thử lại sau."
     },
     forgotFlow: {

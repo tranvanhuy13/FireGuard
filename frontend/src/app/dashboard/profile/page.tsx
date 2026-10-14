@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { authApi } from '@/lib/api/auth';
+import { isMockAuth } from '@/lib/api/client';
 import { UserCircle, Key, Link as LinkIcon, Eye, EyeOff, Check, Camera } from 'lucide-react';
 import Link from 'next/link';
 
@@ -157,6 +158,13 @@ export default function ProfilePage() {
     <div className="max-w-4xl mx-auto space-y-6 pt-4">
       <h1 className="text-2xl font-bold text-gray-900">{t.pages?.profile?.title || 'Hồ sơ'}</h1>
       
+      {!isMockAuth && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3 text-amber-800 text-sm">
+          <UserCircle className="w-5 h-5 text-amber-600 shrink-0" />
+          <span>{t.auth.errors.featureNotImplemented}: Máy chủ chỉ hỗ trợ hiển thị thông tin tài khoản cơ bản. Tính năng đổi mật khẩu, cập nhật hồ sơ và liên kết mạng xã hội chưa được triển khai.</span>
+        </div>
+      )}
+
       {/* Profile Block */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">

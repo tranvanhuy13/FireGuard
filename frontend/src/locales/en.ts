@@ -127,6 +127,14 @@ export const en = {
       invalidOtp: "Invalid OTP code",
       invalidCredentials: "Username/email or password is incorrect",
       emailExists: "This email or username is already registered",
+      usernameNoSpecialChars: "Username must not contain special characters (letters and numbers only)",
+      passwordNoSpecialChars: "Password must not contain special characters (letters and numbers only)",
+      emailGmailOnly: "Please use a valid Gmail address (@gmail.com)",
+      accountNotVerified: "Account not verified. Please verify your account.",
+      featureNotImplemented: "Feature is not enabled on the server",
+      socialNotImplemented: "Google/Facebook login is not enabled on the server",
+      forgotNotImplemented: "Forgot password is not enabled on the server",
+      resendWait: "Please wait {seconds}s before requesting a new code.",
       genericError: "An error occurred. Please try again."
     },
     forgotFlow: {

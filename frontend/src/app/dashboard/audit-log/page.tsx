@@ -6,6 +6,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { Download, Search, FilterX, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
+import { isMockData } from '@/lib/api/client';
 
 interface AuditLog {
   id: string;
@@ -31,8 +32,9 @@ export default function AuditLogPage() {
 function AuditLogContent() {
   const { t } = useLanguage();
   const n = t.auditLog;
+
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(isMockData);
   
   const [search, setSearch] = useState('');
   const [filterAction, setFilterAction] = useState('ALL');
@@ -49,6 +51,7 @@ function AuditLogContent() {
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isMockData) return;
     fetch('/audit-logs')
       .then(res => res.json())
       .then(data => {
@@ -148,6 +151,21 @@ function AuditLogContent() {
     link.download = 'audit_log.csv';
     link.click();
   };
+
+  if (!isMockData) {
+    return (
+      <div className="max-w-7xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)] space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold text-slate-900">{n.title}</h1>
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center text-amber-800">
+          <FileText className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+          <h2 className="text-lg font-bold mb-1">{t.auth.errors.featureNotImplemented}</h2>
+          <p className="text-sm text-amber-700">Máy chủ chưa cung cấp API lưu vết và nhật ký thao tác hệ thống.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)]">

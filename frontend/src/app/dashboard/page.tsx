@@ -6,8 +6,9 @@ import AlertPanel, { Alert } from "@/components/AlertPanel";
 import StatsChart from "@/components/StatsChart";
 import HistoryModal from "@/components/HistoryModal";
 import SettingsModal from "@/components/SettingsModal";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 import { API_URL, WS_URL } from "@/config";
 import { 
   normalizeAlert, 
@@ -19,6 +20,7 @@ import {
 
 export default function Home() {
   const { t, language, setLanguage } = useLanguage();
+  const { streamToken, refreshStreamToken } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [cameras, setCameras] = useState<NormalizedCamera[]>([]);
   const [error, setError] = useState(false);
@@ -63,7 +65,8 @@ export default function Home() {
     let reconnectTimeout: any = null;
 
     const connectWebSocket = () => {
-      ws = new WebSocket(`${WS_URL}/ws/alerts`);
+      const wsUrl = `${WS_URL}/ws/alerts${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`;
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         console.log("[WebSocket] Connected to FastAPI backend!");
@@ -90,8 +93,10 @@ export default function Home() {
         console.warn("[WebSocket] Error:", err);
       };
 
-      ws.onclose = () => {
-        console.log("[WebSocket] Disconnected. Reconnecting in 3s...");
+      ws.onclose = async (event) => {
+        if (event.code === 1008) {
+          await refreshStreamToken();
+        }
         reconnectTimeout = setTimeout(connectWebSocket, 3000);
       };
     };
@@ -106,7 +111,7 @@ export default function Home() {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       clearInterval(camInterval);
     };
-  }, []);
+  }, [streamToken, refreshStreamToken]);
 
   const kpis = calculateDashboardKPIs(cameras, alerts);
 

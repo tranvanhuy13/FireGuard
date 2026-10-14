@@ -10,6 +10,8 @@ import {
   MessageCircle, Bell, Trash2, Edit2, Plus, CheckCircle2,
   AlertCircle, ChevronDown, ChevronUp, X, Eye, EyeOff, Save
 } from 'lucide-react';
+import { isMockData } from '@/lib/api/client';
+import { API_URL } from '@/config';
 
 type NotificationChannel = 'telegram' | 'zalo';
 
@@ -245,6 +247,14 @@ export default function NotificationsPage() {
       <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }} className="p-6 md:p-8">
+            {!isMockData && activeTab !== 'config' ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center text-amber-800">
+                <Bell className="w-12 h-12 text-amber-500 mx-auto mb-3" />
+                <h2 className="text-lg font-bold mb-1">{t.auth.errors.featureNotImplemented}</h2>
+                <p className="text-sm text-amber-700">Máy chủ chưa cung cấp API quản lý kênh nhận cảnh báo cá nhân (Telegram/Zalo).</p>
+              </div>
+            ) : (
+              <>
             {activeTab === 'accounts' && (
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
@@ -340,6 +350,8 @@ export default function NotificationsPage() {
                   <Button variant="outline" className="mt-6 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl py-2.5 px-6">{n.sendTestAlert}</Button>
                 )}
               </div>
+            )}
+            </>
             )}
 
           </motion.div>
