@@ -3,6 +3,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { API_URL } from "../config";
+import { authFetch, getAuthHeader } from "../lib/api/authFetch";
 
 interface AnalysisEvent {
   time: number;
@@ -94,7 +95,7 @@ const VideoAnalysisModal = ({ isOpen, onClose }: VideoAnalysisModalProps) => {
     stopPolling();
     const tick = async () => {
       try {
-        const res = await fetch(`${API_URL}/video-analysis/${jobId}`);
+        const res = await authFetch(`${API_URL}/video-analysis/${jobId}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: Job = await res.json();
         setJob(data);
@@ -132,6 +133,9 @@ const VideoAnalysisModal = ({ isOpen, onClose }: VideoAnalysisModalProps) => {
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
     xhr.open("POST", `${API_URL}/video-analysis`);
+    Object.entries(getAuthHeader()).forEach(([k, v]) =>
+      xhr.setRequestHeader(k, v),
+    );
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable)
         setUploadPct(Math.round((e.loaded / e.total) * 100));
@@ -173,7 +177,7 @@ const VideoAnalysisModal = ({ isOpen, onClose }: VideoAnalysisModalProps) => {
     }
     if (!job) return;
     try {
-      await fetch(`${API_URL}/video-analysis/${job.id}/cancel`, {
+      await authFetch(`${API_URL}/video-analysis/${job.id}/cancel`, {
         method: "POST",
       });
     } catch (e) {

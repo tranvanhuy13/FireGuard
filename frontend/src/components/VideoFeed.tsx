@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { API_URL } from "../config";
+import { authFetch } from "../lib/api/authFetch";
 import { useAuth } from "../context/AuthContext";
 
 interface CameraInfo {
@@ -14,7 +15,8 @@ interface CameraInfo {
 }
 
 const VideoFeed = () => {
-  const { streamToken, refreshStreamToken } = useAuth();
+  const { user, streamToken, refreshStreamToken } = useAuth();
+  const canToggle = user?.role === "admin" || user?.role === "operator";
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState<CameraInfo | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -22,11 +24,11 @@ const VideoFeed = () => {
 
   // /video_feed always streams the first camera, so we control that same camera here.
   // The key forces the <img> to open a fresh stream after the camera is turned back on.
-  const videoUrl = `${API_URL}/video_feed?k=${streamKey}${streamToken ? `&token=${encodeURIComponent(streamToken)}` : ''}`;
+  const videoUrl = `${API_URL}/video_feed?k=${streamKey}${streamToken ? `&token=${encodeURIComponent(streamToken)}` : ""}`;
 
   const fetchCamera = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/cameras`);
+      const res = await authFetch(`${API_URL}/cameras`);
       if (!res.ok) return;
       const data = await res.json();
       setCamera(data.cameras?.[0] ?? null);
@@ -42,7 +44,7 @@ const VideoFeed = () => {
   }, [fetchCamera]);
 
   const handleToggle = async (active: boolean) => {
-    if (!camera || toggling) return;
+    if (!camera || toggling || !canToggle) return;
     setToggling(true);
     // Optimistic update so the switch reacts instantly
     setCamera({
@@ -55,7 +57,7 @@ const VideoFeed = () => {
       setStreamKey((k) => k + 1);
     }
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${API_URL}/cameras/${camera.id}/toggle?active=${active}`,
         {
           method: "POST",
@@ -101,7 +103,7 @@ const VideoFeed = () => {
       </div>
 
       {/* ON / OFF switch (always visible, also on mobile) */}
-      {camera && (
+      {camera && canToggle && (
         <div className="absolute top-4 right-4 z-10">
           <button
             role="switch"
@@ -172,13 +174,15 @@ const VideoFeed = () => {
               <line x1="12" y1="2" x2="12" y2="12" />
             </svg>
             <span className="text-sm font-medium">Camera is off</span>
-            <button
-              onClick={() => handleToggle(true)}
-              disabled={toggling}
-              className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              Turn on camera
-            </button>
+            {canToggle && (
+              <button
+                onClick={() => handleToggle(true)}
+                disabled={toggling}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                Turn on camera
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+from typing import Literal
 from pydantic import BaseModel
 
 class UserBase(BaseModel):
@@ -10,6 +11,10 @@ class User(UserBase):
     id: int
     email: str
     is_active: bool
+    role: str
 
     class Config:
         from_attributes = True
+
+class RoleUpdate(BaseModel):
+    role: Literal["viewer", "operator", "admin"]

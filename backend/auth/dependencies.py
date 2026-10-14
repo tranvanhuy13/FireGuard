@@ -49,3 +49,21 @@ def get_current_user(db = Depends(get_db), credentials: HTTPBasicCredentials = D
             detail="Account not verified",
         )
     return user
+
+ROLES = ("viewer", "operator", "admin")
+
+
+def require_role(*allowed: str):
+    """Dùng: Depends(require_role("operator", "admin"))"""
+    def checker(user=Depends(get_current_user)):
+        if user.role not in allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to perform this action",
+            )
+        return user
+    return checker
+
+
+require_operator = require_role("operator", "admin")
+require_admin = require_role("admin")

@@ -22,7 +22,13 @@ def init_db():
         snapshot_path TEXT
     )
     ''')
-
+    cursor.execute("PRAGMA table_info(events)")
+    existing = {r[1] for r in cursor.fetchall()}
+    for col, ddl in (("status", "TEXT NOT NULL DEFAULT 'new'"),
+                     ("handled_by", "TEXT"),
+                     ("handled_at", "TEXT")):
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE events ADD COLUMN {col} {ddl}")
     # Create cameras table
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS cameras (
@@ -242,3 +248,15 @@ def set_db_camera_status(camera_id, is_active):
     conn.close()
     return True
 
+def update_event_status(event_id, status, username):
+    """Đánh dấu cảnh báo đã xác nhận / báo động giả. Trả về True nếu có event."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE events SET status = ?, handled_by = ?, handled_at = ? WHERE id = ?",
+        (status, username, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), event_id),
+    )
+    conn.commit()
+    changed = cursor.rowcount > 0
+    conn.close()
+    return changed
