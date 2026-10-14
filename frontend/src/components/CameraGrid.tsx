@@ -18,7 +18,7 @@ interface Camera {
 
 const CameraGrid = () => {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [newCamSource, setNewCamSource] = useState("");
@@ -403,10 +403,11 @@ const CameraGrid = () => {
                 </div>
                 )}
                 <img
-                  src={`${API_URL}/video_feed/${cam.id}`}
+                  src={`${API_URL}/video_feed/${cam.id}${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`}
                   alt={cam.name}
                   className="w-full h-full object-contain"
                   onError={(e) => {
+                    refreshStreamToken();
                     e.currentTarget.style.display = 'none';
                     e.currentTarget.parentElement!.style.backgroundImage = 'linear-gradient(45deg, #0f2027, #203a43, #2c5364)';
                   }}

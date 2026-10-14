@@ -49,10 +49,8 @@ export default function CamerasPage() {
 
   const handleToggle = async (cam: any) => {
     try {
-      const res = await fetch(`${API_URL}/cameras/${cam.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ is_active: !cam.is_active })
+      const res = await fetch(`${API_URL}/cameras/${cam.id}/toggle?active=${!cam.is_active}`, {
+        method: 'POST'
       });
       if (res.ok) fetchCameras();
     } catch (e) {

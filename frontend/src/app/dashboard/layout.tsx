@@ -3,7 +3,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { 
   LayoutDashboard, 
@@ -36,9 +36,16 @@ export default function DashboardLayout({
   const { user, logout, can, setUser, isLoading } = useAuth();
   const { language, setLanguage, t } = useLanguage();
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
+
+  React.useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
+    }
+  }, [isLoading, user, pathname, router]);
 
   React.useEffect(() => {
     if (isMockData) {

@@ -1,5 +1,8 @@
 /* eslint-disable */
-export const isMockMode = process.env.NEXT_PUBLIC_USE_MOCK === "true" || (typeof window !== 'undefined' && localStorage.getItem('force_mock') === 'true');
+const isDev = process.env.NODE_ENV !== "production";
+const forceMock = isDev && typeof window !== 'undefined' && localStorage.getItem('force_mock') === 'true';
+
+export const isMockMode = process.env.NEXT_PUBLIC_USE_MOCK === "true" || forceMock;
 export const isMockAuth = process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_AUTH === "true" : isMockMode;
 export const isMockData = process.env.NEXT_PUBLIC_USE_MOCK_DATA !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true" : isMockMode;
 
@@ -22,6 +25,110 @@ export class ApiError extends Error {
   }
 }
 
+// In-memory auth session cache (never stored in localStorage)
+let currentAuthHeader: string | null = typeof window !== 'undefined' ? sessionStorage.getItem('auth_header') : null;
+
+export function getAuthHeader(): string | null {
+  if (currentAuthHeader) return currentAuthHeader;
+  if (typeof window !== 'undefined') {
+    currentAuthHeader = sessionStorage.getItem('auth_header');
+  }
+  return currentAuthHeader;
+}
+
+export function setAuthHeader(header: string | null): void {
+  currentAuthHeader = header;
+  if (typeof window !== 'undefined') {
+    if (header) {
+      sessionStorage.setItem('auth_header', header);
+    } else {
+      sessionStorage.removeItem('auth_header');
+    }
+  }
+}
+
+export function clearAuthSession(): void {
+  currentAuthHeader = null;
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('auth_header');
+    sessionStorage.removeItem('user_profile');
+    sessionStorage.removeItem('stream_token');
+    sessionStorage.removeItem('verifyEmail');
+    sessionStorage.removeItem('loginToastSuccess');
+  }
+}
+
+declare global {
+  interface Window {
+    __fireguard_fetch_wrapped?: boolean;
+  }
+}
+
+const API_PREFIXES = [
+  '/auth',
+  '/cameras',
+  '/alerts',
+  '/stats',
+  '/history',
+  '/settings',
+  '/video-analysis',
+  '/test-notification',
+  '/users',
+  '/api',
+];
+
+// Global fetch auto-injection of Basic Authorization and 401 handling
+if (typeof window !== 'undefined' && !window.__fireguard_fetch_wrapped) {
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
+    
+    let isApiCall = false;
+    let pathname = '';
+    try {
+      const parsedUrl = new URL(urlStr, window.location.origin);
+      const apiOrigin = new URL(API_URL, window.location.origin).origin;
+      pathname = parsedUrl.pathname;
+
+      const isSameOriginAsApi = parsedUrl.origin === apiOrigin && apiOrigin !== window.location.origin;
+      const isRelativeApiCall =
+        parsedUrl.origin === window.location.origin &&
+        API_PREFIXES.some((prefix) => parsedUrl.pathname.startsWith(prefix));
+
+      isApiCall = isSameOriginAsApi || isRelativeApiCall;
+    } catch {
+      isApiCall = false;
+    }
+
+    let modifiedInit = init;
+    const authHeader = getAuthHeader();
+
+    if (isApiCall && authHeader) {
+      const headers = new Headers(init?.headers);
+      if (!headers.has('Authorization')) {
+        headers.set('Authorization', authHeader);
+      }
+      modifiedInit = {
+        ...init,
+        headers,
+      };
+    }
+
+    const response = await originalFetch(input, modifiedInit);
+
+    if (response.status === 401 && !pathname.includes('/auth/login')) {
+      clearAuthSession();
+      if (typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard')) {
+        const currentPath = window.location.pathname + window.location.search;
+        window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      }
+    }
+
+    return response;
+  };
+  window.__fireguard_fetch_wrapped = true;
+}
+
 export async function apiClient<T>(
   endpoint: string,
   options: FetchOptions = {}
@@ -34,10 +141,15 @@ export async function apiClient<T>(
     url += `?${searchParams.toString()}`;
   }
 
-  const headers = {
+  const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...customConfig.headers,
+    ...(customConfig.headers as Record<string, string>),
   };
+
+  const authHeader = getAuthHeader();
+  if (authHeader && !headers["Authorization"]) {
+    headers["Authorization"] = authHeader;
+  }
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -48,12 +160,6 @@ export async function apiClient<T>(
     signal: customConfig.signal || controller.signal,
   };
 
-  // Add auth token if exists
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-  if (token) {
-    (config.headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  }
-
   try {
     const response = await fetch(url, config);
     clearTimeout(timeoutId);
@@ -63,10 +169,19 @@ export async function apiClient<T>(
       let errorData: any = null;
       try {
         errorData = await response.json();
-        errorMsg = errorData.message || errorData.detail || errorMsg;
+        errorMsg = errorData.detail || errorData.message || errorMsg;
       } catch (e) {
         // Not JSON
       }
+
+      if (response.status === 401 && !endpoint.includes('/auth/login')) {
+        clearAuthSession();
+        if (typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard')) {
+          const currentPath = window.location.pathname + window.location.search;
+          window.location.href = `/login?redirect=${encodeURIComponent(currentPath)}`;
+        }
+      }
+
       throw new ApiError(errorMsg, response.status, errorData);
     }
 

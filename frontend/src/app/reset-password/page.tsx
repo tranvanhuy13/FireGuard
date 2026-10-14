@@ -437,6 +437,13 @@ export default function ResetPasswordPage() {
           </p>
         </div>
 
+        {!isMockAuth && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
+          </div>
+        )}
+
         {/* ======================================================== */}
         {/* GIAI ĐOẠN 1: XÁC THỰC MÃ OTP */}
         {/* ======================================================== */}

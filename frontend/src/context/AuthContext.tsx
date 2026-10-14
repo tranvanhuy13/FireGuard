@@ -1,11 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import { User, authApi } from "../lib/api/auth";
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  streamToken: string | null;
+  refreshStreamToken: () => Promise<string | null>;
   hasRole: (roles: User["role"][]) => boolean;
   can: (permission: string) => boolean;
   logout: () => Promise<void>;
@@ -17,20 +19,57 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [streamToken, setStreamToken] = useState<string | null>(null);
+  const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshStreamTokenRef = useRef<() => Promise<string | null>>(async () => null);
+
+  const refreshStreamToken = useCallback(async (): Promise<string | null> => {
+    try {
+      const data = await authApi.getStreamToken();
+      setStreamToken(data.token);
+
+      if (tokenRefreshTimerRef.current) {
+        clearTimeout(tokenRefreshTimerRef.current);
+      }
+
+      // Schedule refresh 60 seconds before expiration (never logged or saved to localStorage)
+      const ttlSec = Math.max(30, (data.expires_in || 3600) - 60);
+      tokenRefreshTimerRef.current = setTimeout(() => {
+        refreshStreamTokenRef.current();
+      }, ttlSec * 1000);
+
+      return data.token;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStreamTokenRef.current = refreshStreamToken;
+  }, [refreshStreamToken]);
 
   useEffect(() => {
     const initAuth = async () => {
       try {
         const { user } = await authApi.me();
         setUser(user);
-      } catch (error) {
-        console.error("Auth error:", error);
+        if (user) {
+          refreshStreamToken();
+        }
+      } catch {
+        setUser(null);
       } finally {
         setIsLoading(false);
       }
     };
     initAuth();
-  }, []);
+
+    return () => {
+      if (tokenRefreshTimerRef.current) {
+        clearTimeout(tokenRefreshTimerRef.current);
+      }
+    };
+  }, [refreshStreamToken]);
 
   const hasRole = (roles: User["role"][]) => {
     if (!user) return false;
@@ -39,7 +78,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const can = (permission: string) => {
     if (!user) return false;
-    // Simplistic RBAC
     if (user.role === 'admin') return true;
     if (user.role === 'operator' && permission !== 'manage_users' && permission !== 'manage_settings') return true;
     if (user.role === 'viewer' && permission === 'view') return true;
@@ -47,13 +85,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    if (tokenRefreshTimerRef.current) {
+      clearTimeout(tokenRefreshTimerRef.current);
+    }
+    setStreamToken(null);
     await authApi.logout();
     setUser(null);
     window.location.href = '/login';
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, hasRole, can, logout, setUser }}>
+    <AuthContext.Provider value={{ user, isLoading, streamToken, refreshStreamToken, hasRole, can, logout, setUser }}>
       {children}
     </AuthContext.Provider>
   );

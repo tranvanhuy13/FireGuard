@@ -10,7 +10,7 @@ import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api/auth";
-import { ApiError } from "@/lib/api/client";
+import { ApiError, isMockAuth } from "@/lib/api/client";
 import { ArrowLeft, Mail, AlertCircle, CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
@@ -113,6 +113,8 @@ export default function ForgotPasswordPage() {
           setServerError(
             t.auth.forgotFlow.errors.rateLimited.replace("{seconds}", waitTime.toString())
           );
+        } else if (err.status === 501 || err.message === "FEATURE_NOT_IMPLEMENTED") {
+          setServerError(t.auth.errors.forgotNotImplemented);
         } else if (err.status === 0 || err.message === "REQUEST_TIMEOUT" || err.message === "NETWORK_ERROR") {
           setServerError(t.auth.forgotFlow.errors.network);
         } else if (err.status >= 500) {
@@ -159,6 +161,13 @@ export default function ForgotPasswordPage() {
             {t.auth.forgotFlow.step1Desc}
           </p>
         </div>
+
+        {!isMockAuth && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
+            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
+          </div>
+        )}
 
         {isSuccess ? (
           <motion.div

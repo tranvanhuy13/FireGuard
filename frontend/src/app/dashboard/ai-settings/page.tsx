@@ -5,6 +5,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import RequireRole from '@/components/RequireRole';
 import { useLanguage } from '@/context/LanguageContext';
 import { AlertTriangle, RotateCcw, Save } from 'lucide-react';
+import { API_URL } from '@/config';
 
 const DEFAULT_SETTINGS = {
   fireThreshold: 75,
@@ -20,11 +21,18 @@ export default function AiSettingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('/settings')
+    fetch(`${API_URL}/settings`)
       .then(res => res.json())
       .then(data => {
-        setSettings(data);
-        setOriginalSettings(data);
+        const raw = data.settings || data;
+        const mapped = {
+          fireThreshold: raw.fire_threshold ? Number(raw.fire_threshold) : (raw.fireThreshold || DEFAULT_SETTINGS.fireThreshold),
+          smokeThreshold: raw.smoke_threshold ? Number(raw.smoke_threshold) : (raw.smokeThreshold || DEFAULT_SETTINGS.smokeThreshold),
+          persistence: raw.persistence ? Number(raw.persistence) : (raw.persistence || DEFAULT_SETTINGS.persistence),
+          cooldown: raw.cooldown ? Number(raw.cooldown) : (raw.cooldown || DEFAULT_SETTINGS.cooldown),
+        };
+        setSettings(mapped);
+        setOriginalSettings(mapped);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -45,17 +53,28 @@ export default function AiSettingsPage() {
 
   const handleSave = async () => {
     try {
-      const res = await fetch('/settings', {
-        method: 'PUT',
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify({ key: 'fire_threshold', value: String(settings.fireThreshold) })
       });
-      if (res.ok) {
-        const updated = await res.json();
-        setSettings(updated);
-        setOriginalSettings(updated);
-        alert(t.pages?.common?.saveSuccess || 'Saved successfully');
-      }
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'smoke_threshold', value: String(settings.smokeThreshold) })
+      });
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'persistence', value: String(settings.persistence) })
+      });
+      await fetch(`${API_URL}/settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'cooldown', value: String(settings.cooldown) })
+      });
+      setOriginalSettings(settings);
+      alert(t.pages?.common?.saveSuccess || 'Saved successfully');
     } catch (err) {
       alert(t.pages?.common?.error || 'Error saving settings');
     }

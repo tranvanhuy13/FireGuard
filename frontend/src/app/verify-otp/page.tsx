@@ -1,11 +1,12 @@
 /* eslint-disable */
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
-import { isMockMode } from "@/lib/api/client";
+import { isMockAuth } from "@/lib/api/client";
+import { api } from "@/lib/api/auth";
 import { useLanguage } from "@/context/LanguageContext";
 import { Logo } from "@/components/Logo";
 import Link from "next/link";
@@ -16,8 +17,8 @@ function VerifyOtpContent() {
   const searchParams = useSearchParams();
   const { t } = useLanguage();
   
-  const method = searchParams.get("method"); // 'email' or 'phone'
-  const target = searchParams.get("target"); 
+  const searchTarget = searchParams.get("target") || searchParams.get("email");
+  const [target, setTarget] = useState<string>("");
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [timeLeft, setTimeLeft] = useState(120);
@@ -28,6 +29,14 @@ function VerifyOtpContent() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
+    let email = searchTarget;
+    if (!email && typeof window !== "undefined") {
+      email = sessionStorage.getItem("verifyEmail") || "";
+    }
+    if (email) {
+      setTarget(email);
+    }
+
     let expiresAtStr = sessionStorage.getItem("otpExpiresAt");
     
     if (!expiresAtStr || parseInt(expiresAtStr) < Date.now()) {
@@ -51,16 +60,37 @@ function VerifyOtpContent() {
     const interval = setInterval(updateTimer, 1000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [searchTarget]);
 
-  const handleResend = () => {
-    const newExpiresAt = Date.now() + 120 * 1000;
-    sessionStorage.setItem("otpExpiresAt", newExpiresAt.toString());
-    setTimeLeft(120);
-    setIsExpired(false);
-    setOtp(["", "", "", "", "", ""]);
+  const handleResend = async () => {
+    if (!target) {
+      setError("Email not found. Please register again.");
+      return;
+    }
+    setIsLoading(true);
     setError("");
-    inputRefs.current[0]?.focus();
+    try {
+      await api.resendOtp({ email: target });
+      const newExpiresAt = Date.now() + 120 * 1000;
+      sessionStorage.setItem("otpExpiresAt", newExpiresAt.toString());
+      setTimeLeft(120);
+      setIsExpired(false);
+      setOtp(["", "", "", "", "", ""]);
+      inputRefs.current[0]?.focus();
+    } catch (err: any) {
+      const msg = err.message || err.detail;
+      const match = String(msg).match(/Please wait (\d+)s/i);
+      if (match) {
+        const waitSec = parseInt(match[1], 10);
+        setTimeLeft(waitSec);
+        setIsExpired(false);
+        setError(t.auth.errors.resendWait.replace('{seconds}', waitSec.toString()));
+      } else {
+        setError(msg || t.auth.errors.genericError);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleChange = (index: number, value: string) => {
@@ -107,17 +137,23 @@ function VerifyOtpContent() {
     setError("");
     
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      if (otpString === "123456") {
-        setIsSuccess(true);
-        setTimeout(() => {
-          router.push("/login?verified=true");
-        }, 2000);
-      } else {
-        throw new Error(t.auth.errors.invalidOtp);
-      }
+      await api.verifyOtp({ email: target || "", otp: otpString });
+      setIsSuccess(true);
+      setTimeout(() => {
+        router.push("/login?verified=true");
+      }, 1500);
     } catch (err: any) {
-      setError(err.message === "An error occurred" ? t.auth.errors.genericError : err.message || t.auth.errors.genericError);
+      const msg = err.message || err.detail;
+      if (msg === "Invalid OTP" || msg === "invalidOtp") {
+        setError(t.auth.errors.invalidOtp);
+      } else if (msg === "OTP has expired") {
+        setIsExpired(true);
+        setError(t.auth.codeExpired);
+      } else if (msg === "Account already verified") {
+        router.push("/login?verified=true");
+      } else {
+        setError(msg === "An error occurred" ? t.auth.errors.genericError : msg || t.auth.errors.genericError);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -125,19 +161,13 @@ function VerifyOtpContent() {
 
   // Auto submit when 6 digits are entered
   useEffect(() => {
-    if (otp.join("").length === 6 && !isExpired && !isSuccess && !isLoading) {
+    if (otp.join("").length === 6 && !isExpired && !isSuccess && !isLoading && target) {
       handleVerify();
     }
-  }, [otp, isExpired, isSuccess, isLoading]);
+  }, [otp, isExpired, isSuccess, isLoading, target]);
 
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
-
-  const getDesc = () => {
-    if (method === "email") return t.auth.verifyDescEmail;
-    if (method === "phone") return t.auth.verifyDescPhone;
-    return t.auth.verifyDescGeneric;
-  };
 
   const maskTarget = (str: string | null) => {
     if (!str) return "";
@@ -192,9 +222,9 @@ function VerifyOtpContent() {
             {t.auth.verifyTitle}
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            {getDesc()} {target && <span className="font-semibold text-navy-900">{maskTarget(target)}</span>}
+            {t.auth.verifyDescEmail} {target && <span className="font-semibold text-navy-900">{maskTarget(target)}</span>}
           </p>
-          {isMockMode && (
+          {isMockAuth && (
             <p className="mt-1 text-xs text-sky-600 font-medium">
               {t.auth.mockOtpHint}
             </p>
@@ -225,7 +255,7 @@ function VerifyOtpContent() {
               initial={{ x: -10 }} 
               animate={{ x: [0, -10, 10, -10, 10, 0] }}
               transition={{ duration: 0.4 }}
-              className="text-red-600 text-sm bg-red-50 p-2 rounded"
+              className="text-red-600 text-sm bg-red-50 p-2.5 rounded-lg border border-red-200"
             >
               {error}
             </motion.div>
@@ -258,8 +288,8 @@ function VerifyOtpContent() {
                 {isLoading ? t.auth.verifying : t.auth.verify}
               </Button>
             ) : (
-              <Button type="button" onClick={handleResend} variant="outline" className="w-full h-11 text-base font-semibold">
-                {t.auth.resendOtp}
+              <Button type="button" onClick={handleResend} variant="outline" disabled={isLoading} className="w-full h-11 text-base font-semibold">
+                {isLoading ? t.auth.verifying : t.auth.resendOtp}
               </Button>
             )}
           </div>
@@ -271,8 +301,8 @@ function VerifyOtpContent() {
 
 export default function VerifyOtpPage() {
   return (
-    <React.Suspense fallback={<div className="min-h-screen bg-gray-50"></div>}>
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
       <VerifyOtpContent />
-    </React.Suspense>
+    </Suspense>
   );
 }
