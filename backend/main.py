@@ -1,26 +1,27 @@
 """
-main.py - AI Fire Detection System API (login required)
+main.py - AI Fire Detection System API (NO login required)
 
 Expected project layout:
 
     main.py
     detection.py, camera_manager.py, video_analyzer.py, notification.py, database.py
+    storage.py   (model download + snapshot storage: disk / MinIO / GCS)
     auth/   (database.py, dependencies.py, models.py, routes.py, schemas.py, utils.py)
     users/  (models.py, routes.py, schemas.py)
 
 Access rules
 ------------
-PUBLIC     GET /                              health check
-           POST /auth/signup, /auth/verify-otp, /auth/resend-otp
-           /snapshots/*                       (must stay public: Zalo downloads the
-                                               photo from public_base_url without a login)
+PUBLIC     Every endpoint: cameras, video feeds, video analysis, alerts, stats,
+           history, settings, notifications, WebSocket, snapshots.
 
-LOGIN      Everything else. Send HTTP Basic credentials (the scheme used by
-REQUIRED   auth/dependencies.get_current_user). Unverified accounts get 403.
+LOGIN      Only the account helpers keep their own credential check, because
+           they are *about* the logged-in user:
+             GET /auth/login          (HTTP Basic -> returns the user profile)
+             GET /auth/stream-token   (HTTP Basic -> returns a stream token)
+             GET /users/me            (see users/routes.py)
 
-BROWSER    <img src="/video_feed/1"> and WebSocket cannot send an Authorization
-STREAMS    header, so: log in, call GET /auth/stream-token, then use
-           /video_feed/1?token=...   and   /ws/alerts?token=...
+NOTE       /video_feed and /ws/alerts still accept an optional ?token=... so the
+           existing frontend keeps working, but the token is no longer required.
 """
 import asyncio
 import hashlib
@@ -35,12 +36,10 @@ from typing import List, Optional
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException, Query,
-                     Request, UploadFile, WebSocket, WebSocketDisconnect, status)
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Query,
+                     Request, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
 load_dotenv()
@@ -52,8 +51,8 @@ logger = logging.getLogger(__name__)
 
 import database
 import notification
-from auth.database import get_connection as get_auth_connection
-from auth.dependencies import authenticate_user, get_current_user, get_user
+import storage
+from auth.dependencies import get_current_user
 from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
@@ -61,7 +60,7 @@ from users.routes import router as users_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 
 # ---------------------------------------------------------------------------
-# Stream tokens (short-lived, signed) for <img> streams and WebSockets
+# Stream tokens (kept only so the frontend's /auth/stream-token call still works)
 # ---------------------------------------------------------------------------
 STREAM_TOKEN_TTL_SECONDS = 60 * 60
 # Set STREAM_TOKEN_SECRET in .env so tokens survive a server restart.
@@ -75,53 +74,6 @@ def _sign(payload: str) -> str:
 def create_stream_token(username: str) -> str:
     payload = f"{username}:{int(time.time()) + STREAM_TOKEN_TTL_SECONDS}"
     return f"{payload}:{_sign(payload)}"
-
-
-def _lookup_active_user(username: str):
-    conn = get_auth_connection()
-    try:
-        user = get_user(conn, username)
-    finally:
-        conn.close()
-    return user if user and user.is_active else None
-
-
-def verify_stream_token(token: Optional[str]):
-    """Return the active User for a valid, unexpired token, otherwise None."""
-    if not token:
-        return None
-    try:
-        username, expires, signature = token.rsplit(":", 2)
-        if not hmac.compare_digest(signature, _sign(f"{username}:{expires}")):
-            return None
-        if int(expires) < time.time():
-            return None
-    except ValueError:
-        return None
-    return _lookup_active_user(username)
-
-
-optional_basic = HTTPBasic(auto_error=False)
-
-
-def get_stream_user(
-    token: Optional[str] = Query(None),
-    credentials: Optional[HTTPBasicCredentials] = Depends(optional_basic),
-):
-    """Auth for video streams: a stream token (?token=...) or HTTP Basic credentials."""
-    user = None
-    if token:
-        user = verify_stream_token(token)
-    elif credentials:
-        conn = get_auth_connection()
-        try:
-            user = authenticate_user(conn, credentials.username, credentials.password)
-        finally:
-            conn.close()
-    if not user or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail="Login required")
-    return user
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +93,7 @@ app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://192.168.1.12:3000"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://192.168.1.12:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,21 +101,30 @@ app.add_middleware(
 
 database.init_db()
 
-detector = FireDetector()
+# The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
+MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")
+storage.ensure_model(MODEL_PATH)
+storage.start_sync()
+detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras
 video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
 
-# Snapshots stay public on purpose (Zalo needs to download them by URL).
-os.makedirs("snapshots", exist_ok=True)
-app.mount("/snapshots", StaticFiles(directory="snapshots"), name="snapshots")
 
-# Authentication / account routes (signup + OTP are public, /users/me is protected)
+# Snapshots are public (Zalo needs to download them by URL).
+# They may live in MinIO / GCS instead of on disk, so they are served by a route.
+@app.get("/snapshots/{name}")
+def get_snapshot(name: str):
+    data = storage.read_snapshot(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return Response(data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=86400"})
+
+
+# Authentication / account routes (signup + OTP + /users/me)
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(users_router, prefix="/users", tags=["users"])
-
-# Every route on this router requires a verified, logged-in user.
-protected = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +163,7 @@ def broadcast_alert(alert_data):
 
 
 # ---------------------------------------------------------------------------
-# Public
+# Health check
 # ---------------------------------------------------------------------------
 @app.get("/")
 def read_root():
@@ -210,9 +171,9 @@ def read_root():
 
 
 # ---------------------------------------------------------------------------
-# Login helpers
+# Login helpers (these still check credentials - they are about the user)
 # ---------------------------------------------------------------------------
-@protected.get("/auth/login")
+@app.get("/auth/login")
 def login(current_user=Depends(get_current_user)):
     """Check credentials (HTTP Basic). Returns the user profile on success."""
     return {
@@ -223,15 +184,15 @@ def login(current_user=Depends(get_current_user)):
     }
 
 
-@protected.get("/auth/stream-token")
+@app.get("/auth/stream-token")
 def get_stream_token(current_user=Depends(get_current_user)):
-    """Short-lived token for <img> video streams and the alerts WebSocket."""
+    """Token for <img> video streams and the alerts WebSocket (now optional)."""
     return {"token": create_stream_token(current_user.username),
             "expires_in": STREAM_TOKEN_TTL_SECONDS}
 
 
 # ---------------------------------------------------------------------------
-# Video streams (login via stream token or Basic)
+# Video streams
 # ---------------------------------------------------------------------------
 STREAM_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate"}
 
@@ -274,19 +235,19 @@ async def generate_camera_stream(camera_id: int, request: Request):
 
 
 @app.get("/video_feed")
-async def video_feed_default(request: Request, user=Depends(get_stream_user)):
-    """Default video feed for backwards compatibility (VideoFeed.tsx)"""
+async def video_feed_default(request: Request, token: Optional[str] = Query(None)):
+    """Default video feed for backwards compatibility (VideoFeed.tsx). `token` is ignored."""
     first_cam = next(iter(camera_manager.cameras.keys()), 1)
-    logger.info("[Stream %s] Default stream requested by %s", first_cam, user.username)
+    logger.info("[Stream %s] Default stream requested", first_cam)
     return StreamingResponse(generate_camera_stream(first_cam, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
                              headers=STREAM_HEADERS)
 
 
 @app.get("/video_feed/{camera_id}")
-async def video_feed_by_id(camera_id: int, request: Request, user=Depends(get_stream_user)):
-    """Endpoint for grid view (CameraGrid.tsx)"""
-    logger.info("[Stream %s] Camera stream requested by %s", camera_id, user.username)
+async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str] = Query(None)):
+    """Endpoint for grid view (CameraGrid.tsx). `token` is ignored."""
+    logger.info("[Stream %s] Camera stream requested", camera_id)
     return StreamingResponse(generate_camera_stream(camera_id, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
                              headers=STREAM_HEADERS)
@@ -300,7 +261,7 @@ class CameraModel(BaseModel):
     name: str
 
 
-@protected.get("/cameras")
+@app.get("/cameras")
 def get_cameras():
     """Get list of cameras with real-time status details."""
     cameras = []
@@ -315,14 +276,14 @@ def get_cameras():
     return {"cameras": cameras}
 
 
-@protected.post("/cameras")
+@app.post("/cameras")
 def add_new_camera(cam: CameraModel):
     """Add a new camera."""
     new_id = camera_manager.add_camera(cam.source, cam.name)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
-@protected.delete("/cameras/{camera_id}")
+@app.delete("/cameras/{camera_id}")
 def delete_camera(camera_id: int):
     """Remove a camera."""
     if camera_manager.remove_camera(camera_id):
@@ -330,7 +291,7 @@ def delete_camera(camera_id: int):
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
-@protected.post("/cameras/{camera_id}/toggle")
+@app.post("/cameras/{camera_id}/toggle")
 def toggle_camera(camera_id: int, active: bool):
     """Enable or disable a camera."""
     if camera_manager.toggle_camera(camera_id, active):
@@ -341,7 +302,7 @@ def toggle_camera(camera_id: int, active: bool):
 # ---------------------------------------------------------------------------
 # Video upload analysis (requires: pip install python-multipart)
 # ---------------------------------------------------------------------------
-@protected.post("/video-analysis")
+@app.post("/video-analysis")
 def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5)):
     """Upload a video; it is analysed in the background with the live-camera model."""
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -377,13 +338,13 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
     return {"job_id": job_id}
 
 
-@protected.get("/video-analysis")
+@app.get("/video-analysis")
 def list_video_analyses():
     """Recent video analysis jobs (newest first)."""
     return {"jobs": video_analyzer.list()}
 
 
-@protected.get("/video-analysis/{job_id}")
+@app.get("/video-analysis/{job_id}")
 def get_video_analysis(job_id: str):
     """Progress and result of one video analysis job."""
     job = video_analyzer.get(job_id)
@@ -392,7 +353,7 @@ def get_video_analysis(job_id: str):
     return job
 
 
-@protected.post("/video-analysis/{job_id}/cancel")
+@app.post("/video-analysis/{job_id}/cancel")
 def cancel_video_analysis(job_id: str):
     if video_analyzer.cancel(job_id):
         return {"status": "ok", "message": "Cancelling"}
@@ -402,7 +363,7 @@ def cancel_video_analysis(job_id: str):
 # ---------------------------------------------------------------------------
 # Alerts, stats, history
 # ---------------------------------------------------------------------------
-@protected.get("/alerts")
+@app.get("/alerts")
 def get_alerts():
     events = database.get_recent_events(limit=50)
     formatted_alerts = []
@@ -417,13 +378,13 @@ def get_alerts():
     return {"alerts": formatted_alerts}
 
 
-@protected.get("/stats")
+@app.get("/stats")
 def get_stats():
     """Get daily event statistics."""
     return {"stats": database.get_daily_stats()}
 
 
-@protected.get("/history")
+@app.get("/history")
 def get_history(limit: int = 50, offset: int = 0):
     """Get historical events with pagination."""
     return {"events": database.get_all_events(limit, offset)}
@@ -437,7 +398,7 @@ class SettingsModel(BaseModel):
     value: str
 
 
-@protected.get("/settings")
+@app.get("/settings")
 def get_settings():
     """Get all settings (masking secrets)."""
     settings = database.get_all_settings()
@@ -449,7 +410,7 @@ def get_settings():
     return {"settings": settings}
 
 
-@protected.post("/settings")
+@app.post("/settings")
 def save_setting(setting: SettingsModel):
     """Save a setting."""
     if setting.value == "********":      # never save the masked placeholder back
@@ -458,7 +419,7 @@ def save_setting(setting: SettingsModel):
     return {"status": "ok", "message": "Setting saved"}
 
 
-@protected.post("/test-notification")
+@app.post("/test-notification")
 def test_notification():
     """Trigger a test notification."""
     notification.trigger_notifications("TEST EVENT", 0.99, None)
@@ -466,26 +427,17 @@ def test_notification():
 
 
 # ---------------------------------------------------------------------------
-# WebSocket (login via ?token=...)
+# WebSocket (no login; ?token=... is accepted but ignored)
 # ---------------------------------------------------------------------------
 @app.websocket("/ws/alerts")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    """Real-time alert push. Requires a valid stream token."""
-    user = await asyncio.to_thread(verify_stream_token, token)
-    if user is None:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
+    """Real-time alert push."""
     await manager.connect(websocket)
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-
-
-# Register all login-protected routes (must come after they are defined)
-app.include_router(protected)
 
 
 if __name__ == "__main__":

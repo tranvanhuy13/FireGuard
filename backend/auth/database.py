@@ -1,6 +1,8 @@
+import os
 import sqlite3
 
-DATABASE_PATH = "example.db"
+# AUTH_DB_PATH lets Docker keep the accounts in the persistent /data volume
+DATABASE_PATH = os.getenv("AUTH_DB_PATH", "example.db")
 
 
 def get_connection():

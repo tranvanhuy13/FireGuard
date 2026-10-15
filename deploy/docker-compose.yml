@@ -1,0 +1,40 @@
+# Production stack on the Compute Engine VM (/opt/fireguard).
+# Values come from /opt/fireguard/.env (see .env.example). CI updates TAG on each deploy.
+services:
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+  backend:
+    image: ${REGISTRY}/backend:${TAG}
+    restart: unless-stopped
+    environment:
+      GCS_BUCKET: ${GCS_BUCKET}
+      CORS_ORIGINS: https://${DOMAIN}
+      GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      AUTH_DEV_MODE: ${AUTH_DEV_MODE:-false}
+      STREAM_TOKEN_SECRET: ${STREAM_TOKEN_SECRET:-}
+    volumes:
+      - backend_data:/data
+
+  frontend:
+    image: ${REGISTRY}/frontend:${TAG}
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
+  backend_data:

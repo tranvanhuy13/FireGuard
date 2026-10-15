@@ -1,0 +1,82 @@
+# Local stack: MinIO + backend + frontend + Caddy, built from this checkout.
+#   docker compose -f deploy/docker-compose.local.yml --env-file ~/.fireguard/local.env up -d --build
+# The self-hosted GitHub Actions runner runs the same command (.github/workflows/local-cd.yml).
+# Ports are bound to 127.0.0.1 by default: the backend has no authentication of its own.
+name: fireguard
+
+services:
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z   # community fork; upstream stopped publishing images
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in local.env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in local.env}
+    ports:
+      - "${BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9101}:9001"   # web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  minio-init:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    entrypoint: ["/bin/sh", "/minio-init.sh"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:-fireguard}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set in local.env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set in local.env}
+      MODEL_OBJECT: models/best.pt
+    volumes:
+      - ./minio-init.sh:/minio-init.sh:ro
+      - ${MODEL_SEED:-../backend/best.pt}:/seed/best.pt:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  backend:
+    build: ../backend
+    image: fireguard/backend:local
+    restart: unless-stopped
+    environment:
+      S3_ENDPOINT: minio:9000
+      S3_BUCKET: ${S3_BUCKET:-fireguard}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      # Login (backend/auth): OTP e-mails go out through Gmail.
+      # AUTH_DEV_MODE=true writes the OTP to the backend log instead (no Gmail needed)
+      GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      AUTH_DEV_MODE: ${AUTH_DEV_MODE:-false}
+      # Keeps stream tokens (<img> camera streams, WebSocket) valid across restarts
+      STREAM_TOKEN_SECRET: ${STREAM_TOKEN_SECRET:-}
+    volumes:
+      - backend_data:/data
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  frontend:
+    build: ../frontend
+    image: fireguard/frontend:local
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    ports:
+      - "${BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  minio_data:
+  backend_data:

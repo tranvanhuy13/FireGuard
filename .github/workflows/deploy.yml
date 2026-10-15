@@ -1,0 +1,107 @@
+# CI: build backend + frontend images on every PR and push.
+# GCP deploy (optional): once the GCP_PROJECT_ID repository variable is set, pushes to main
+# also push the images to Artifact Registry and roll the Compute Engine VM forward.
+# Auth is Workload Identity Federation (no key files); variables come from `deploy/gcp-setup.sh outputs`.
+name: CI / GCP deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix:
+        service: [backend, frontend]
+    env:
+      PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        if: env.PUSH == 'true'
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+        if: env.PUSH == 'true'
+
+      - name: Docker login to Artifact Registry
+        if: env.PUSH == 'true'
+        run: gcloud auth configure-docker ${{ vars.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service }}
+          push: ${{ env.PUSH == 'true' }}
+          # Without GCP the image is only built (CI check) under a local name, never pushed
+          tags: |
+            ${{ env.PUSH == 'true' && format('{0}/{1}:{2}', env.REGISTRY, matrix.service, github.sha) || format('fireguard/{0}:ci', matrix.service) }}
+            ${{ env.PUSH == 'true' && format('{0}/{1}:latest', env.REGISTRY, matrix.service) || '' }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      SSH_ARGS: --zone ${{ vars.GCP_ZONE }} --project ${{ vars.GCP_PROJECT_ID }} --tunnel-through-iap --quiet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Copy stack files to the VM
+        run: |
+          gcloud compute scp deploy/docker-compose.yml deploy/Caddyfile \
+            ${{ vars.VM_NAME }}:/tmp/ $SSH_ARGS
+
+      - name: Roll out ${{ github.sha }}
+        run: |
+          gcloud compute ssh ${{ vars.VM_NAME }} $SSH_ARGS --command '
+            set -e
+            cd /opt/fireguard
+            sudo mv /tmp/docker-compose.yml /tmp/Caddyfile .
+            sudo sed -i "s/^TAG=.*/TAG=${{ github.sha }}/" .env
+            sudo docker compose pull --quiet
+            sudo docker compose up -d --remove-orphans
+            sudo docker image prune -f
+            sudo docker compose ps
+          '
+
+      - name: Smoke test
+        run: |
+          gcloud compute ssh ${{ vars.VM_NAME }} $SSH_ARGS --command '
+            for i in $(seq 1 30); do
+              sudo docker compose -f /opt/fireguard/docker-compose.yml exec -T backend \
+                python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8000/\")" && exit 0
+              sleep 5
+            done
+            sudo docker compose -f /opt/fireguard/docker-compose.yml logs --tail 50 backend
+            exit 1
+          '

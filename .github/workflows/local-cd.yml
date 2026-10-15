@@ -1,0 +1,54 @@
+# Continuous deployment to your own machine through a self-hosted runner.
+# Every push to main rebuilds the images and restarts the local stack
+# (deploy/docker-compose.local.yml). Secrets stay in ~/.fireguard/local.env on that machine.
+#
+# Runner setup: Settings > Actions > Runners > New self-hosted runner, and add the label "fireguard".
+# Only push / manual runs use this runner - never pull requests, so code from a PR
+# cannot run on your machine.
+name: Local CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: local-cd
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, fireguard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check config
+        run: |
+          ENV_FILE="$HOME/.fireguard/local.env"
+          test -f "$ENV_FILE" || { echo "::error::$ENV_FILE not found (copy deploy/local.env.example)"; exit 1; }
+          echo "COMPOSE=docker compose -f deploy/docker-compose.local.yml --env-file $ENV_FILE" >> "$GITHUB_ENV"
+
+      - name: Build images
+        run: $COMPOSE build
+
+      - name: Start stack
+        run: |
+          $COMPOSE up -d --remove-orphans
+          $COMPOSE ps
+
+      - name: Smoke test
+        run: |
+          PORT=$(grep -E '^HTTP_PORT=' "$HOME/.fireguard/local.env" | cut -d= -f2)
+          PORT=${PORT:-8080}
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:$PORT/api/" && curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then
+              echo; echo "Deployed ${{ github.sha }} -> http://127.0.0.1:$PORT"; exit 0
+            fi
+            sleep 3
+          done
+          $COMPOSE logs --tail 80 backend minio-init
+          exit 1
+
+      - name: Clean up old images
+        if: always()
+        run: docker image prune -f

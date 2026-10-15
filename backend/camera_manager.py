@@ -8,6 +8,7 @@ from collections import namedtuple
 import numpy as np
 
 import notification
+import storage
 
 logger = logging.getLogger(__name__)
 
@@ -19,19 +20,16 @@ RECONNECT_DELAY_SECONDS = 10
 MAX_READ_FAILURES = 5
 JPEG_QUALITY = 80
 
-# Ensure snapshots directory exists
-SNAPSHOT_DIR = "snapshots"
-os.makedirs(SNAPSHOT_DIR, exist_ok=True)
 
 # Detection overlay: annotated pixels + boolean mask of pixels the detector drew
 Overlay = namedtuple("Overlay", "pixels mask timestamp")
 
 
 def save_snapshot_async(cam_id, frame):
-    """Save a snapshot on a worker thread so disk I/O never stalls capture."""
+    """Save a snapshot on a worker thread so disk / network I/O never stalls capture."""
     def task(img):
         filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{cam_id}.jpg"
-        cv2.imwrite(os.path.join(SNAPSHOT_DIR, filename), img)
+        storage.save_snapshot(filename, img)
         logger.info("[Cam %s] Periodic snapshot saved: %s", cam_id, filename)
 
     threading.Thread(target=task, args=(frame.copy(),), daemon=True).start()
@@ -405,9 +403,8 @@ class CameraManager:
     def _save_event(self, cam, cls_name, conf, frame):
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
         filename = f"event_{timestamp_str}_{cam.id}_{cls_name}.jpg"
-        filepath = os.path.join(SNAPSHOT_DIR, filename)
-
-        cv2.imwrite(filepath, frame)
+        # Local copy is kept until notifications (which attach the file) are done
+        filepath = storage.save_snapshot(filename, frame, keep_local=True)
 
         snapshot_url = f"/snapshots/{filename}"
         import database
@@ -428,5 +425,10 @@ class CameraManager:
             except Exception as e:
                 print(f"Error in alert callback: {e}")
 
-        threading.Thread(target=notification.trigger_notifications,
-                         args=(cls_name, conf, filepath), daemon=True).start()
+        def notify():
+            try:
+                notification.trigger_notifications(cls_name, conf, filepath)
+            finally:
+                storage.discard_local(filepath)
+
+        threading.Thread(target=notify, daemon=True).start()
