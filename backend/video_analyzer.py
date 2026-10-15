@@ -17,9 +17,10 @@ from collections import OrderedDict, defaultdict
 
 import cv2
 
+import storage
+
 logger = logging.getLogger(__name__)
 
-SNAPSHOT_DIR = "snapshots"
 UPLOAD_DIR = "uploads_tmp"
 ALLOWED_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".wmv"}
 MAX_UPLOAD_MB = 500
@@ -46,7 +47,6 @@ class VideoAnalyzer:
         self._lock = threading.Lock()
         self._slot = threading.Semaphore(1)      # one analysis at a time
 
-        os.makedirs(SNAPSHOT_DIR, exist_ok=True)
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         for f in os.listdir(UPLOAD_DIR):          # leftovers from a previous crash
             try:
@@ -102,10 +102,7 @@ class VideoAnalyzer:
             if old_id is None:
                 break
             for ev in self.jobs[old_id]["events"]:
-                try:
-                    os.remove(os.path.join(SNAPSHOT_DIR, os.path.basename(ev["snapshot"])))
-                except OSError:
-                    pass
+                storage.delete_snapshot(ev["snapshot"])
             del self.jobs[old_id]
             self._cancel.pop(old_id, None)
 
@@ -188,7 +185,7 @@ class VideoAnalyzer:
                                     last_snap[cls] = t
                                     name = f"video_{job_id}_{int(t * 1000):08d}_{_safe(cls)}.jpg"
                                     img = annotated if annotated is not None else frame
-                                    cv2.imwrite(os.path.join(SNAPSHOT_DIR, name), img)
+                                    storage.save_snapshot(name, img)
                                     events.append({"time": round(t, 2), "class": cls,
                                                    "confidence": round(conf, 3),
                                                    "snapshot": f"/snapshots/{name}"})

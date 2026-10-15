@@ -1,0 +1,16 @@
+# HTTPS is issued automatically by Let's Encrypt for {$DOMAIN}.
+# No basic_auth here: the app logs in with "Authorization: Basic" itself (backend/auth),
+# and a proxy-level basic_auth would take over that header.
+{$DOMAIN} {
+	# FastAPI (REST, MJPEG streams, WebSocket) under /api
+	handle_path /api/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+}

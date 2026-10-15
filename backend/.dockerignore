@@ -1,0 +1,8 @@
+venv/
+__pycache__/
+*.pt
+*.db
+snapshots/
+uploads_tmp/
+.env
+*.log

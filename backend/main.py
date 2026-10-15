@@ -38,9 +38,8 @@ from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException, Query,
                      Request, UploadFile, WebSocket, WebSocketDisconnect, status)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 load_dotenv()
@@ -52,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 import database
 import notification
+import storage
 from auth.database import get_connection as get_auth_connection
 from auth.dependencies import authenticate_user, get_current_user, get_user
 from auth.routes import router as auth_router
@@ -141,7 +141,7 @@ app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://192.168.1.12:3000"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://192.168.1.12:3000").split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,14 +149,24 @@ app.add_middleware(
 
 database.init_db()
 
-detector = FireDetector()
+# The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
+MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")
+storage.ensure_model(MODEL_PATH)
+storage.start_sync()
+detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras
 video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
 
 # Snapshots stay public on purpose (Zalo needs to download them by URL).
-os.makedirs("snapshots", exist_ok=True)
-app.mount("/snapshots", StaticFiles(directory="snapshots"), name="snapshots")
+# They may live in MinIO / GCS instead of on disk, so they are served by a route.
+@app.get("/snapshots/{name}")
+def get_snapshot(name: str):
+    data = storage.read_snapshot(name)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    return Response(data, media_type="image/jpeg",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 # Authentication / account routes (signup + OTP are public, /users/me is protected)
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
