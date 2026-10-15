@@ -51,7 +51,7 @@ Sửa `~/.fireguard/local.env`:
 | `BIND` | `127.0.0.1` (chỉ máy này) hoặc `0.0.0.0` (mở cho mạng LAN) |
 | `HTTP_PORT` | Cổng web (mặc định `8080`) |
 | `MINIO_CONSOLE_PORT` | Cổng console MinIO (mặc định `9101`) |
-| `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` | Tài khoản Gmail dùng để gửi mã OTP khi đăng ký. `GMAIL_APP_PASSWORD` là *App Password* (tạo ở cài đặt bảo mật Google), không phải mật khẩu Gmail |
+| `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` | Tài khoản Gmail dùng để gửi mã OTP khi đăng ký. `GMAIL_APP_PASSWORD` là *App Password*, không phải mật khẩu Gmail. Cách tạo xem ở mục 6, phần "Gửi OTP qua Gmail (SMTP)" |
 | `AUTH_DEV_MODE` | `true`: không gửi email, mã OTP được ghi vào log backend (dùng khi chạy thử). `false`: bắt buộc phải có Gmail |
 | `STREAM_TOKEN_SECRET` | Chuỗi bí mật ngẫu nhiên để token xem camera/WebSocket vẫn hợp lệ sau khi khởi động lại (`openssl rand -hex 32`) |
 
@@ -138,7 +138,68 @@ Chạy thử khi chưa có Gmail: đặt `AUTH_DEV_MODE=true` trong `local.env`,
 docker compose -f deploy/docker-compose.local.yml --env-file ~/.fireguard/local.env logs backend | grep "DEV MODE"
 ```
 
-Gửi email thật: điền `GMAIL_ADDRESS` và `GMAIL_APP_PASSWORD`, đặt `AUTH_DEV_MODE=false`.
+#### Gửi OTP qua Gmail (SMTP)
+
+Backend gửi mã OTP bằng SMTP của Gmail (`smtp.gmail.com`, cổng 587, STARTTLS; xem `send_otp_email` trong `backend/auth/utils.py`). Gmail không cho đăng nhập SMTP bằng mật khẩu thường, nên phải dùng **App Password** (mật khẩu ứng dụng, 16 ký tự).
+
+**Bước 1: Bật Xác minh 2 bước** cho tài khoản Gmail dùng để gửi mail. Nên tạo một Gmail riêng cho hệ thống, ví dụ `fireguard.otp@gmail.com`, đừng dùng Gmail cá nhân.
+
+1. Mở https://myaccount.google.com/security.
+2. Ở mục *Cách bạn đăng nhập vào Google*, bật **Xác minh 2 bước** (2-Step Verification) và làm theo hướng dẫn (xác nhận bằng số điện thoại).
+
+**Bước 2: Tạo App Password**
+
+1. Mở https://myaccount.google.com/apppasswords. Đăng nhập lại nếu được hỏi.
+2. Ở ô *Tên ứng dụng*, gõ `FireGuard`, rồi bấm **Tạo**.
+3. Google hiện một mật khẩu 16 ký tự, dạng `abcd efgh ijkl mnop`. **Chép ngay**, vì mật khẩu này chỉ hiện một lần. Nếu mất, xoá nó đi rồi tạo cái mới.
+
+Nếu trang App Password báo *"The setting you are looking for is not available"*, có ba khả năng thường gặp:
+
+- Chưa bật Xác minh 2 bước.
+- Tài khoản thuộc Google Workspace (email công ty) và quản trị viên đã tắt App Password.
+- Tài khoản đang bật *Advanced Protection*.
+
+**Bước 3: Điền vào cấu hình**
+
+Khi chạy bằng Docker, điền vào `~/.fireguard/local.env`:
+
+```bash
+GMAIL_ADDRESS=fireguard.otp@gmail.com
+GMAIL_APP_PASSWORD=abcd efgh ijkl mnop   # để nguyên dấu cách cũng được, code tự bỏ
+AUTH_DEV_MODE=false
+```
+
+Rồi tạo lại container backend để nạp biến mới:
+
+```bash
+docker compose -f deploy/docker-compose.local.yml --env-file ~/.fireguard/local.env up -d backend
+```
+
+Khi chạy bằng `start.bat` hoặc `uvicorn`, không qua Docker: tạo file `backend/.env` chứa ba dòng trên (backend tự đọc file này bằng `python-dotenv`). File `.env` đã nằm trong `.gitignore`, **không được commit**.
+
+**Bước 4: Kiểm tra**
+
+1. Mở trang **Đăng ký**, dùng một địa chỉ `@gmail.com` mà bạn đọc được thư.
+2. Mã OTP sẽ tới trong vài giây, tiêu đề *"Your verification code"*. Nếu không thấy trong hộp thư đến, kiểm tra cả thư mục **Spam**.
+3. Nếu gửi lỗi, trang đăng ký báo lỗi, API trả về `502 Could not send OTP email`, và log backend có dòng `Could not send OTP e-mail to ...`. Xem chi tiết lỗi bằng:
+   ```bash
+   docker compose -f deploy/docker-compose.local.yml --env-file ~/.fireguard/local.env logs backend | grep -A5 "Could not send OTP"
+   ```
+
+| Lỗi trong log | Nguyên nhân và cách xử lý |
+|---|---|
+| `535 ... Username and Password not accepted` | Sai App Password, hoặc đang dùng mật khẩu Gmail thường. Tạo App Password mới và kiểm tra lại `GMAIL_ADDRESS` |
+| `534 ... Application-specific password required` | Chưa dùng App Password. Làm lại Bước 2 |
+| `GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not configured` | Thiếu biến, và `AUTH_DEV_MODE` đang là `false`. Kiểm tra `local.env`, rồi chạy lại lệnh `up -d backend` |
+| `timed out` / `Connection refused` | Mạng chặn cổng 587 (ví dụ một số mạng công ty). Thử mạng khác. Google Cloud chỉ chặn cổng 25, cổng 587 dùng được |
+| Thư vào Spam | Bình thường với Gmail mới tạo. Đánh dấu "Không phải spam" vài lần để Gmail học |
+
+Lưu ý:
+
+- Khi đã điền `GMAIL_ADDRESS` và `GMAIL_APP_PASSWORD`, backend **luôn gửi mail thật**, kể cả khi `AUTH_DEV_MODE=true`. `AUTH_DEV_MODE` chỉ có tác dụng khi hai biến này để trống.
+- Gmail cá nhân giới hạn khoảng **500 thư/ngày**. Đủ cho đồ án; nếu cần nhiều hơn thì phải dùng dịch vụ gửi mail riêng như SendGrid hay Amazon SES (code hiện chỉ hỗ trợ Gmail).
+- Hệ thống chỉ cho **đăng ký bằng địa chỉ `@gmail.com`** (quy tắc của nhóm trong `is_valid_email`).
+- Nếu App Password bị lộ, xoá nó ở https://myaccount.google.com/apppasswords. Mọi mật khẩu khác của tài khoản vẫn an toàn.
 
 ### 7. Đăng nhập bằng Google / Facebook (chưa hoạt động)
 
