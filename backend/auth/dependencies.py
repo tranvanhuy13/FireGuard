@@ -27,8 +27,15 @@ def get_user_by_email(db, email: str):
         return None
     return User(**dict(row))
 
-def authenticate_user(db, username: str, password: str):
-    user = get_user(db, username)
+def get_user_by_identifier(db, identifier: str):
+    """Find a user by email (if it contains '@') or by username."""
+    identifier = identifier.strip()
+    if "@" in identifier:
+        return get_user_by_email(db, identifier.lower())
+    return get_user(db, identifier)
+
+def authenticate_user(db, identifier: str, password: str):
+    user = get_user_by_identifier(db, identifier)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
