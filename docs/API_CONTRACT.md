@@ -92,6 +92,10 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Method:** `GET`
 - **Path:** `/auth/login`
 - **Auth:** `Authorization: Basic base64(username:password)`
+- **Lưu ý nghiệp vụ:**
+  - Backend **chỉ nhận username** trong Basic Auth header (`username:password`). Nếu truyền email sẽ bị lỗi `401 Unauthorized`.
+  - Khi `NEXT_PUBLIC_USE_MOCK_AUTH=false`, Frontend chuyển form đăng nhập sang trường "Tên đăng nhập" (Username).
+  - Sau khi đăng nhập thành công, Frontend cập nhật đối tượng người dùng vào `AuthContext`, lưu `user_profile` và `auth_header` vào `sessionStorage` (để hỗ trợ F5 tải lại trang mượt mà), sau đó dùng `router.replace` chuyển hướng theo tham số `redirect` (chỉ chấp nhận đường dẫn nội bộ hợp lệ bắt đầu bằng `/`, không chứa `//` hay `http:`).
 - **Response thành công (HTTP 200):**
   ```json
   {

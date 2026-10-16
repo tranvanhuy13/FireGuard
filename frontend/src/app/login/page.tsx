@@ -13,11 +13,28 @@ import { api } from "@/lib/api/auth";
 import { isMockAuth } from "@/lib/api/client";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
+function getSafeRedirect(redirect: string | null): string {
+  if (!redirect) return "/dashboard";
+  const trimmed = redirect.trim();
+  if (
+    trimmed.startsWith("/") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.includes("\\") &&
+    !trimmed.toLowerCase().includes("http") &&
+    !trimmed.includes(":") &&
+    !trimmed.startsWith("/login")
+  ) {
+    return trimmed;
+  }
+  return "/dashboard";
+}
+
 const getLoginSchema = (t: any) => z.object({
-  identifier: z.string().min(1, t.auth.errors.identifierRequired),
+  identifier: z.string().min(1, isMockAuth ? t.auth.errors.identifierRequired : (t.auth.errors.usernameRequired || t.auth.errors.identifierRequired)),
   password: z.string().min(8, t.auth.errors.passwordMin),
 });
 
@@ -27,6 +44,7 @@ function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useLanguage();
+  const { login, user, isLoading: authLoading } = useAuth();
   const loginSchema = getLoginSchema(t);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +52,6 @@ function LoginFormContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  const redirectUrl = searchParams.get("redirect") || "/dashboard";
   const verifiedParam = searchParams.get("verified");
 
   const {
@@ -45,6 +62,13 @@ function LoginFormContent() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
   });
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
+      router.replace(safeRedirect);
+    }
+  }, [authLoading, user, searchParams, router]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -80,8 +104,10 @@ function LoginFormContent() {
         localStorage.removeItem("remembered_username");
       }
 
-      await api.login({ identifier: data.identifier, password: data.password });
-      router.push(redirectUrl);
+      const res = await api.login({ identifier: data.identifier, password: data.password });
+      await login(res.user);
+      const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
+      router.replace(safeRedirect);
     } catch (err: any) {
       if (err.status === 403 || err.message === "accountNotVerified") {
         setError(t.auth.errors.accountNotVerified);
@@ -89,7 +115,7 @@ function LoginFormContent() {
           router.push(`/verify-otp?target=${encodeURIComponent(data.identifier.trim())}`);
         }, 1500);
       } else if (err.status === 401 || err.message === "invalidCredentials") {
-        setError(t.auth.errors.invalidCredentials);
+        setError(isMockAuth ? t.auth.errors.invalidCredentials : (t.auth.errors.invalidCredentialsUsername || t.auth.errors.invalidCredentials));
       } else {
         setError(err.message === "An error occurred" ? t.auth.errors.genericError : err.message || t.auth.errors.genericError);
       }
@@ -135,14 +161,14 @@ function LoginFormContent() {
           <div className="space-y-4">
             <div>
               <label htmlFor="identifier" className="block text-sm font-medium text-gray-700">
-                {t.auth.usernameOrEmail}
+                {isMockAuth ? t.auth.usernameOrEmail : t.auth.username}
               </label>
               <Input
                 id="identifier"
                 type="text"
                 {...register("identifier")}
                 className="mt-1 w-full bg-white border-gray-300 text-gray-900 focus:border-sky-500"
-                placeholder={t.auth.usernameOrEmailPlaceholder}
+                placeholder={isMockAuth ? t.auth.usernameOrEmailPlaceholder : t.auth.usernamePlaceholder}
               />
               {errors.identifier && (
                 <p className="mt-1 text-sm text-red-600">{errors.identifier.message}</p>

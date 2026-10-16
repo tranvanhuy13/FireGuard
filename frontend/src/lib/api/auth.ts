@@ -35,11 +35,15 @@ export const api = {
             );
 
             if (user) {
+              const userProfile: User = { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true };
               localStorage.setItem('mockRole', user.role);
               localStorage.setItem('mockUsername', user.username);
               localStorage.setItem('mockUserFull', JSON.stringify(user));
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('user_profile', JSON.stringify(userProfile));
+              }
               resolve({
-                user: { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true },
+                user: userProfile,
                 token: "mock-jwt-token",
               });
             } else {
