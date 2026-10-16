@@ -113,6 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const can = (permission: string) => {
     if (!user) return false;
+    if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
     if (user.role === 'admin') return true;
     if (user.role === 'operator' && permission !== 'manage_users' && permission !== 'manage_settings') return true;
     if (user.role === 'viewer' && permission === 'view') return true;

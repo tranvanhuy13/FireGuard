@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { API_URL } from "../config";
 import { useAuth } from "../context/AuthContext";
+import { useLanguage } from "../context/LanguageContext";
 
 interface CameraInfo {
   id: number;
@@ -14,6 +15,7 @@ interface CameraInfo {
 }
 
 const VideoFeed = () => {
+  const { t } = useLanguage();
   const { streamToken, refreshStreamToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [camera, setCamera] = useState<CameraInfo | null>(null);
@@ -43,6 +45,17 @@ const VideoFeed = () => {
 
   const handleToggle = async (active: boolean) => {
     if (!camera || toggling) return;
+
+    if (!active) {
+      const confirmMsg = t.camera?.confirmTurnOffCamera || "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?";
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+
+    const prevActive = camera.is_active;
+    const prevStatus = camera.status;
+
     setToggling(true);
     // Optimistic update so the switch reacts instantly
     setCamera({
@@ -61,9 +74,28 @@ const VideoFeed = () => {
           method: "POST",
         },
       );
-      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
+      if (!res.ok) {
+        setCamera({
+          ...camera,
+          is_active: prevActive,
+          status: prevStatus,
+        });
+        if (res.status === 401) {
+          alert(t.camera?.toggleError401 || "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        } else if (res.status === 403) {
+          alert(t.camera?.toggleError403 || "Bạn không có quyền thực hiện thao tác này.");
+        } else {
+          alert(t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
+        }
+        return;
+      }
     } catch (e) {
-      alert("Failed to toggle camera status");
+      setCamera({
+        ...camera,
+        is_active: prevActive,
+        status: prevStatus,
+      });
+      alert(t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
     } finally {
       setToggling(false);
       fetchCamera(); // resync with the real state
