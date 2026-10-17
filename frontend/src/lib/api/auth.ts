@@ -185,7 +185,7 @@ export const api = {
 
   me: async (): Promise<{ user: User }> => {
     if (isMockAuth) {
-      return new Promise((resolve) =>
+      return new Promise((resolve, reject) =>
         setTimeout(() => {
           if (typeof window !== 'undefined') {
             const userStr = localStorage.getItem('mockUserFull');
@@ -204,10 +204,7 @@ export const api = {
               return;
             }
           }
-          // fallback
-          resolve({
-            user: { id: "0", username: "guest", fullName: "Guest", email: "guest@fireguard.ai", role: "viewer", is_active: false },
-          });
+          reject(new ApiError("UNAUTHORIZED", 401));
         }, 500)
       );
     }
@@ -242,6 +239,11 @@ export const api = {
   },
 
   logout: async (): Promise<{ message: string }> => {
+    if (isMockAuth && typeof window !== 'undefined') {
+      localStorage.removeItem('mockRole');
+      localStorage.removeItem('mockUsername');
+      localStorage.removeItem('mockUserFull');
+    }
     clearAuthSession();
     return { message: "Logged out" };
   },
