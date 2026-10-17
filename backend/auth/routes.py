@@ -1,7 +1,11 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from .dependencies import get_db, get_user, get_user_by_email
-from .schemas import UserCreate, UserResponse, OTPVerify, OTPResend
+import secrets
+from .schemas import (
+    UserCreate, UserResponse, OTPVerify, OTPResend,
+    ForgotPassword, ResetPassword,
+)
 from users.models import User
 from .utils import (
     get_password_hash, is_plain_text, is_valid_email,
@@ -13,19 +17,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-def send_new_otp(db, user_id: int, email: str):
+MAX_OTP_ATTEMPTS = 5
+MIN_PASSWORD_LENGTH = 6
+
+def send_new_otp(db, user_id: int, email: str, purpose: str = "verify"):
     otp = generate_otp()
     db.execute(
-        "UPDATE users SET otp = ?, otp_expires_at = ? WHERE id = ?",
+        "UPDATE users SET otp = ?, otp_expires_at = ?, otp_attempts = 0 WHERE id = ?",
         (otp, otp_expiry(), user_id),
     )
     db.commit()
-    # The e-mail is sent after the DB write is committed (SMTP can be slow).
     try:
-        send_otp_email(email, otp)
+        send_otp_email(email, otp, purpose)
     except Exception:
         logger.exception("Could not send OTP e-mail to %s", email)
-        # drop the unsent code so the user can ask for a new one right away
         db.execute("UPDATE users SET otp = NULL, otp_expires_at = NULL WHERE id = ?", (user_id,))
         db.commit()
         raise HTTPException(status_code=502, detail="Could not send OTP email")
@@ -85,3 +90,56 @@ def resend_otp(data: OTPResend, db = Depends(get_db)):
             raise HTTPException(status_code=429, detail=f"Please wait {wait}s before requesting a new code.")
     send_new_otp(db, user.id, user.email)
     return {"message": "OTP sent"}
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPassword, db = Depends(get_db)):
+    """Send a reset code. Always returns the same message so the endpoint
+    can't be used to find out which e-mails are registered."""
+    generic = {"message": "If that account exists, a reset code has been sent."}
+
+    user = get_user_by_email(db, data.email.strip().lower())
+    # Unverified accounts must finish /verify-otp first
+    if not user or not user.is_active:
+        return generic
+
+    # Respect the resend cooldown (silently, for the same reason as above)
+    if user.otp_expires_at and otp_seconds_since_sent(user.otp_expires_at) < OTP_RESEND_COOLDOWN_SECONDS:
+        return generic
+
+    send_new_otp(db, user.id, user.email, purpose="reset")
+    return generic
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPassword, db = Depends(get_db)):
+    if not is_plain_text(data.new_password):
+        raise HTTPException(status_code=400, detail="Password must not contain special characters")
+    if len(data.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400,
+                            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+
+    invalid = HTTPException(status_code=400, detail="Invalid or expired code")
+
+    user = get_user_by_email(db, data.email.strip().lower())
+    if not user or not user.is_active or not user.otp:
+        raise invalid
+    if otp_expired(user.otp_expires_at):
+        raise invalid
+
+    # Brute-force protection: a 6-digit code must not be guessable by retrying
+    if (user.otp_attempts or 0) >= MAX_OTP_ATTEMPTS:
+        db.execute("UPDATE users SET otp = NULL, otp_expires_at = NULL WHERE id = ?", (user.id,))
+        db.commit()
+        raise HTTPException(status_code=429, detail="Too many attempts. Please request a new code.")
+
+    if not secrets.compare_digest(user.otp, data.otp.strip()):
+        db.execute("UPDATE users SET otp_attempts = otp_attempts + 1 WHERE id = ?", (user.id,))
+        db.commit()
+        raise invalid
+
+    db.execute(
+        "UPDATE users SET hashed_password = ?, otp = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE id = ?",
+        (get_password_hash(data.new_password), user.id),
+    )
+    db.commit()
+    return {"message": "Password has been reset"}
