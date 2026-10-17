@@ -220,7 +220,11 @@ export const en = {
     cameraIsInactive: "Camera is Inactive",
     turnOnCamera: "Turn on camera",
     connectionLost: "Connection Lost",
-    reconnecting: "Reconnecting..."
+    reconnecting: "Reconnecting...",
+    confirmTurnOffCamera: "Turning off this camera will stop fire detection on it. Are you sure?",
+    toggleError401: "Session expired. Please log in again.",
+    toggleError403: "You do not have permission to perform this action.",
+    toggleErrorNetwork: "Connection error while changing camera status."
   },
   alerts: {
     title: "Fire Alerts",
@@ -403,7 +407,11 @@ export const en = {
       name: "Name",
       source: "Source",
       status: "Status",
-      actions: "Actions"
+      actions: "Actions",
+      confirmTurnOffCamera: "Turning off this camera will stop fire detection on it. Are you sure?",
+      toggleError401: "Session expired. Please log in again.",
+      toggleError403: "You do not have permission to perform this action.",
+      toggleErrorNetwork: "Connection error while changing camera status."
     },
     history: {
       title: "History",
