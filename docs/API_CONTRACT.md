@@ -91,7 +91,13 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 #### 1.1.4. Đăng nhập (Login)
 - **Method:** `GET`
 - **Path:** `/auth/login`
-- **Auth:** `Authorization: Basic base64(username:password)`
+- **Auth:** `Authorization: Basic base64(identifier:password)` (trong đó `identifier` có thể là `username` hoặc `email`)
+- **Lưu ý nghiệp vụ:**
+  - Backend đã hỗ trợ đăng nhập bằng **username hoặc email** (nếu chuỗi identifier chứa ký tự `@`, backend sẽ tự động tìm kiếm người dùng theo email).
+  - Header HTTP Basic Auth gửi lên dạng `Basic base64(identifier:password)`.
+  - Frontend tự động loại bỏ khoảng trắng đầu/cuối của chuỗi nhập trước khi gửi.
+  - Khi thông tin đăng nhập không chính xác, backend trả về `401 Unauthorized`, Frontend hiển thị thông báo: `"Sai tên đăng nhập/email hoặc mật khẩu."`.
+  - Sau khi đăng nhập thành công, Frontend cập nhật đối tượng người dùng vào `AuthContext`, lưu `user_profile` và `auth_header` vào `sessionStorage` (để hỗ trợ F5 tải lại trang mượt mà), sau đó dùng `router.replace` chuyển hướng theo tham số `redirect` (chỉ chấp nhận đường dẫn nội bộ hợp lệ bắt đầu bằng `/`, không chứa `//` hay `http:`).
 - **Response thành công (HTTP 200):**
   ```json
   {
@@ -102,7 +108,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Mã lỗi:**
-  - `401`: `"Incorrect username or password"`
+  - `401`: `"Incorrect username or password"` (Frontend hiển thị: `"Sai tên đăng nhập/email hoặc mật khẩu."`)
   - `403`: `"Account not verified"` (Frontend tự động chuyển hướng sang `/verify-otp`)
 
 #### 1.1.5. Lấy thông tin tài khoản hiện tại (Current User)

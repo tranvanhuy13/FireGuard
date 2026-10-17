@@ -29,17 +29,22 @@ export const api = {
               localStorage.setItem('mockUsers', JSON.stringify(users));
             }
 
+            const trimmedIdentifier = credentials.identifier.trim();
             const user = users.find((u: any) => 
-              (u.username === credentials.identifier || u.email === credentials.identifier) && 
+              (u.username.toLowerCase() === trimmedIdentifier.toLowerCase() || u.email.toLowerCase() === trimmedIdentifier.toLowerCase()) && 
               u.password === credentials.password
             );
 
             if (user) {
+              const userProfile: User = { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true };
               localStorage.setItem('mockRole', user.role);
               localStorage.setItem('mockUsername', user.username);
               localStorage.setItem('mockUserFull', JSON.stringify(user));
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('user_profile', JSON.stringify(userProfile));
+              }
               resolve({
-                user: { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true },
+                user: userProfile,
                 token: "mock-jwt-token",
               });
             } else {
@@ -50,7 +55,8 @@ export const api = {
       );
     }
 
-    const rawCreds = `${credentials.identifier.trim()}:${credentials.password}`;
+    const trimmedIdentifier = credentials.identifier.trim();
+    const rawCreds = `${trimmedIdentifier}:${credentials.password}`;
     const basicHeader = "Basic " + (typeof window !== 'undefined' ? btoa(unescape(encodeURIComponent(rawCreds))) : Buffer.from(rawCreds).toString('base64'));
 
     try {

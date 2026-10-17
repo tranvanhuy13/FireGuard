@@ -12,12 +12,23 @@ interface AuthContextType {
   can: (permission: string) => boolean;
   logout: () => Promise<void>;
   setUser: React.Dispatch<React.SetStateAction<User | null>>;
+  login: (user: User) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = sessionStorage.getItem("user_profile");
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      } catch {}
+    }
+    return null;
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -48,16 +59,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshStreamTokenRef.current = refreshStreamToken;
   }, [refreshStreamToken]);
 
+  const login = useCallback(async (newUser: User) => {
+    setUser(newUser);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("user_profile", JSON.stringify(newUser));
+    }
+    await refreshStreamToken();
+  }, [refreshStreamToken]);
+
   useEffect(() => {
     const initAuth = async () => {
+      // 1. Immediately restore user from sessionStorage if available on client mount (e.g. F5)
+      if (typeof window !== "undefined") {
+        try {
+          const stored = sessionStorage.getItem("user_profile");
+          if (stored) {
+            setUser(JSON.parse(stored));
+          }
+        } catch {}
+      }
+
       try {
-        const { user } = await authApi.me();
-        setUser(user);
-        if (user) {
+        const { user: fetchedUser } = await authApi.me();
+        setUser(fetchedUser);
+        if (fetchedUser) {
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("user_profile", JSON.stringify(fetchedUser));
+          }
           refreshStreamToken();
         }
       } catch {
         setUser(null);
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("user_profile");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -91,11 +126,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStreamToken(null);
     await authApi.logout();
     setUser(null);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("user_profile");
+    }
     window.location.href = '/login';
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, streamToken, refreshStreamToken, hasRole, can, logout, setUser }}>
+    <AuthContext.Provider value={{ user, isLoading, streamToken, refreshStreamToken, hasRole, can, logout, setUser, login }}>
       {children}
     </AuthContext.Provider>
   );
