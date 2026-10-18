@@ -10,7 +10,8 @@ import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api/auth";
-import { ApiError, isMockAuth } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/client";
+import { OTP_TTL_SECONDS, OTP_RESEND_COOLDOWN_SECONDS } from "@/config";
 import { ArrowLeft, Mail, AlertCircle, CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
@@ -92,29 +93,29 @@ export default function ForgotPasswordPage() {
 
       await authApi.forgotPassword(email.trim());
 
-      // Save only email and expiresAt (120 seconds) to sessionStorage
-      const expiresAt = Date.now() + 120 * 1000;
-      sessionStorage.setItem("resetEmail", email.trim());
+      const now = Date.now();
+      const expiresAt = now + OTP_TTL_SECONDS * 1000;
+      sessionStorage.setItem("resetEmail", email.trim().toLowerCase());
       sessionStorage.setItem("resetExpiresAt", expiresAt.toString());
-      sessionStorage.setItem("resetAttempts", "5");
-      sessionStorage.removeItem("resetLockedUntil");
+      sessionStorage.setItem("resetLastSentAt", now.toString());
+      sessionStorage.removeItem("resetLocked");
 
       setIsSuccess(true);
 
-      // Brief transition delay so user sees feedback, then redirect to step 2
+      // Transition to step 2 after brief delay
       setTimeout(() => {
         router.push("/reset-password");
       }, 800);
     } catch (err: any) {
       if (err instanceof ApiError) {
         if (err.status === 429) {
-          const waitTime = err.data?.retryAfter || 30;
+          const waitTime = err.data?.retryAfter || OTP_RESEND_COOLDOWN_SECONDS;
           setRateLimitCooldown(waitTime);
           setServerError(
             t.auth.forgotFlow.errors.rateLimited.replace("{seconds}", waitTime.toString())
           );
-        } else if (err.status === 501 || err.message === "FEATURE_NOT_IMPLEMENTED") {
-          setServerError(t.auth.errors.forgotNotImplemented);
+        } else if (err.status === 502) {
+          setServerError(t.auth.forgotFlow.errors.server502);
         } else if (err.status === 0 || err.message === "REQUEST_TIMEOUT" || err.message === "NETWORK_ERROR") {
           setServerError(t.auth.forgotFlow.errors.network);
         } else if (err.status >= 500) {
@@ -161,13 +162,6 @@ export default function ForgotPasswordPage() {
             {t.auth.forgotFlow.step1Desc}
           </p>
         </div>
-
-        {!isMockAuth && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
-          </div>
-        )}
 
         {isSuccess ? (
           <motion.div

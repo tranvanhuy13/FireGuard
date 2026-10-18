@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api/auth";
 import { isMockAuth } from "@/lib/api/client";
+import { MIN_PASSWORD_LENGTH } from "@/config";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { Eye, EyeOff, ArrowLeft } from "lucide-react";
@@ -26,7 +27,7 @@ const getRegisterSchema = (t: any) => z.object({
       message: t.auth.errors.emailGmailOnly,
     }),
   password: z.string()
-    .min(8, t.auth.errors.passwordMin)
+    .min(MIN_PASSWORD_LENGTH, t.auth.errors.passwordMin)
     .regex(/^[a-zA-Z0-9]+$/, t.auth.errors.passwordNoSpecialChars),
   confirmPassword: z.string(),
   terms: z.boolean().refine((val) => val === true, {
@@ -63,7 +64,7 @@ export default function RegisterPage() {
   const getPasswordStrength = (pass: string) => {
     let score = 0;
     if (!pass) return -1;
-    if (pass.length >= 8) score += 1;
+    if (pass.length >= MIN_PASSWORD_LENGTH) score += 1;
     if (/[A-Z]/.test(pass) && /[a-z]/.test(pass)) score += 1;
     if (/\d/.test(pass) && pass.length >= 10) score += 1;
     return Math.min(3, score);

@@ -3,25 +3,23 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api/auth";
-import { isMockAuth, ApiError } from "@/lib/api/client";
-import { 
-  ArrowLeft, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  Check, 
-  CheckCircle, 
-  AlertCircle, 
-  RefreshCw, 
+import { ApiError } from "@/lib/api/client";
+import { OTP_TTL_SECONDS, OTP_RESEND_COOLDOWN_SECONDS, MIN_PASSWORD_LENGTH } from "@/config";
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Check,
+  CheckCircle,
+  AlertCircle,
+  RefreshCw,
   Clock,
-  KeyRound,
-  ShieldCheck
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 
@@ -30,30 +28,24 @@ export default function ResetPasswordPage() {
   const { t } = useLanguage();
   const { user, isLoading: isAuthLoading } = useAuth();
 
-  // Phase state: 1 = Verify OTP, 2 = Set New Password
+  // Phase state: 1 = Enter OTP, 2 = Set New Password
   const [phase, setPhase] = useState<1 | 2>(1);
-  // resetToken is STRICTLY stored only in React state (NEVER in localStorage, NEVER in URL)
-  const [resetToken, setResetToken] = useState<string | null>(null);
 
-  // Email and session
+  // Email state
   const [email, setEmail] = useState("");
 
   // Phase 1 (OTP) states
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [otpTimeLeft, setOtpTimeLeft] = useState(120);
+  const [otpTimeLeft, setOtpTimeLeft] = useState(OTP_TTL_SECONDS);
   const [isOtpExpired, setIsOtpExpired] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [resendCount, setResendCount] = useState(0);
-  const [attemptsLeft, setAttemptsLeft] = useState<number | null>(5);
-  const [lockedMinutes, setLockedMinutes] = useState<number | null>(null);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isOtpLocked, setIsOtpLocked] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [resendNotice, setResendNotice] = useState("");
   const [otpError, setOtpError] = useState("");
   const [shakeKey, setShakeKey] = useState(0);
-  const [showOtpSuccessBadge, setShowOtpSuccessBadge] = useState(false);
 
   // Phase 2 (New Password) states
-  const [tokenTimeLeft, setTokenTimeLeft] = useState(600); // 10 minutes default
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -82,17 +74,21 @@ export default function ResetPasswordPage() {
     }
     setEmail(storedEmail);
 
-    const storedAttempts = sessionStorage.getItem("resetAttempts");
-    if (storedAttempts) {
-      setAttemptsLeft(parseInt(storedAttempts, 10));
+    // Check locked state from previous 429
+    if (sessionStorage.getItem("resetLocked") === "true") {
+      setIsOtpLocked(true);
+      setOtpError(t.auth.forgotFlow.errors.tooManyAttemptsLock);
     }
 
-    const lockedUntil = parseInt(sessionStorage.getItem("resetLockedUntil") || "0", 10);
-    if (lockedUntil > Date.now()) {
-      const remainingMin = Math.ceil((lockedUntil - Date.now()) / (60 * 1000));
-      setLockedMinutes(remainingMin);
+    // Initialize resend cooldown from resetLastSentAt
+    const lastSentStr = sessionStorage.getItem("resetLastSentAt");
+    if (lastSentStr) {
+      const lastSent = parseInt(lastSentStr, 10);
+      const elapsed = Math.floor((Date.now() - lastSent) / 1000);
+      const remaining = Math.max(0, OTP_RESEND_COOLDOWN_SECONDS - elapsed);
+      setResendCooldown(remaining);
     }
-  }, [router]);
+  }, [router, t]);
 
   // 3. OTP Countdown timer (Phase 1)
   useEffect(() => {
@@ -130,26 +126,6 @@ export default function ResetPasswordPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // 5. resetToken countdown timer (Phase 2 - 10 minutes)
-  useEffect(() => {
-    if (phase !== 2 || !resetToken) return;
-
-    const timer = setInterval(() => {
-      setTokenTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          // Token expired: redirect back to /forgot-password
-          alert(t.auth.forgotFlow.tokenExpiredError);
-          router.replace("/forgot-password");
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [phase, resetToken, router, t]);
-
   // Mask email: ab***@gmail.com
   const maskEmail = (raw: string): string => {
     if (!raw) return "";
@@ -165,7 +141,7 @@ export default function ResetPasswordPage() {
   // ==================== PHASE 1: OTP LOGIC ====================
 
   const handleOtpChange = (index: number, value: string) => {
-    if (isOtpExpired || lockedMinutes) return;
+    if (isOtpExpired || isOtpLocked) return;
     const cleaned = value.replace(/\D/g, "");
     if (!cleaned && value !== "") return;
 
@@ -178,9 +154,9 @@ export default function ResetPasswordPage() {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto submit when all 6 digits entered
+    // Auto advance to Phase 2 when all 6 digits entered (WITHOUT calling API)
     if (cleaned && index === 5 && newOtp.every((d) => d.length === 1)) {
-      triggerVerifyOtp(newOtp.join(""));
+      goToPhase2(newOtp.join(""));
     }
   };
 
@@ -191,7 +167,7 @@ export default function ResetPasswordPage() {
   };
 
   const handleOtpPaste = (e: React.ClipboardEvent) => {
-    if (isOtpExpired || lockedMinutes) return;
+    if (isOtpExpired || isOtpLocked) return;
     e.preventDefault();
     const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (!pasted) return;
@@ -207,101 +183,52 @@ export default function ResetPasswordPage() {
     inputRefs.current[nextIdx]?.focus();
 
     if (pasted.length === 6) {
-      triggerVerifyOtp(pasted);
+      goToPhase2(pasted);
     }
   };
 
-  const triggerVerifyOtp = async (codeToVerify?: string) => {
-    const code = codeToVerify || otp.join("");
-    if (code.length !== 6 || isVerifyingOtp || isOtpExpired || lockedMinutes) return;
-
-    try {
-      setIsVerifyingOtp(true);
-      setOtpError("");
-
-      const res = await authApi.verifyResetOtp({
-        email,
-        otp: code,
-      });
-
-      // Show temporary green checkmark
-      setShowOtpSuccessBadge(true);
-      setResetToken(res.resetToken);
-      setTokenTimeLeft(res.expiresIn || 600);
-
-      // Transition to Phase 2 after 700ms
-      setTimeout(() => {
-        setShowOtpSuccessBadge(false);
-        setPhase(2);
-      }, 700);
-    } catch (err: any) {
-      if (err instanceof ApiError) {
-        if (err.status === 429) {
-          const min = Math.ceil((err.data?.remainingSec || 300) / 60);
-          setLockedMinutes(min);
-          setOtpError(
-            t.auth.forgotFlow.errors.tooManyAttempts.replace("{minutes}", min.toString())
-          );
-        } else if (err.data?.remainingAttempts !== undefined) {
-          const rem = err.data.remainingAttempts;
-          setAttemptsLeft(rem);
-          setOtpError(
-            t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", rem.toString())
-          );
-        } else if (err.message === "OTP_EXPIRED") {
-          setIsOtpExpired(true);
-          setOtpError(t.auth.forgotFlow.errors.otpExpired);
-        } else if (err.status === 0 || err.message === "REQUEST_TIMEOUT") {
-          setOtpError(t.auth.forgotFlow.errors.network);
-        } else if (err.status >= 500) {
-          setOtpError(t.auth.forgotFlow.errors.server);
-        } else {
-          setOtpError(err.message || t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", "4"));
-        }
-      } else {
-        setOtpError(t.auth.forgotFlow.errors.network);
-      }
-
-      // On incorrect OTP: clear only 6 OTP inputs and shake
-      setOtp(["", "", "", "", "", ""]);
-      setShakeKey((prev) => prev + 1);
-      setTimeout(() => {
-        inputRefs.current[0]?.focus();
-      }, 50);
-    } finally {
-      setIsVerifyingOtp(false);
-    }
+  const goToPhase2 = (code?: string) => {
+    const fullCode = code || otp.join("");
+    if (fullCode.length !== 6 || isOtpExpired || isOtpLocked) return;
+    setOtpError("");
+    setPasswordError("");
+    setPhase(2);
   };
 
   const handleResendOtp = async () => {
-    if (resendCooldown > 0 || resendCount >= 3 || isResending || !email) return;
+    if (resendCooldown > 0 || isResending || !email) return;
 
     try {
       setIsResending(true);
       setOtpError("");
+      setResendNotice("");
+
       await authApi.forgotPassword(email);
 
-      const newExpiresAt = Date.now() + 120 * 1000;
+      const now = Date.now();
+      const newExpiresAt = now + OTP_TTL_SECONDS * 1000;
       sessionStorage.setItem("resetExpiresAt", newExpiresAt.toString());
-      sessionStorage.setItem("resetAttempts", "5");
-      sessionStorage.removeItem("resetLockedUntil");
+      sessionStorage.setItem("resetLastSentAt", now.toString());
+      sessionStorage.removeItem("resetLocked");
 
-      setOtpTimeLeft(120);
+      setOtpTimeLeft(OTP_TTL_SECONDS);
       setIsOtpExpired(false);
-      setAttemptsLeft(5);
-      setLockedMinutes(null);
+      setIsOtpLocked(false);
       setOtp(["", "", "", "", "", ""]);
-      setResendCooldown(30);
-      setResendCount((prev) => prev + 1);
+      setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+      setResendNotice(t.auth.forgotFlow.resendSuccess || "Đã gửi lại mã xác nhận nếu tài khoản tồn tại.");
+      setTimeout(() => setResendNotice(""), 4000);
 
       inputRefs.current[0]?.focus();
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 429) {
-        const retryAfter = err.data?.retryAfter || 30;
+        const retryAfter = err.data?.retryAfter || OTP_RESEND_COOLDOWN_SECONDS;
         setResendCooldown(retryAfter);
         setOtpError(
           t.auth.forgotFlow.errors.rateLimited.replace("{seconds}", retryAfter.toString())
         );
+      } else if (err instanceof ApiError && err.status === 502) {
+        setOtpError(t.auth.forgotFlow.errors.server502);
       } else {
         setOtpError(t.auth.forgotFlow.errors.network);
       }
@@ -313,53 +240,51 @@ export default function ResetPasswordPage() {
   const handleChangeEmail = () => {
     sessionStorage.removeItem("resetEmail");
     sessionStorage.removeItem("resetExpiresAt");
-    sessionStorage.removeItem("resetAttempts");
-    sessionStorage.removeItem("resetLockedUntil");
+    sessionStorage.removeItem("resetLastSentAt");
+    sessionStorage.removeItem("resetLocked");
     router.push("/forgot-password");
   };
 
   // ==================== PHASE 2: NEW PASSWORD LOGIC ====================
 
   const rules = {
-    length: newPassword.length >= 8,
-    upper: /[A-Z]/.test(newPassword),
-    lower: /[a-z]/.test(newPassword),
-    number: /[0-9]/.test(newPassword),
+    length: newPassword.length >= MIN_PASSWORD_LENGTH,
+    alphanumeric: /^[A-Za-z0-9]+$/.test(newPassword),
+    match: confirmPassword.length > 0 && newPassword === confirmPassword,
   };
-  const isPasswordValid = rules.length && rules.upper && rules.lower && rules.number;
-  const strengthScore =
-    (rules.length ? 1 : 0) +
-    (rules.upper ? 1 : 0) +
-    (rules.lower ? 1 : 0) +
-    (rules.number ? 1 : 0);
-
-  const passwordsMatch = confirmPassword.length > 0 && newPassword === confirmPassword;
 
   const canSubmitPhase2 =
-    isPasswordValid &&
-    passwordsMatch &&
-    !isResettingPassword &&
-    !!resetToken;
+    rules.length &&
+    rules.alphanumeric &&
+    rules.match &&
+    !isResettingPassword;
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmitPhase2 || !resetToken) return;
+    if (!canSubmitPhase2) return;
+
+    const fullOtp = otp.join("");
+    if (fullOtp.length !== 6) {
+      setPhase(1);
+      setOtpError(t.auth.forgotFlow.errors.otpRequired);
+      return;
+    }
 
     try {
       setIsResettingPassword(true);
       setPasswordError("");
 
       await authApi.resetPassword({
-        resetToken,
-        newPassword,
         email,
+        otp: fullOtp,
+        new_password: newPassword,
       });
 
       // Clear all temporary sessionStorage items
       sessionStorage.removeItem("resetEmail");
       sessionStorage.removeItem("resetExpiresAt");
-      sessionStorage.removeItem("resetAttempts");
-      sessionStorage.removeItem("resetLockedUntil");
+      sessionStorage.removeItem("resetLastSentAt");
+      sessionStorage.removeItem("resetLocked");
 
       // Save toast message for /login page
       sessionStorage.setItem("loginToastSuccess", t.auth.forgotFlow.resetSuccessToast);
@@ -371,16 +296,59 @@ export default function ResetPasswordPage() {
       }, 1200);
     } catch (err: any) {
       if (err instanceof ApiError) {
-        if (err.status === 400 && err.message === "INVALID_RESET_TOKEN") {
-          alert(t.auth.forgotFlow.tokenExpiredError);
-          router.replace("/forgot-password");
+        const detail = (typeof err.data?.detail === "string" ? err.data.detail : err.message || "").toLowerCase();
+
+        // 1. Password error 400
+        if (err.status === 400 && (detail.includes("special") || detail.includes("alphanumeric"))) {
+          setPasswordError(t.auth.forgotFlow.errors.passwordSpecialChars);
           return;
         }
+        if (err.status === 400 && (detail.includes("least") || detail.includes("short") || detail.includes("character"))) {
+          setPasswordError(t.auth.forgotFlow.errors.passwordMinLength);
+          return;
+        }
+
+        // 2. 429 Too many attempts (locks OTP input, requires requesting new code after cooldown)
+        if (err.status === 429 || detail.includes("too many attempts")) {
+          setPhase(1);
+          setOtp(["", "", "", "", "", ""]);
+          setIsOtpLocked(true);
+          sessionStorage.setItem("resetLocked", "true");
+          setOtpError(t.auth.forgotFlow.errors.tooManyAttemptsLock);
+          return;
+        }
+
+        // 3. 400 Invalid or expired code
+        if (err.status === 400 || detail.includes("invalid") || detail.includes("expired")) {
+          setPhase(1);
+          setOtp(["", "", "", "", "", ""]);
+          setShakeKey((k) => k + 1);
+          setOtpError(t.auth.forgotFlow.errors.invalidOrExpiredCode);
+          setTimeout(() => {
+            inputRefs.current[0]?.focus();
+          }, 50);
+          return;
+        }
+
+        // 4. 502 Bad Gateway
+        if (err.status === 502) {
+          setPasswordError(t.auth.forgotFlow.errors.server502);
+          return;
+        }
+
+        // 5. Network error
+        if (err.status === 0 || err.message === "REQUEST_TIMEOUT" || err.message === "NETWORK_ERROR") {
+          setPasswordError(t.auth.forgotFlow.errors.network);
+          return;
+        }
+
+        // Other server error
         if (err.status >= 500) {
           setPasswordError(t.auth.forgotFlow.errors.server);
-        } else {
-          setPasswordError(err.message || t.auth.forgotFlow.errors.network);
+          return;
         }
+
+        setPasswordError(err.message || t.auth.forgotFlow.errors.network);
       } else {
         setPasswordError(t.auth.forgotFlow.errors.network);
       }
@@ -391,10 +359,6 @@ export default function ResetPasswordPage() {
 
   const formattedOtpTimer = `${String(Math.floor(otpTimeLeft / 60)).padStart(2, "0")}:${String(
     otpTimeLeft % 60
-  ).padStart(2, "0")}`;
-
-  const formattedTokenTimer = `${String(Math.floor(tokenTimeLeft / 60)).padStart(2, "0")}:${String(
-    tokenTimeLeft % 60
   ).padStart(2, "0")}`;
 
   return (
@@ -437,182 +401,153 @@ export default function ResetPasswordPage() {
           </p>
         </div>
 
-        {!isMockAuth && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
-          </div>
-        )}
-
         {/* ======================================================== */}
-        {/* GIAI ĐOẠN 1: XÁC THỰC MÃ OTP */}
+        {/* BƯỚC 1: THU THẬP MÃ OTP 6 CHỮ SỐ (CHƯA GỌI API) */}
         {/* ======================================================== */}
         {phase === 1 && (
           <div className="space-y-5">
-            {showOtpSuccessBadge ? (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-green-50 text-green-800 p-6 rounded-xl text-center space-y-2 border border-green-200"
+            {/* Masked Email Banner */}
+            <div className="bg-sky-50/70 border border-sky-100 rounded-lg p-3 flex items-center justify-between">
+              <div className="min-w-0 pr-2">
+                <span className="block text-[11px] text-gray-500 font-medium">
+                  {t.auth.forgotFlow.maskedEmailPrefix}
+                </span>
+                <span className="font-semibold text-sm text-navy-900 truncate block">
+                  {maskEmail(email)}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleChangeEmail}
+                className="text-xs text-sky-600 hover:text-sky-700 font-semibold underline shrink-0 transition-colors"
               >
-                <div className="w-12 h-12 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
-                  <CheckCircle className="w-7 h-7" />
-                </div>
-                <h3 className="font-semibold text-base text-green-900">
-                  {t.auth.forgotFlow.otpVerifiedSuccess}
-                </h3>
+                {t.auth.forgotFlow.changeEmail}
+              </button>
+            </div>
+
+            {/* 6 OTP boxes */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-semibold uppercase tracking-wider text-gray-700">
+                  {t.auth.forgotFlow.enterOtp}
+                </label>
+              </div>
+
+              <motion.div
+                key={shakeKey}
+                animate={shakeKey > 0 ? { x: [-10, 10, -8, 8, -4, 4, 0] } : {}}
+                transition={{ duration: 0.4 }}
+                className="flex justify-between gap-2"
+              >
+                {otp.map((digit, idx) => (
+                  <input
+                    key={idx}
+                    ref={(el) => {
+                      inputRefs.current[idx] = el;
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={1}
+                    value={digit}
+                    disabled={isOtpExpired || isOtpLocked}
+                    onChange={(e) => handleOtpChange(idx, e.target.value)}
+                    onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                    onPaste={handleOtpPaste}
+                    className={`w-11 h-12 text-center text-xl font-bold font-mono rounded-lg border transition-all focus:outline-none ${
+                      isOtpExpired || isOtpLocked
+                        ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
+                        : digit
+                        ? "border-sky-500 bg-sky-50/30 text-navy-900 shadow-sm"
+                        : "border-gray-300 bg-white text-gray-900 focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
+                    }`}
+                  />
+                ))}
               </motion.div>
-            ) : (
-              <>
-                {/* Masked Email Banner */}
-                <div className="bg-sky-50/70 border border-sky-100 rounded-lg p-3 flex items-center justify-between">
-                  <div className="min-w-0 pr-2">
-                    <span className="block text-[11px] text-gray-500 font-medium">
-                      {t.auth.forgotFlow.maskedEmailPrefix}
-                    </span>
-                    <span className="font-semibold text-sm text-navy-900 truncate block">
-                      {maskEmail(email)}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleChangeEmail}
-                    className="text-xs text-sky-600 hover:text-sky-700 font-semibold underline shrink-0 transition-colors"
-                  >
-                    {t.auth.forgotFlow.changeEmail}
-                  </button>
-                </div>
 
-                {/* 6 OTP boxes */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-semibold uppercase tracking-wider text-gray-700">
-                      {t.auth.forgotFlow.enterOtp}
-                    </label>
-                    {isMockAuth && (
-                      <span className="text-[11px] font-mono text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                        {t.auth.forgotFlow.mockOtpHint}
+              {/* Countdown & Resend */}
+              <div className="flex items-center justify-between mt-2.5 text-xs">
+                <div className="flex items-center gap-1.5 font-medium">
+                  <Clock className="w-3.5 h-3.5 text-gray-400" />
+                  {isOtpExpired ? (
+                    <span className="text-red-600 font-semibold">
+                      {t.auth.forgotFlow.codeExpired}
+                    </span>
+                  ) : (
+                    <span className="text-gray-600">
+                      {t.auth.forgotFlow.codeExpiresIn}{" "}
+                      <span className="font-mono font-bold text-sky-600">
+                        {formattedOtpTimer}
                       </span>
-                    )}
-                  </div>
-
-                  <motion.div
-                    key={shakeKey}
-                    animate={shakeKey > 0 ? { x: [-10, 10, -8, 8, -4, 4, 0] } : {}}
-                    transition={{ duration: 0.4 }}
-                    className="flex justify-between gap-2"
-                  >
-                    {otp.map((digit, idx) => (
-                      <input
-                        key={idx}
-                        ref={(el) => {
-                          inputRefs.current[idx] = el;
-                        }}
-                        type="text"
-                        inputMode="numeric"
-                        autoComplete="one-time-code"
-                        maxLength={1}
-                        value={digit}
-                        disabled={isOtpExpired || !!lockedMinutes || isVerifyingOtp}
-                        onChange={(e) => handleOtpChange(idx, e.target.value)}
-                        onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                        onPaste={handleOtpPaste}
-                        className={`w-11 h-12 text-center text-xl font-bold font-mono rounded-lg border transition-all focus:outline-none ${
-                          isOtpExpired || !!lockedMinutes
-                            ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed"
-                            : digit
-                            ? "border-sky-500 bg-sky-50/30 text-navy-900 shadow-sm"
-                            : "border-gray-300 bg-white text-gray-900 focus:border-sky-500 focus:ring-2 focus:ring-sky-100"
-                        }`}
-                      />
-                    ))}
-                  </motion.div>
-
-                  {/* Countdown & Resend */}
-                  <div className="flex items-center justify-between mt-2.5 text-xs">
-                    <div className="flex items-center gap-1.5 font-medium">
-                      <Clock className="w-3.5 h-3.5 text-gray-400" />
-                      {isOtpExpired ? (
-                        <span className="text-red-600 font-semibold">
-                          {t.auth.forgotFlow.codeExpired}
-                        </span>
-                      ) : (
-                        <span className="text-gray-600">
-                          {t.auth.forgotFlow.codeExpiresIn}{" "}
-                          <span className="font-mono font-bold text-sky-600">
-                            {formattedOtpTimer}
-                          </span>
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      {resendCooldown > 0 ? (
-                        <span className="text-gray-400">
-                          {t.auth.forgotFlow.resendCooldown.replace(
-                            "{seconds}",
-                            resendCooldown.toString()
-                          )}
-                        </span>
-                      ) : resendCount >= 3 ? (
-                        <span className="text-gray-400 italic">
-                          {t.auth.forgotFlow.resendLimitReached}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleResendOtp}
-                          disabled={isResending}
-                          className="text-sky-600 hover:text-sky-700 font-semibold inline-flex items-center gap-1 transition-colors"
-                        >
-                          <RefreshCw
-                            className={`w-3 h-3 ${isResending ? "animate-spin" : ""}`}
-                          />
-                          <span>{t.auth.forgotFlow.resendOtp}</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                    </span>
+                  )}
                 </div>
 
-                {/* Error Display */}
-                {otpError && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-lg flex items-start gap-2">
-                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-600" />
-                    <span className="leading-relaxed">{otpError}</span>
-                  </div>
-                )}
+                <div>
+                  {resendCooldown > 0 ? (
+                    <span className="text-gray-400 font-mono">
+                      {t.auth.forgotFlow.resendCooldown.replace(
+                        "{seconds}",
+                        resendCooldown.toString()
+                      )}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResendOtp}
+                      disabled={isResending}
+                      className="text-sky-600 hover:text-sky-700 font-semibold inline-flex items-center gap-1 transition-colors disabled:opacity-50"
+                    >
+                      <RefreshCw
+                        className={`w-3 h-3 ${isResending ? "animate-spin" : ""}`}
+                      />
+                      <span>
+                        {isOtpLocked
+                          ? t.auth.forgotFlow.requestNewCode || "Gửi mã mới"
+                          : t.auth.forgotFlow.resendOtp}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
 
-                {/* Verify OTP Button */}
-                <Button
-                  type="button"
-                  onClick={() => triggerVerifyOtp()}
-                  disabled={
-                    otp.some((d) => !d) ||
-                    isVerifyingOtp ||
-                    isOtpExpired ||
-                    !!lockedMinutes
-                  }
-                  className="w-full h-11 text-base font-semibold"
-                >
-                  {isVerifyingOtp
-                    ? t.auth.forgotFlow.verifyingOtpButton
-                    : lockedMinutes
-                    ? t.auth.forgotFlow.errors.tooManyAttempts.replace(
-                        "{minutes}",
-                        lockedMinutes.toString()
-                      )
-                    : t.auth.forgotFlow.verifyOtpButton}
-                </Button>
-              </>
+            {/* Resend Success Notice */}
+            {resendNotice && (
+              <div className="bg-sky-50 border border-sky-200 text-sky-800 text-xs p-3 rounded-lg flex items-start gap-2">
+                <CheckCircle className="w-4 h-4 mt-0.5 shrink-0 text-sky-600" />
+                <span className="leading-relaxed">{resendNotice}</span>
+              </div>
             )}
+
+            {/* Error Display */}
+            {otpError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-3 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-600" />
+                <span className="leading-relaxed">{otpError}</span>
+              </div>
+            )}
+
+            {/* Continue Button to Step 2 (NO API call here) */}
+            <Button
+              type="button"
+              onClick={() => goToPhase2()}
+              disabled={
+                otp.some((d) => !d) ||
+                isOtpExpired ||
+                isOtpLocked
+              }
+              className="w-full h-11 text-base font-semibold"
+            >
+              {t.auth.forgotFlow.continueButton || "Tiếp tục"}
+            </Button>
           </div>
         )}
 
         {/* ======================================================== */}
-        {/* GIAI ĐOẠN 2: ĐẶT MẬT KHẨU MỚI (chỉ hiện khi có resetToken) */}
+        {/* BƯỚC 2: THIẾT LẬP MẬT KHẨU MỚI & GỬI API DUY NHẤT */}
         {/* ======================================================== */}
-        {phase === 2 && resetToken && (
+        {phase === 2 && (
           <div>
             {isFinalSuccess ? (
               <motion.div
@@ -632,14 +567,21 @@ export default function ResetPasswordPage() {
               </motion.div>
             ) : (
               <form className="space-y-5" onSubmit={handleResetPassword} noValidate>
-                {/* Reset session expiration countdown */}
-                <div className="bg-amber-50/80 border border-amber-200 rounded-lg p-2.5 flex items-center justify-between text-xs text-amber-800 font-medium">
-                  <span className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-amber-600" />
-                    <span>{t.auth.forgotFlow.tokenExpiresIn}</span>
-                  </span>
-                  <span className="font-mono font-bold text-amber-900">
-                    {formattedTokenTimer}
+                {/* Back to Step 1 Button */}
+                <div className="flex justify-between items-center text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhase(1);
+                      setPasswordError("");
+                    }}
+                    className="text-sky-600 hover:text-sky-700 font-semibold inline-flex items-center gap-1 transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Sửa mã OTP ({otp.join("")})</span>
+                  </button>
+                  <span className="text-gray-500 font-mono">
+                    {maskEmail(email)}
                   </span>
                 </div>
 
@@ -678,104 +620,56 @@ export default function ResetPasswordPage() {
                     </button>
                   </div>
 
-                  {/* Password strength meter and checklist (only visible while typing) */}
-                  <AnimatePresence>
-                    {newPassword.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-2.5 p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2 overflow-hidden"
+                  {/* Password rules checklist */}
+                  <div className="mt-2.5 p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2">
+                    <div className="text-xs font-medium text-gray-600">
+                      {t.auth.forgotFlow.rules.title}
+                    </div>
+
+                    <div className="text-[11px] space-y-1 pt-0.5">
+                      {/* Rule 1: Min length (MIN_PASSWORD_LENGTH) */}
+                      <div
+                        className={`flex items-center gap-1.5 ${
+                          rules.length ? "text-green-600 font-medium" : "text-gray-400"
+                        }`}
                       >
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-medium text-gray-600">
-                            {t.auth.forgotFlow.rules.title}
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              strengthScore < 2
-                                ? "text-red-600"
-                                : strengthScore < 4
-                                ? "text-amber-600"
-                                : "text-green-600"
-                            }`}
-                          >
-                            {strengthScore < 2
-                              ? t.auth.forgotFlow.strength.weak
-                              : strengthScore < 4
-                              ? t.auth.forgotFlow.strength.fair
-                              : t.auth.forgotFlow.strength.strong}
-                          </span>
-                        </div>
+                        {rules.length ? (
+                          <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
+                        )}
+                        <span>{t.auth.forgotFlow.rules.minLength}</span>
+                      </div>
 
-                        {/* Progress Bar */}
-                        <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-300 ${
-                              strengthScore < 2
-                                ? "bg-red-500"
-                                : strengthScore < 4
-                                ? "bg-amber-500"
-                                : "bg-green-500"
-                            }`}
-                            style={{ width: `${(strengthScore / 4) * 100}%` }}
-                          />
-                        </div>
+                      {/* Rule 2: Letters and digits only */}
+                      <div
+                        className={`flex items-center gap-1.5 ${
+                          rules.alphanumeric ? "text-green-600 font-medium" : "text-gray-400"
+                        }`}
+                      >
+                        {rules.alphanumeric ? (
+                          <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
+                        )}
+                        <span>{t.auth.forgotFlow.rules.alphanumeric}</span>
+                      </div>
 
-                        {/* 4 Rules dynamically ticked */}
-                        <div className="text-[11px] grid grid-cols-2 gap-1.5 pt-1">
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.length ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.length ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.minLength}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.upper ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.upper ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.uppercase}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.lower ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.lower ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.lowercase}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.number ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.number ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.number}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                      {/* Rule 3: Passwords match */}
+                      <div
+                        className={`flex items-center gap-1.5 ${
+                          rules.match ? "text-green-600 font-medium" : "text-gray-400"
+                        }`}
+                      >
+                        {rules.match ? (
+                          <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
+                        )}
+                        <span>{t.auth.forgotFlow.rules.match}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Confirm New Password Input */}
@@ -801,9 +695,9 @@ export default function ResetPasswordPage() {
                       disabled={isResettingPassword}
                       placeholder={t.auth.forgotFlow.confirmNewPasswordPlaceholder}
                       className={`w-full bg-white border rounded-lg p-2.5 pr-10 text-sm focus:outline-none focus:ring-2 transition-colors ${
-                        confirmTouched && confirmPassword && !passwordsMatch
+                        confirmTouched && confirmPassword && !rules.match
                           ? "border-red-500 focus:border-red-500 focus:ring-red-100"
-                          : confirmTouched && passwordsMatch
+                          : confirmTouched && rules.match
                           ? "border-green-500 focus:border-green-500 focus:ring-green-100"
                           : "border-gray-300 focus:border-sky-500 focus:ring-sky-100"
                       }`}
@@ -821,7 +715,7 @@ export default function ResetPasswordPage() {
                     </button>
                   </div>
 
-                  {confirmTouched && confirmPassword && !passwordsMatch && (
+                  {confirmTouched && confirmPassword && !rules.match && (
                     <p className="mt-1 text-xs text-red-600 flex items-center gap-1">
                       <AlertCircle className="w-3.5 h-3.5" />
                       <span>{t.auth.forgotFlow.errors.passwordMismatch}</span>

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api/auth";
 import { isMockAuth } from "@/lib/api/client";
+import { MIN_PASSWORD_LENGTH } from "@/config";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -35,7 +36,7 @@ function getSafeRedirect(redirect: string | null): string {
 
 const getLoginSchema = (t: any) => z.object({
   identifier: z.string().min(1, t.auth.errors.identifierRequired),
-  password: z.string().min(8, t.auth.errors.passwordMin),
+  password: z.string().min(MIN_PASSWORD_LENGTH, t.auth.errors.passwordMin),
 });
 
 type LoginForm = z.infer<ReturnType<typeof getLoginSchema>>;

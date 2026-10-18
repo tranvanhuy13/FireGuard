@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { authApi } from '@/lib/api/auth';
 import { isMockAuth } from '@/lib/api/client';
+import { MIN_PASSWORD_LENGTH } from '@/config';
 import { UserCircle, Key, Link as LinkIcon, Eye, EyeOff, Check, Camera } from 'lucide-react';
 import Link from 'next/link';
 
@@ -55,7 +56,7 @@ export default function ProfilePage() {
   const canSaveProfile = isProfileChanged && !phoneError;
 
   const rules = {
-    length: newPassword.length >= 8,
+    length: newPassword.length >= MIN_PASSWORD_LENGTH,
     upper: /[A-Z]/.test(newPassword),
     lower: /[a-z]/.test(newPassword),
     number: /[0-9]/.test(newPassword)

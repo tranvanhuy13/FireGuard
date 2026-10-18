@@ -1,5 +1,6 @@
 /* eslint-disable */
 import { apiClient, isMockAuth, ApiError, getAuthHeader, setAuthHeader, clearAuthSession } from "./client";
+import { MIN_PASSWORD_LENGTH } from "@/config";
 
 export interface User {
   id: string;
@@ -255,113 +256,99 @@ export const api = {
     throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
   },
 
-  forgotPassword: async (email: string): Promise<{ message: string; cooldown?: number }> => {
+  forgotPassword: async (email: string): Promise<{ message: string }> => {
+    const trimmedEmail = email.trim().toLowerCase();
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (typeof window !== 'undefined') {
             const lastSent = sessionStorage.getItem('mockForgotLastSent');
             const now = Date.now();
-            if (lastSent && now - parseInt(lastSent) < 5000) {
-              const waitSec = Math.ceil((5000 - (now - parseInt(lastSent))) / 1000);
+            if (lastSent && now - parseInt(lastSent, 10) < 60000) {
+              const waitSec = Math.ceil((60000 - (now - parseInt(lastSent, 10))) / 1000);
               return reject(new ApiError("TOO_MANY_REQUESTS", 429, { retryAfter: waitSec }));
             }
             sessionStorage.setItem('mockForgotLastSent', now.toString());
-            resolve({ 
-              message: "neutralNotice",
-              cooldown: 30
-            });
-          } else {
-            resolve({ message: "neutralNotice" });
+            // Randomly generate OTP in mock instead of fixed code
+            const mockOtp = String(Math.floor(100000 + Math.random() * 900000));
+            sessionStorage.setItem('mockForgotOtp', mockOtp);
+            sessionStorage.setItem('mockForgotAttempts', "0");
           }
+          resolve({ message: "If that account exists, a reset code has been sent." });
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+
+    return apiClient<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: trimmedEmail }),
+    });
   },
 
-  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ resetToken: string; expiresIn: number }> => {
+  resetPassword: async (data: { email: string; otp: string; new_password: string }): Promise<{ message: string }> => {
+    const trimmedEmail = data.email.trim().toLowerCase();
+    const trimmedOtp = data.otp.trim();
+
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (typeof window !== 'undefined') {
-            const lockedUntil = parseInt(sessionStorage.getItem('resetLockedUntil') || '0', 10);
-            const now = Date.now();
-
-            if (lockedUntil > now) {
-              const remainingSec = Math.ceil((lockedUntil - now) / 1000);
-              return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { remainingSec }));
+            // Check password rules: alphanumeric only, at least MIN_PASSWORD_LENGTH chars
+            if (!/^[A-Za-z0-9]+$/.test(data.new_password)) {
+              return reject(new ApiError("Password must not contain special characters", 400));
+            }
+            if (data.new_password.length < MIN_PASSWORD_LENGTH) {
+              return reject(new ApiError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`, 400));
             }
 
-            const expiresAt = parseInt(sessionStorage.getItem('resetExpiresAt') || '0', 10);
-            if (expiresAt > 0 && now > expiresAt) {
-              return reject(new ApiError("OTP_EXPIRED", 400));
+            const expectedOtp = sessionStorage.getItem('mockForgotOtp');
+            let attempts = parseInt(sessionStorage.getItem('mockForgotAttempts') || '0', 10);
+
+            if (attempts >= 5) {
+              sessionStorage.removeItem('mockForgotOtp');
+              return reject(new ApiError("Too many attempts. Please request a new code.", 429));
             }
 
-            let attempts = parseInt(sessionStorage.getItem('resetAttempts') || '5', 10);
-
-            if (data.otp !== '123456') {
-              attempts -= 1;
-              sessionStorage.setItem('resetAttempts', Math.max(0, attempts).toString());
-
-              if (attempts <= 0) {
-                const lockTime = now + 5 * 60 * 1000; // Lock 5 minutes
-                sessionStorage.setItem('resetLockedUntil', lockTime.toString());
-                return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { remainingSec: 300 }));
+            if (!expectedOtp || trimmedOtp !== expectedOtp) {
+              attempts += 1;
+              sessionStorage.setItem('mockForgotAttempts', attempts.toString());
+              if (attempts >= 5) {
+                sessionStorage.removeItem('mockForgotOtp');
+                return reject(new ApiError("Too many attempts. Please request a new code.", 429));
               }
-
-              return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));
+              return reject(new ApiError("Invalid or expired code", 400));
             }
 
-            // Valid OTP -> return resetToken valid for 10 mins (600s)
-            const resetToken = `mock-reset-token-${Date.now()}`;
-            resolve({
-              resetToken,
-              expiresIn: 600,
-            });
-          } else {
-            resolve({
-              resetToken: `mock-reset-token-${Date.now()}`,
-              expiresIn: 600,
-            });
-          }
-        }, 500);
-      });
-    }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
-  },
-
-  resetPassword: async (data: { resetToken: string; newPassword: string; email?: string }): Promise<{ message: string }> => {
-    if (isMockAuth) {
-      return new Promise((resolve, reject) => {
-        setTimeout(() => {
-          if (typeof window !== 'undefined') {
-            if (!data.resetToken) {
-              return reject(new ApiError("INVALID_RESET_TOKEN", 400));
-            }
-
-            // Success: update password in mockUsers if user exists
-            const targetEmail = data.email || sessionStorage.getItem('resetEmail');
+            // Correct OTP: update password in mockUsers
+            sessionStorage.removeItem('mockForgotOtp');
+            sessionStorage.removeItem('mockForgotAttempts');
             const usersStr = localStorage.getItem('mockUsers');
-            if (usersStr && targetEmail) {
+            if (usersStr) {
               try {
                 const users = JSON.parse(usersStr);
-                const userIndex = users.findIndex((u: any) => u.email === targetEmail);
+                const userIndex = users.findIndex((u: any) => u.email.toLowerCase() === trimmedEmail);
                 if (userIndex !== -1) {
-                  users[userIndex].password = data.newPassword;
+                  users[userIndex].password = data.new_password;
                   localStorage.setItem('mockUsers', JSON.stringify(users));
                 }
               } catch (e) {}
             }
-
-            resolve({ message: "RESET_SUCCESS" });
+            resolve({ message: "Password has been reset" });
           } else {
-            resolve({ message: "RESET_SUCCESS" });
+            resolve({ message: "Password has been reset" });
           }
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+
+    return apiClient<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        email: trimmedEmail,
+        otp: trimmedOtp,
+        new_password: data.new_password,
+      }),
+    });
   },
 };
 

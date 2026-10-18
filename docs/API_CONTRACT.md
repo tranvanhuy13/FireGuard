@@ -141,6 +141,50 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   - Frontend tự động xin token mới trước khi hết hạn (hoặc khi gặp lỗi) trong bộ nhớ React context.
   - Tuyệt đối không lưu token vào `localStorage` hay ghi ra `console`.
 
+#### 1.1.7. Yêu cầu mã OTP quên mật khẩu (Forgot Password)
+- **Method:** `POST`
+- **Path:** `/auth/forgot-password`
+- **Auth:** Không yêu cầu (Public)
+- **Request Body:**
+  ```json
+  {
+    "email": "user@gmail.com"
+  }
+  ```
+- **Response thành công (HTTP 200):**
+  ```json
+  {
+    "message": "If that account exists, a reset code has been sent."
+  }
+  ```
+- **Quy tắc an ninh & nghiệp vụ:**
+  - Luôn trả về HTTP 200 cùng thông báo trung tính kể cả khi email không tồn tại trong hệ thống, tài khoản chưa xác thực kích hoạt, hoặc đang trong thời gian chờ gửi lại (`OTP_RESEND_COOLDOWN_SECONDS = 60s`).
+  - Khi gửi email thất bại từ phía máy chủ SMTP, backend trả về lỗi `502 Bad Gateway` (`{"detail": "Could not send OTP email"}`).
+
+#### 1.1.8. Đặt lại mật khẩu mới (Reset Password)
+- **Method:** `POST`
+- **Path:** `/auth/reset-password`
+- **Auth:** Không yêu cầu (Public)
+- **Request Body:**
+  ```json
+  {
+    "email": "user@gmail.com",
+    "otp": "123456",
+    "new_password": "newPassword123"
+  }
+  ```
+- **Response thành công (HTTP 200):**
+  ```json
+  {
+    "message": "Password has been reset"
+  }
+  ```
+- **Mã lỗi & Quy tắc kiểm tra:**
+  - `400 Bad Request`: `"Password must not contain special characters"` (Mật khẩu chỉ bao gồm chữ cái và chữ số).
+  - `400 Bad Request`: `"Password must be at least 6 characters"` (Lưu ý: Backend hiện đang kiểm tra tối thiểu 6 ký tự `MIN_PASSWORD_LENGTH = 6`, trong khi Giao diện Frontend theo yêu cầu của team đang kiểm tra tối thiểu 8 ký tự `MIN_PASSWORD_LENGTH = 8`, chờ backend cập nhật lên 8 ký tự).
+  - `400 Bad Request`: `"Invalid or expired code"` (Mã OTP sai, mã hết hạn sau 5 phút `OTP_EXPIRE_MINUTES = 5`, hoặc tài khoản không có mã hợp lệ).
+  - `429 Too Many Requests`: `"Too many attempts. Please request a new code."` (Nhập sai quá `MAX_OTP_ATTEMPTS = 5` lần; backend lập tức xóa mã OTP trong database, vô hiệu hóa mã hiện tại).
+
 ---
 
 ### 1.2. Luồng Video Stream & WebSocket Cảnh Báo
@@ -347,12 +391,13 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 - **Cần Backend bổ sung:**
   - `GET /audit-logs`: Danh sách nhật ký thao tác hệ thống (thời gian, user, action, target, IP, result).
 
-### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
-- **Hiện trạng:** Chưa có endpoint quên và đặt lại mật khẩu.
-- **Cần Backend bổ sung:**
-  - `POST /auth/forgot-password`: Nhận `{ "email": str }`, gửi OTP khôi phục qua email.
-  - `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`, xác thực mã và trả về `reset_token` ngắn hạn.
-  - `POST /auth/reset-password`: Nhận `{ "reset_token": str, "new_password": str }`, đổi mật khẩu an toàn.
+### 2.4. Cải Tiến Luồng Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Improvements)
+- **Hiện trạng:** Backend đã có `POST /auth/forgot-password` và `POST /auth/reset-password`. Tuy nhiên, luồng hiện tại yêu cầu gửi đồng thời cả OTP và mật khẩu mới trong một request duy nhất ở bước cuối.
+- **Cần Backend bổ sung / cải tiến:**
+  - **(a) Endpoint xác thực OTP riêng:** Bổ sung `POST /auth/verify-reset-otp` nhận `{ "email": str, "otp": str }` và trả về `reset_token` ngắn hạn, giúp Frontend xác thực OTP thành công trước khi hiển thị form mật khẩu mới.
+  - **(b) Trả số lần thử còn lại hoặc thời hạn OTP:** Trả về trường `remaining_attempts` hoặc thời hạn `expires_in` trong phản hồi khi người dùng nhập sai mã hoặc khi yêu cầu mã mới.
+  - **(c) Đồng bộ cấu hình thời gian hết hạn OTP:** Đồng bộ hằng số `OTP_EXPIRE_MINUTES` trên backend thành 2 phút (hiện tại backend đang cấu hình 5 phút = 300 giây, trong khi yêu cầu của mentor là 2 phút = 120 giây).
+  - **(d) Cập nhật độ dài tối thiểu mật khẩu lên 8 ký tự:** Cập nhật `MIN_PASSWORD_LENGTH = 8` trên backend (hiện tại backend đang để 6 ký tự, trong khi giao diện Frontend đã nâng lên 8 ký tự theo yêu cầu mới của team).
 
 ### 2.5. Đăng Xuất (Logout API)
 - **Hiện trạng:** HTTP Basic Auth là stateless nên phía backend chưa có endpoint đăng xuất. Frontend hiện tại chỉ xóa thông tin phiên ở client memory và `sessionStorage`.
