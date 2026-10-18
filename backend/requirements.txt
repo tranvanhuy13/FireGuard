@@ -8,6 +8,7 @@ omegaconf
 python-dotenv
 requests
 passlib
+bcrypt<4.1
 sqlalchemy
 google-cloud-storage
 minio

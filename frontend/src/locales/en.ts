@@ -153,7 +153,7 @@ export const en = {
       otpVerifiedSuccess: "OTP verification successful!",
       phase2Title: "Set New Password",
       phase2Desc: "Please enter a secure new password for your account.",
-      tokenExpiresIn: "Session expires in:",
+      tokenExpiresIn: "Reset code expires in:",
       tokenExpiredError: "Password reset session has expired. Please restart the process.",
       sendOtp: "Send OTP Code",
       sendingOtp: "Sending...",

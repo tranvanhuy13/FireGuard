@@ -153,7 +153,7 @@ export const vi = {
       otpVerifiedSuccess: "Xác thực mã OTP thành công!",
       phase2Title: "Thiết lập mật khẩu mới",
       phase2Desc: "Vui lòng nhập mật khẩu mới bảo mật cho tài khoản của bạn.",
-      tokenExpiresIn: "Phiên làm việc hết hạn sau:",
+      tokenExpiresIn: "Mã đặt lại hết hạn sau:",
       tokenExpiredError: "Phiên đặt lại mật khẩu đã hết hạn. Vui lòng thực hiện lại từ đầu.",
       sendOtp: "Gửi mã OTP",
       sendingOtp: "Đang gửi mã...",

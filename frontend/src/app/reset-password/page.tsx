@@ -32,8 +32,7 @@ export default function ResetPasswordPage() {
 
   // Phase state: 1 = Verify OTP, 2 = Set New Password
   const [phase, setPhase] = useState<1 | 2>(1);
-  // resetToken is STRICTLY stored only in React state (NEVER in localStorage, NEVER in URL)
-  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [otpVerified, setOtpVerified] = useState(false);
 
   // Email and session
   const [email, setEmail] = useState("");
@@ -87,6 +86,11 @@ export default function ResetPasswordPage() {
       setAttemptsLeft(parseInt(storedAttempts, 10));
     }
 
+    const resendAt = parseInt(sessionStorage.getItem("resetResendAt") || "0", 10);
+    if (resendAt > Date.now()) {
+      setResendCooldown(Math.ceil((resendAt - Date.now()) / 1000));
+    }
+
     const lockedUntil = parseInt(sessionStorage.getItem("resetLockedUntil") || "0", 10);
     if (lockedUntil > Date.now()) {
       const remainingMin = Math.ceil((lockedUntil - Date.now()) / (60 * 1000));
@@ -130,15 +134,14 @@ export default function ResetPasswordPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // 5. resetToken countdown timer (Phase 2 - 10 minutes)
+  // 5. Keep the password form within the OTP's remaining validity.
   useEffect(() => {
-    if (phase !== 2 || !resetToken) return;
+    if (phase !== 2 || !otpVerified) return;
 
     const timer = setInterval(() => {
       setTokenTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          // Token expired: redirect back to /forgot-password
           alert(t.auth.forgotFlow.tokenExpiredError);
           router.replace("/forgot-password");
           return 0;
@@ -148,7 +151,7 @@ export default function ResetPasswordPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [phase, resetToken, router, t]);
+  }, [phase, otpVerified, router, t]);
 
   // Mask email: ab***@gmail.com
   const maskEmail = (raw: string): string => {
@@ -219,15 +222,15 @@ export default function ResetPasswordPage() {
       setIsVerifyingOtp(true);
       setOtpError("");
 
-      const res = await authApi.verifyResetOtp({
+      await authApi.verifyResetOtp({
         email,
         otp: code,
       });
 
       // Show temporary green checkmark
       setShowOtpSuccessBadge(true);
-      setResetToken(res.resetToken);
-      setTokenTimeLeft(res.expiresIn || 600);
+      setOtpVerified(true);
+      setTokenTimeLeft(otpTimeLeft);
 
       // Transition to Phase 2 after 700ms
       setTimeout(() => {
@@ -281,23 +284,26 @@ export default function ResetPasswordPage() {
       setOtpError("");
       await authApi.forgotPassword(email);
 
-      const newExpiresAt = Date.now() + 120 * 1000;
+      const newExpiresAt = Date.now() + 5 * 60 * 1000;
       sessionStorage.setItem("resetExpiresAt", newExpiresAt.toString());
       sessionStorage.setItem("resetAttempts", "5");
+      sessionStorage.setItem("resetResendAt", (Date.now() + 60 * 1000).toString());
       sessionStorage.removeItem("resetLockedUntil");
 
-      setOtpTimeLeft(120);
+      setOtpTimeLeft(5 * 60);
       setIsOtpExpired(false);
       setAttemptsLeft(5);
       setLockedMinutes(null);
       setOtp(["", "", "", "", "", ""]);
-      setResendCooldown(30);
+      setOtpVerified(false);
+      setPhase(1);
+      setResendCooldown(60);
       setResendCount((prev) => prev + 1);
 
       inputRefs.current[0]?.focus();
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 429) {
-        const retryAfter = err.data?.retryAfter || 30;
+        const retryAfter = err.data?.retryAfter || 60;
         setResendCooldown(retryAfter);
         setOtpError(
           t.auth.forgotFlow.errors.rateLimited.replace("{seconds}", retryAfter.toString())
@@ -315,6 +321,7 @@ export default function ResetPasswordPage() {
     sessionStorage.removeItem("resetExpiresAt");
     sessionStorage.removeItem("resetAttempts");
     sessionStorage.removeItem("resetLockedUntil");
+    sessionStorage.removeItem("resetResendAt");
     router.push("/forgot-password");
   };
 
@@ -339,18 +346,18 @@ export default function ResetPasswordPage() {
     isPasswordValid &&
     passwordsMatch &&
     !isResettingPassword &&
-    !!resetToken;
+    otpVerified;
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmitPhase2 || !resetToken) return;
+    if (!canSubmitPhase2) return;
 
     try {
       setIsResettingPassword(true);
       setPasswordError("");
 
       await authApi.resetPassword({
-        resetToken,
+        otp: otp.join(""),
         newPassword,
         email,
       });
@@ -360,6 +367,7 @@ export default function ResetPasswordPage() {
       sessionStorage.removeItem("resetExpiresAt");
       sessionStorage.removeItem("resetAttempts");
       sessionStorage.removeItem("resetLockedUntil");
+      sessionStorage.removeItem("resetResendAt");
 
       // Save toast message for /login page
       sessionStorage.setItem("loginToastSuccess", t.auth.forgotFlow.resetSuccessToast);
@@ -371,9 +379,15 @@ export default function ResetPasswordPage() {
       }, 1200);
     } catch (err: any) {
       if (err instanceof ApiError) {
-        if (err.status === 400 && err.message === "INVALID_RESET_TOKEN") {
-          alert(t.auth.forgotFlow.tokenExpiredError);
-          router.replace("/forgot-password");
+        if (err.status === 400 && err.message === "Password must not contain special characters") {
+          setPasswordError(t.auth.forgotFlow.errors.passwordPolicy);
+          return;
+        }
+        if (err.status === 400) {
+          setPhase(1);
+          setOtpVerified(false);
+          setIsOtpExpired(true);
+          setPasswordError(t.auth.forgotFlow.errors.otpExpired);
           return;
         }
         if (err.status >= 500) {
@@ -610,9 +624,9 @@ export default function ResetPasswordPage() {
         )}
 
         {/* ======================================================== */}
-        {/* GIAI ĐOẠN 2: ĐẶT MẬT KHẨU MỚI (chỉ hiện khi có resetToken) */}
+        {/* GIAI ĐOẠN 2: ĐẶT MẬT KHẨU MỚI (chỉ hiện sau khi xác thực OTP) */}
         {/* ======================================================== */}
-        {phase === 2 && resetToken && (
+        {phase === 2 && otpVerified && (
           <div>
             {isFinalSuccess ? (
               <motion.div

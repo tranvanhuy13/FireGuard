@@ -53,24 +53,36 @@ def otp_seconds_since_sent(expires_at):
     sent_at = datetime.fromisoformat(expires_at) - timedelta(minutes=OTP_EXPIRE_MINUTES)
     return (datetime.now(timezone.utc) - sent_at).total_seconds()
 
-def send_otp_email(to_email: str, otp: str):
+def send_otp_email(to_email: str, otp: str, purpose: str = "verify"):
+    if purpose not in {"verify", "reset"}:
+        raise ValueError(f"Unsupported OTP purpose: {purpose}")
+
+    action = "reset your password" if purpose == "reset" else "verify your account"
+    subject = "Your FireGuard password reset code" if purpose == "reset" else "Your FireGuard verification code"
+    ignored_request = (
+        "If you did not request a password reset, you can ignore this e-mail."
+        if purpose == "reset"
+        else "If you did not create an account, you can ignore this e-mail."
+    )
+
+    if DEV_MODE:
+        logger.warning("[DEV MODE] OTP for %s is %s", to_email, otp)
+        return
+
     sender = os.getenv("GMAIL_ADDRESS")
-    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").replace(" ", "")
+    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").replace(" ", "").strip()
 
     if not sender or not app_password:
-        if DEV_MODE:
-            logger.warning("[DEV MODE] OTP for %s is %s", to_email, otp)
-            return
         raise RuntimeError("GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not configured")
 
     msg = EmailMessage()
-    msg["Subject"] = "Your verification code"
+    msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = to_email
     msg.set_content(
-        f"Your verification code is: {otp}\n\n"
+        f"Your code to {action} is: {otp}\n\n"
         f"It expires in {OTP_EXPIRE_MINUTES} minutes. "
-        "If you did not create an account, you can ignore this e-mail."
+        f"{ignored_request}"
     )
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:
         smtp.starttls()

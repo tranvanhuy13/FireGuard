@@ -277,10 +277,13 @@ export const api = {
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    return apiClient<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    });
   },
 
-  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ resetToken: string; expiresIn: number }> => {
+  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
@@ -313,45 +316,41 @@ export const api = {
               return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));
             }
 
-            // Valid OTP -> return resetToken valid for 10 mins (600s)
-            const resetToken = `mock-reset-token-${Date.now()}`;
-            resolve({
-              resetToken,
-              expiresIn: 600,
-            });
+            resolve({ message: "OTP verified" });
           } else {
-            resolve({
-              resetToken: `mock-reset-token-${Date.now()}`,
-              expiresIn: 600,
-            });
+            resolve({ message: "OTP verified" });
           }
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    return apiClient<{ message: string }>("/auth/verify-reset-otp", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+        otp: data.otp.trim(),
+      }),
+    });
   },
 
-  resetPassword: async (data: { resetToken: string; newPassword: string; email?: string }): Promise<{ message: string }> => {
+  resetPassword: async (data: { email: string; otp: string; newPassword: string }): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (typeof window !== 'undefined') {
-            if (!data.resetToken) {
-              return reject(new ApiError("INVALID_RESET_TOKEN", 400));
+            if (data.otp !== "123456") {
+              return reject(new ApiError("INVALID_OTP", 400));
             }
 
             // Success: update password in mockUsers if user exists
             const targetEmail = data.email || sessionStorage.getItem('resetEmail');
             const usersStr = localStorage.getItem('mockUsers');
             if (usersStr && targetEmail) {
-              try {
-                const users = JSON.parse(usersStr);
-                const userIndex = users.findIndex((u: any) => u.email === targetEmail);
-                if (userIndex !== -1) {
-                  users[userIndex].password = data.newPassword;
-                  localStorage.setItem('mockUsers', JSON.stringify(users));
-                }
-              } catch (e) {}
+              const users = JSON.parse(usersStr);
+              const userIndex = users.findIndex((u: any) => u.email === targetEmail);
+              if (userIndex !== -1) {
+                users[userIndex].password = data.newPassword;
+                localStorage.setItem('mockUsers', JSON.stringify(users));
+              }
             }
 
             resolve({ message: "RESET_SUCCESS" });
@@ -361,7 +360,14 @@ export const api = {
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    return apiClient<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+        otp: data.otp.trim(),
+        new_password: data.newPassword,
+      }),
+    });
   },
 };
 
