@@ -254,15 +254,15 @@ export default function ResetPasswordPage() {
           setOtpError(
             t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", rem.toString())
           );
-        } else if (err.message === "OTP_EXPIRED") {
-          setIsOtpExpired(true);
-          setOtpError(t.auth.forgotFlow.errors.otpExpired);
+        } else if (err.status === 400) {
+          // Backend returns 400 "Invalid or expired code" for wrong OTP
+          setOtpError(t.auth.forgotFlow.errors.invalidOrExpiredCode);
         } else if (err.status === 0 || err.message === "REQUEST_TIMEOUT") {
           setOtpError(t.auth.forgotFlow.errors.network);
         } else if (err.status >= 500) {
           setOtpError(t.auth.forgotFlow.errors.server);
         } else {
-          setOtpError(err.message || t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", "4"));
+          setOtpError(t.auth.forgotFlow.errors.unknown);
         }
       } else {
         setOtpError(t.auth.forgotFlow.errors.network);
@@ -410,7 +410,7 @@ export default function ResetPasswordPage() {
         if (err.status >= 500) {
           setPasswordError(t.auth.forgotFlow.errors.server);
         } else {
-          setPasswordError(err.message || t.auth.forgotFlow.errors.network);
+          setPasswordError(t.auth.forgotFlow.errors.unknown);
         }
       } else {
         setPasswordError(t.auth.forgotFlow.errors.network);

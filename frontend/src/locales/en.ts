@@ -192,13 +192,15 @@ export const en = {
         emailInvalid: "Invalid email format",
         otpRequired: "Please enter all 6 digits of the OTP",
         otpInvalid: "Incorrect OTP code. You have {attempts} attempts remaining",
+        invalidOrExpiredCode: "The OTP code is incorrect or has expired",
         otpExpired: "OTP code has expired, please click 'Resend code'",
         tooManyAttempts: "Too many failed attempts. Please request a new code",
         passwordPolicy: "Password does not meet security requirements",
         passwordMismatch: "Passwords do not match",
         rateLimited: "Too many requests. Please wait {seconds} seconds before trying again",
         network: "Cannot connect to server. Please check your network connection",
-        server: "Server error occurred. Please try again later"
+        server: "Server error occurred. Please try again later",
+        unknown: "An error occurred. Please try again"
       }
     }
   },
