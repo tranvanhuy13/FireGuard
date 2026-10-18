@@ -22,9 +22,13 @@ def init_db():
             hashed_password TEXT,
             is_active BOOLEAN DEFAULT 0,
             otp TEXT,
-            otp_expires_at TEXT
+            otp_expires_at TEXT,
+            otp_attempts INTEGER DEFAULT 0
         )
         """
     )
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+    if "otp_attempts" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN otp_attempts INTEGER DEFAULT 0")
     conn.commit()
     conn.close()

@@ -348,11 +348,9 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
   - `GET /audit-logs`: Danh sách nhật ký thao tác hệ thống (thời gian, user, action, target, IP, result).
 
 ### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
-- **Hiện trạng:** Chưa có endpoint quên và đặt lại mật khẩu.
-- **Cần Backend bổ sung:**
-  - `POST /auth/forgot-password`: Nhận `{ "email": str }`, gửi OTP khôi phục qua email.
-  - `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`, xác thực mã và trả về `reset_token` ngắn hạn.
-  - `POST /auth/reset-password`: Nhận `{ "reset_token": str, "new_password": str }`, đổi mật khẩu an toàn.
+- `POST /auth/forgot-password`: Nhận `{ "email": str }`; trả thông báo chung và gửi mã nếu tài khoản đã xác thực tồn tại.
+- `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`; xác thực mã và trả về `{ "message": str, "expires_in": int }`. Có tối đa 5 lần nhập sai.
+- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu phải có tối thiểu 8 ký tự chữ và số; mã OTP chỉ dùng được đến khi hết hạn hoặc đổi mật khẩu thành công.
 
 ### 2.5. Đăng Xuất (Logout API)
 - **Hiện trạng:** HTTP Basic Auth là stateless nên phía backend chưa có endpoint đăng xuất. Frontend hiện tại chỉ xóa thông tin phiên ở client memory và `sessionStorage`.

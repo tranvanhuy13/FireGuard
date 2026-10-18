@@ -10,7 +10,7 @@ from users.models import User
 from .utils import (
     get_password_hash, is_plain_text, is_valid_email,
     generate_otp, otp_expiry, otp_expired, send_otp_email,
-    OTP_RESEND_COOLDOWN_SECONDS, otp_seconds_since_sent,
+    OTP_RESEND_COOLDOWN_SECONDS, otp_seconds_since_sent, otp_seconds_until_expiry,
 )
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 MAX_OTP_ATTEMPTS = 5
-MIN_PASSWORD_LENGTH = 6
+MIN_PASSWORD_LENGTH = 8
 
 def send_new_otp(db, user_id: int, email: str, purpose: str = "verify"):
     otp = generate_otp()
@@ -40,6 +40,9 @@ def signup(user: UserCreate, db = Depends(get_db)):
     email = user.email.strip().lower()
     if not is_plain_text(user.username) or not is_plain_text(user.password):
         raise HTTPException(status_code=400, detail="Username and password must not contain special characters")
+    if len(user.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400,
+                            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
     if not is_valid_email(email):
         raise HTTPException(status_code=400, detail="Please use a valid Gmail address (example@gmail.com).")
     if get_user(db, username=user.username):
@@ -110,6 +113,45 @@ def forgot_password(data: ForgotPassword, db = Depends(get_db)):
     return generic
 
 
+def get_reset_otp_user(db, email: str, otp: str):
+    user = get_user_by_email(db, email.strip().lower())
+    if not user or not user.is_active or not user.otp:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    if otp_expired(user.otp_expires_at):
+        raise HTTPException(status_code=400, detail="OTP_EXPIRED")
+
+    if (user.otp_attempts or 0) >= MAX_OTP_ATTEMPTS:
+        db.execute(
+            "UPDATE users SET otp = NULL, otp_expires_at = NULL WHERE id = ?",
+            (user.id,),
+        )
+        db.commit()
+        raise HTTPException(status_code=429, detail="Too many attempts. Please request a new code.")
+
+    if not secrets.compare_digest(user.otp, otp.strip()):
+        attempts = (user.otp_attempts or 0) + 1
+        if attempts >= MAX_OTP_ATTEMPTS:
+            db.execute(
+                "UPDATE users SET otp = NULL, otp_expires_at = NULL, otp_attempts = ? WHERE id = ?",
+                (attempts, user.id),
+            )
+            db.commit()
+            raise HTTPException(status_code=429, detail="Too many attempts. Please request a new code.")
+        db.execute("UPDATE users SET otp_attempts = ? WHERE id = ?", (attempts, user.id))
+        db.commit()
+        raise HTTPException(status_code=400, detail="INVALID_OTP")
+    return user
+
+
+@router.post("/verify-reset-otp")
+def verify_reset_otp(data: OTPVerify, db = Depends(get_db)):
+    user = get_reset_otp_user(db, data.email, data.otp)
+    return {
+        "message": "OTP verified",
+        "expires_in": otp_seconds_until_expiry(user.otp_expires_at),
+    }
+
+
 @router.post("/reset-password")
 def reset_password(data: ResetPassword, db = Depends(get_db)):
     if not is_plain_text(data.new_password):
@@ -118,24 +160,7 @@ def reset_password(data: ResetPassword, db = Depends(get_db)):
         raise HTTPException(status_code=400,
                             detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
 
-    invalid = HTTPException(status_code=400, detail="Invalid or expired code")
-
-    user = get_user_by_email(db, data.email.strip().lower())
-    if not user or not user.is_active or not user.otp:
-        raise invalid
-    if otp_expired(user.otp_expires_at):
-        raise invalid
-
-    # Brute-force protection: a 6-digit code must not be guessable by retrying
-    if (user.otp_attempts or 0) >= MAX_OTP_ATTEMPTS:
-        db.execute("UPDATE users SET otp = NULL, otp_expires_at = NULL WHERE id = ?", (user.id,))
-        db.commit()
-        raise HTTPException(status_code=429, detail="Too many attempts. Please request a new code.")
-
-    if not secrets.compare_digest(user.otp, data.otp.strip()):
-        db.execute("UPDATE users SET otp_attempts = otp_attempts + 1 WHERE id = ?", (user.id,))
-        db.commit()
-        raise invalid
+    user = get_reset_otp_user(db, data.email, data.otp)
 
     db.execute(
         "UPDATE users SET hashed_password = ?, otp = NULL, otp_expires_at = NULL, otp_attempts = 0 WHERE id = ?",
