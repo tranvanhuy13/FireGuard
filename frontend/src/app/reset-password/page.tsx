@@ -240,26 +240,29 @@ export default function ResetPasswordPage() {
     } catch (err: any) {
       if (err instanceof ApiError) {
         if (err.status === 429) {
-          const min = Math.ceil((err.data?.remainingSec || 300) / 60);
-          setLockedMinutes(min);
-          setOtpError(
-            t.auth.forgotFlow.errors.tooManyAttempts.replace("{minutes}", min.toString())
-          );
+          setIsOtpExpired(true);
+          setLockedMinutes(null);
+          sessionStorage.removeItem("resetLockedUntil");
+          const cooldown = 60;
+          setResendCooldown(cooldown);
+          sessionStorage.setItem("resetResendAt", (Date.now() + cooldown * 1000).toString());
+          setResendCount(0);
+          setOtpError(t.auth.forgotFlow.errors.tooManyAttempts);
         } else if (err.data?.remainingAttempts !== undefined) {
           const rem = err.data.remainingAttempts;
           setAttemptsLeft(rem);
           setOtpError(
             t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", rem.toString())
           );
-        } else if (err.message === "OTP_EXPIRED") {
-          setIsOtpExpired(true);
-          setOtpError(t.auth.forgotFlow.errors.otpExpired);
+        } else if (err.status === 400) {
+          // Backend returns 400 "Invalid or expired code" for wrong OTP
+          setOtpError(t.auth.forgotFlow.errors.invalidOrExpiredCode);
         } else if (err.status === 0 || err.message === "REQUEST_TIMEOUT") {
           setOtpError(t.auth.forgotFlow.errors.network);
         } else if (err.status >= 500) {
           setOtpError(t.auth.forgotFlow.errors.server);
         } else {
-          setOtpError(err.message || t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", "4"));
+          setOtpError(t.auth.forgotFlow.errors.unknown);
         }
       } else {
         setOtpError(t.auth.forgotFlow.errors.network);
@@ -390,10 +393,24 @@ export default function ResetPasswordPage() {
           setPasswordError(t.auth.forgotFlow.errors.otpExpired);
           return;
         }
+        if (err.status === 429) {
+          setPhase(1);
+          setOtpVerified(false);
+          setIsOtpExpired(true);
+          setLockedMinutes(null);
+          sessionStorage.removeItem("resetLockedUntil");
+          setOtp(["", "", "", "", "", ""]);
+          const cooldown = 60;
+          setResendCooldown(cooldown);
+          sessionStorage.setItem("resetResendAt", (Date.now() + cooldown * 1000).toString());
+          setResendCount(0);
+          setOtpError(t.auth.forgotFlow.errors.tooManyAttempts);
+          return;
+        }
         if (err.status >= 500) {
           setPasswordError(t.auth.forgotFlow.errors.server);
         } else {
-          setPasswordError(err.message || t.auth.forgotFlow.errors.network);
+          setPasswordError(t.auth.forgotFlow.errors.unknown);
         }
       } else {
         setPasswordError(t.auth.forgotFlow.errors.network);
@@ -451,12 +468,6 @@ export default function ResetPasswordPage() {
           </p>
         </div>
 
-        {!isMockAuth && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
-          </div>
-        )}
 
         {/* ======================================================== */}
         {/* GIAI ĐOẠN 1: XÁC THỰC MÃ OTP */}
@@ -611,11 +622,6 @@ export default function ResetPasswordPage() {
                 >
                   {isVerifyingOtp
                     ? t.auth.forgotFlow.verifyingOtpButton
-                    : lockedMinutes
-                    ? t.auth.forgotFlow.errors.tooManyAttempts.replace(
-                        "{minutes}",
-                        lockedMinutes.toString()
-                      )
                     : t.auth.forgotFlow.verifyOtpButton}
                 </Button>
               </>

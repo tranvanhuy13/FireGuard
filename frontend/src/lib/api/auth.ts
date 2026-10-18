@@ -308,9 +308,8 @@ export const api = {
               sessionStorage.setItem('resetAttempts', Math.max(0, attempts).toString());
 
               if (attempts <= 0) {
-                const lockTime = now + 5 * 60 * 1000; // Lock 5 minutes
-                sessionStorage.setItem('resetLockedUntil', lockTime.toString());
-                return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { remainingSec: 300 }));
+                sessionStorage.removeItem('resetLockedUntil');
+                return reject(new ApiError("TOO_MANY_ATTEMPTS", 429, { retryAfter: 60 }));
               }
 
               return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));

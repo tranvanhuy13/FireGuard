@@ -192,13 +192,15 @@ export const vi = {
         emailInvalid: "Địa chỉ email không đúng định dạng",
         otpRequired: "Vui lòng nhập đủ 6 chữ số OTP",
         otpInvalid: "Mã OTP không chính xác. Bạn còn {attempts} lần thử",
+        invalidOrExpiredCode: "Mã OTP không đúng hoặc đã hết hạn",
         otpExpired: "Mã OTP đã hết hạn, vui lòng bấm 'Gửi lại mã'",
-        tooManyAttempts: "Bạn đã nhập sai quá số lần cho phép. Vui lòng thử lại sau {minutes} phút",
+        tooManyAttempts: "Nhập sai quá nhiều lần, hãy xin mã mới",
         passwordPolicy: "Mật khẩu chưa đáp ứng đầy đủ yêu cầu bảo mật",
         passwordMismatch: "Mật khẩu xác nhận không khớp",
         rateLimited: "Quá nhiều yêu cầu. Vui lòng chờ {seconds} giây trước khi gửi lại",
         network: "Không thể kết nối máy chủ. Vui lòng kiểm tra lại kết nối mạng",
-        server: "Đã xảy ra lỗi máy chủ. Vui lòng thử lại sau"
+        server: "Đã xảy ra lỗi máy chủ. Vui lòng thử lại sau",
+        unknown: "Đã có lỗi xảy ra. Vui lòng thử lại"
       }
     }
   },
