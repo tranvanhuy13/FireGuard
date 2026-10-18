@@ -38,7 +38,7 @@ const CameraGrid = () => {
   };
 
   const canManage = user?.role === "admin";
-  const canToggle = user?.role === "admin" || user?.role === "operator";
+  const canToggle = Boolean(user);
 
   // Mock animation states for bounding boxes
   const [time, setTime] = useState(0);
@@ -122,10 +122,13 @@ const CameraGrid = () => {
           method: "POST",
         },
       );
-      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || error.message || `Backend responded with ${res.status}`);
+      }
     } catch (error) {
       console.error(error);
-      alert("Failed to toggle camera status");
+      alert(error instanceof Error ? error.message : "Failed to toggle camera status");
     } finally {
       setToggling((prev) => {
         const next = { ...prev };

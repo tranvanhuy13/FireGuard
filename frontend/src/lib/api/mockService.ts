@@ -585,6 +585,24 @@ export const setupMockService = () => {
       const data = getMockData();
       
       if (url.includes('/cameras')) {
+        const toggleMatch = url.match(/\/cameras\/(\d+)\/toggle(?:\?|$)/);
+        if (toggleMatch && init?.method === 'POST') {
+          const cameraId = Number(toggleMatch[1]);
+          const active = new URL(url, window.location.origin).searchParams.get('active');
+          const camera = data.cameras.find((c: any) => c.id === cameraId);
+          if (!camera || (active !== 'true' && active !== 'false')) {
+            return new Response(JSON.stringify({ detail: camera ? 'Invalid active status' : 'Camera not found' }), { status: camera ? 422 : 404 });
+          }
+
+          camera.is_active = active === 'true';
+          camera.status = camera.is_active ? 'connected' : 'disconnected';
+          saveMockData(data);
+          return new Response(JSON.stringify({
+            status: 'ok',
+            message: `Camera ${camera.is_active ? 'enabled' : 'disabled'}`,
+          }), { status: 200 });
+        }
+
         if (init?.method === 'POST') {
           const body = JSON.parse(init.body as string);
           const newCam = { ...body, id: Date.now(), status: 'connected' };

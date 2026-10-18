@@ -61,9 +61,12 @@ const VideoFeed = () => {
           method: "POST",
         },
       );
-      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
-    } catch (e) {
-      alert("Failed to toggle camera status");
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || error.message || `Backend responded with ${res.status}`);
+      }
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Failed to toggle camera status");
     } finally {
       setToggling(false);
       fetchCamera(); // resync with the real state

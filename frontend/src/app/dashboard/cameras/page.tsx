@@ -13,6 +13,7 @@ export default function CamerasPage() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const [cameras, setCameras] = useState<any[]>([]);
+  const [togglingCameraId, setTogglingCameraId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [search, setSearch] = useState('');
@@ -48,13 +49,22 @@ export default function CamerasPage() {
   }, []);
 
   const handleToggle = async (cam: any) => {
+    if (togglingCameraId !== null) return;
+    setTogglingCameraId(cam.id);
     try {
       const res = await fetch(`${API_URL}/cameras/${cam.id}/toggle?active=${!cam.is_active}`, {
         method: 'POST'
       });
-      if (res.ok) fetchCameras();
-    } catch (e) {
-      console.error(e);
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || error.message || `Backend responded with ${res.status}`);
+      }
+      await fetchCameras();
+    } catch (error) {
+      console.error(error);
+      window.alert(error instanceof Error ? error.message : 'Failed to toggle camera status');
+    } finally {
+      setTogglingCameraId(null);
     }
   };
 
@@ -151,11 +161,9 @@ export default function CamerasPage() {
                 </div>
                 <div className="text-sm text-gray-500 mb-4 break-all flex-1">{cam.source}</div>
                 <div className="mt-auto pt-4 border-t flex flex-wrap gap-2">
-                  {user?.role !== 'viewer' && (
-                    <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} className="flex-1 min-w-[80px]" onClick={() => handleToggle(cam)}>
-                      {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
-                    </Button>
-                  )}
+                  <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} className="flex-1 min-w-[80px]" onClick={() => handleToggle(cam)} disabled={togglingCameraId === cam.id}>
+                    {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
+                  </Button>
                   {user?.role === 'admin' && (
                     <>
                       <Button size="sm" variant="outline" className="flex-1 min-w-[60px]" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
@@ -174,7 +182,7 @@ export default function CamerasPage() {
                   <th className="p-4 font-medium">{t.pages.cameras.name || 'Name'}</th>
                   <th className="p-4 font-medium">{t.pages.cameras.source || 'Source'}</th>
                   <th className="p-4 font-medium">{t.pages.cameras.status || 'Status'}</th>
-                  {user?.role !== 'viewer' && <th className="p-4 font-medium text-right">{t.pages.cameras.actions || 'Actions'}</th>}
+                  <th className="p-4 font-medium text-right">{t.pages.cameras.actions || 'Actions'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -185,19 +193,17 @@ export default function CamerasPage() {
                     <td className="p-4">
                       <Badge variant={cam.is_active ? 'success' : 'secondary'}>{cam.is_active ? t.pages.cameras.filterRunning : t.pages.cameras.filterDisabled}</Badge>
                     </td>
-                    {user?.role !== 'viewer' && (
-                      <td className="p-4 flex gap-2 justify-end">
-                        <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)}>
-                          {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
-                        </Button>
-                        {user?.role === 'admin' && (
-                          <>
-                            <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
-                            <Button size="sm" variant="danger" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>
-                          </>
-                        )}
-                      </td>
-                    )}
+                    <td className="p-4 flex gap-2 justify-end">
+                      <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)} disabled={togglingCameraId === cam.id}>
+                        {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
+                      </Button>
+                      {user?.role === 'admin' && (
+                        <>
+                          <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
+                          <Button size="sm" variant="danger" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>
+                        </>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
