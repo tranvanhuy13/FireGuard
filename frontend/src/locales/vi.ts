@@ -193,7 +193,7 @@ export const vi = {
         otpRequired: "Vui lòng nhập đủ 6 chữ số OTP",
         otpInvalid: "Mã OTP không chính xác. Bạn còn {attempts} lần thử",
         otpExpired: "Mã OTP đã hết hạn, vui lòng bấm 'Gửi lại mã'",
-        tooManyAttempts: "Bạn đã nhập sai quá số lần cho phép. Vui lòng thử lại sau {minutes} phút",
+        tooManyAttempts: "Nhập sai quá nhiều lần, hãy xin mã mới",
         passwordPolicy: "Mật khẩu chưa đáp ứng đầy đủ yêu cầu bảo mật",
         passwordMismatch: "Mật khẩu xác nhận không khớp",
         rateLimited: "Quá nhiều yêu cầu. Vui lòng chờ {seconds} giây trước khi gửi lại",
