@@ -1,8 +1,10 @@
 venv/
 __pycache__/
-*.pt
+# Chi loai model mac dinh cua ultralytics, GIU best.pt de dong vao image
+yolov8n.pt
 *.db
 snapshots/
 uploads_tmp/
 .env
+*.env
 *.log
