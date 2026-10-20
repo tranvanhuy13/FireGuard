@@ -6,6 +6,7 @@ import smtplib
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from passlib.context import CryptContext
+import requests
 
 try:  # read GMAIL_ADDRESS / GMAIL_APP_PASSWORD from a .env file if python-dotenv is installed
     from dotenv import load_dotenv
@@ -58,29 +59,46 @@ def otp_seconds_until_expiry(expires_at):
         return 0
     return max(0, int((datetime.fromisoformat(expires_at) - datetime.now(timezone.utc)).total_seconds()))
 
+
 def send_otp_email(to_email: str, otp: str, purpose: str = "verify"):
     sender = os.getenv("GMAIL_ADDRESS")
-    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").replace(" ", "")
+    api_key = os.getenv("BREVO_API_KEY")
+    subject = "Your password reset code" if purpose == "reset" else "Your verification code"
+    text = (
+        f"Your code is: {otp}\n\n"
+        f"It expires in {OTP_EXPIRE_MINUTES} minutes. "
+        "If you did not request this, you can ignore this e-mail."
+    )
 
+    if api_key and sender:
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": api_key, "Content-Type": "application/json"},
+            json={
+                "sender": {"email": sender, "name": "FireGuard"},
+                "to": [{"email": to_email}],
+                "subject": subject,
+                "textContent": text,
+            },
+            timeout=10,
+        )
+        r.raise_for_status()
+        return
+
+    # Fallback: Gmail SMTP (works locally and on paid Render instances)
+    app_password = (os.getenv("GMAIL_APP_PASSWORD") or "").replace(" ", "")
     if not sender or not app_password:
         if DEV_MODE:
             logger.warning("[DEV MODE] OTP for %s is %s", to_email, otp)
             return
-        raise RuntimeError("GMAIL_ADDRESS / GMAIL_APP_PASSWORD are not configured")
+        raise RuntimeError("Email is not configured")
 
-    code_type = "password reset" if purpose == "reset" else "verification"
     msg = EmailMessage()
-    msg["Subject"] = f"Your {code_type} code"
+    msg["Subject"] = subject
     msg["From"] = sender
     msg["To"] = to_email
-    notice = "If you did not request a password reset, you can ignore this e-mail." if purpose == "reset" else (
-        "If you did not create an account, you can ignore this e-mail."
-    )
-    msg.set_content(
-        f"Your {code_type} code is: {otp}\n\n"
-        f"It expires in {OTP_EXPIRE_MINUTES} minutes. {notice}"
-    )
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as smtp:
+    msg.set_content(text)
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=8) as smtp:
         smtp.starttls()
         smtp.login(sender, app_password)
         smtp.send_message(msg)
