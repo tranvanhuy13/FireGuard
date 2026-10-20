@@ -93,7 +93,11 @@ app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://192.168.1.12:3000").split(","),
+    allow_origins=[
+        "https://fireguard-10hd.onrender.com",
+        "http://localhost:3000",
+        "http://192.168.1.12:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
