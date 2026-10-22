@@ -183,4 +183,93 @@ test.describe('Bảo mật & Validation API Xác thực (FireGuard Backend)', ()
       expect(data.expires_in).toBe(3600);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // 6. API QUÊN MẬT KHẨU (/auth/forgot-password)
+  // --------------------------------------------------------------------------
+  test.describe('API /auth/forgot-password (Commit 654c4c0)', () => {
+    test('gửi email đã đăng ký -> 200 OK (Generic response)', async ({ request }) => {
+      const res = await request.post('/auth/forgot-password', {
+        data: { email: REAL_USER.email },
+      });
+      expect(res.status()).toBe(200);
+      const data = await res.json();
+      expect(data.message).toContain('If that account exists');
+    });
+
+    test('gửi email chưa đăng ký -> 200 OK (Generic response chống liệt kê tài khoản)', async ({ request }) => {
+      const res = await request.post('/auth/forgot-password', {
+        data: { email: 'unknown_account_999@gmail.com' },
+      });
+      expect(res.status()).toBe(200);
+      const data = await res.json();
+      expect(data.message).toContain('If that account exists');
+    });
+
+    test('thiếu trường email -> 422 Unprocessable Entity', async ({ request }) => {
+      const res = await request.post('/auth/forgot-password', {
+        data: {},
+      });
+      expect(res.status()).toBe(422);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 7. API XÁC THỰC RESET OTP (/auth/verify-reset-otp)
+  // --------------------------------------------------------------------------
+  test.describe('API /auth/verify-reset-otp (Commit 654c4c0)', () => {
+    test('xác thực OTP tài khoản không tồn tại -> 400 Invalid or expired code', async ({ request }) => {
+      const res = await request.post('/auth/verify-reset-otp', {
+        data: { email: 'nonexistent_user_999@gmail.com', otp: '123456' },
+      });
+      expect(res.status()).toBe(400);
+      const data = await res.json();
+      expect(data.detail).toContain('Invalid or expired code');
+    });
+
+    test('thiếu trường bắt buộc -> 422 Unprocessable Entity', async ({ request }) => {
+      const res = await request.post('/auth/verify-reset-otp', {
+        data: { email: REAL_USER.email },
+      });
+      expect(res.status()).toBe(422);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 8. API ĐẶT LẠI MẬT KHẨU (/auth/reset-password)
+  // --------------------------------------------------------------------------
+  test.describe('API /auth/reset-password (Commit 654c4c0)', () => {
+    test('đặt lại mật khẩu chứa ký tự đặc biệt -> 400', async ({ request }) => {
+      const res = await request.post('/auth/reset-password', {
+        data: {
+          email: REAL_USER.email,
+          otp: '123456',
+          new_password: 'Password123!@#',
+        },
+      });
+      expect(res.status()).toBe(400);
+      const data = await res.json();
+      expect(data.detail).toContain('special characters');
+    });
+
+    test('đặt lại mật khẩu ngắn dưới 8 ký tự -> 400', async ({ request }) => {
+      const res = await request.post('/auth/reset-password', {
+        data: {
+          email: REAL_USER.email,
+          otp: '123456',
+          new_password: 'Pass1',
+        },
+      });
+      expect(res.status()).toBe(400);
+      const data = await res.json();
+      expect(data.detail).toContain('at least 8 characters');
+    });
+
+    test('thiếu trường bắt buộc -> 422 Unprocessable Entity', async ({ request }) => {
+      const res = await request.post('/auth/reset-password', {
+        data: { email: REAL_USER.email },
+      });
+      expect(res.status()).toBe(422);
+    });
+  });
 });

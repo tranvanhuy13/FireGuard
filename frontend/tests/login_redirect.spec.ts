@@ -7,9 +7,7 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
     email: 'vynguyen30082005@gmail.com',
   };
 
-  test('TC_LOGIN_01: Tái hiện lỗi bị redirect ngược về login khi bấm đăng nhập', async ({ page }) => {
-    test.fail(true, 'Bug đã ghi nhận: router.push chuyển sang /dashboard nhưng AuthContext chưa cập nhật user khiến DashboardLayout đá ngược về /login?redirect=%2Fdashboard');
-
+  test('TC_LOGIN_01: Đăng nhập thành công và điều hướng ổn định vào Dashboard (Đã fix BUG-001)', async ({ page }) => {
     // 1. Vào trang đăng nhập
     await page.goto('/login');
 
@@ -30,7 +28,7 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
 
     // Kỳ vọng của hệ thống: Phải ở lại trang dashboard thành công
     await expect(page).toHaveURL(/.*\/dashboard/);
-    await expect(page.locator('h1, h2, [class*="CameraGrid"]')).toBeVisible();
+    await expect(page.locator('h1, h2, [class*="CameraGrid"]').first()).toBeVisible();
   });
 
   test('TC_LOGIN_02: Kiểm tra lưu trữ auth_header trong sessionStorage', async ({ page }) => {

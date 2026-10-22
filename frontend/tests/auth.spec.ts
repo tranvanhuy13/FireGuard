@@ -124,9 +124,8 @@ test.describe('2. Xác thực OTP (Verify OTP)', () => {
 // 3. KIỂM THỬ ĐĂNG NHẬP (LOGIN - /login)
 // ============================================================================
 test.describe('3. Đăng nhập (Login)', () => {
-  test('LOG_01: Đăng nhập chế độ Mock -> Điều hướng thành công vào Dashboard', async ({ page }) => {
-    await enableMockMode(page);
-    await loginUI(page, MOCK_ADMIN.identifier, MOCK_ADMIN.password);
+  test('LOG_01: Đăng nhập tài khoản hợp lệ -> Điều hướng thành công vào Dashboard', async ({ page }) => {
+    await loginUI(page, REAL_USER.username, REAL_USER.password);
 
     await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
   });
@@ -223,8 +222,7 @@ test.describe('3. Đăng nhập (Login)', () => {
 // ============================================================================
 test.describe('4. Đăng xuất (Logout)', () => {
   test('OUT_01: Bấm nút Đăng xuất từ Sidebar -> Xóa phiên và về trang /login', async ({ page }) => {
-    await enableMockMode(page);
-    await loginUI(page, MOCK_ADMIN.identifier, MOCK_ADMIN.password);
+    await loginUI(page, REAL_USER.username, REAL_USER.password);
     await expect(page).toHaveURL(/.*\/dashboard/);
 
     // Thực hiện đăng xuất từ Sidebar
@@ -235,8 +233,7 @@ test.describe('4. Đăng xuất (Logout)', () => {
   });
 
   test('OUT_02: Sau khi đăng xuất, sessionStorage được dọn dẹp sạch', async ({ page }) => {
-    await enableMockMode(page);
-    await loginUI(page, MOCK_ADMIN.identifier, MOCK_ADMIN.password);
+    await loginUI(page, REAL_USER.username, REAL_USER.password);
     await expect(page).toHaveURL(/.*\/dashboard/);
 
     await logoutUI(page);
@@ -307,12 +304,173 @@ test.describe('5. Quên & Đặt lại mật khẩu (Forgot & Reset Password)', 
     await expect(page).toHaveURL(/.*\/forgot-password/);
   });
 
-  test('FGT_06: Chế độ Real Backend: Gửi quên mật khẩu thông báo tính năng chưa kích hoạt (HTTP 501)', async ({ page }) => {
+  test('FGT_06: Chế độ Real Backend: Gửi yêu cầu quên mật khẩu thành công -> Điều hướng sang /reset-password (Commit 654c4c0)', async ({ page }) => {
     await enableRealMode(page);
     await forgotPasswordUI(page, 'vynguyen30082005@gmail.com');
 
-    // Khung cảnh báo xuất hiện thông báo tính năng chưa kích hoạt
-    const alert = page.locator('div:has-text("chưa được kích hoạt"), div.bg-amber-50, div.bg-red-50');
-    await expect(alert.first()).toBeVisible();
+    // Sau khi Real Backend phản hồi 200 OK, form hiển thị thông báo thành công và chuyển sang /reset-password
+    await expect(page).toHaveURL(/.*\/reset-password/, { timeout: 10000 });
+  });
+
+  test('RST_01: Màn hình /reset-password hiển thị đầy đủ 6 ô OTP, bộ đếm thời gian và email đã che mờ', async ({ page }) => {
+    await page.goto('/forgot-password');
+    // Khởi tạo phiên hợp lệ trong sessionStorage
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'admin@fireguard.ai');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    // Kiểm tra email bị che mờ
+    await expect(page.locator('text=ad***@fireguard.ai')).toBeVisible();
+
+    // Kiểm tra đủ 6 ô nhập OTP
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    await expect(otpInputs).toHaveCount(6);
+
+    // Kiểm tra bộ đếm thời gian còn hiệu lực
+    const timer = page.locator('span.font-mono');
+    await expect(timer.first()).toBeVisible();
+  });
+
+  test('RST_02: Nhập sai mã OTP -> Báo lỗi mã không hợp lệ và số lần thử giảm', async ({ page }) => {
+    await page.route('**/auth/verify-reset-otp', async (route) => {
+      await route.fulfill({ status: 400, json: { detail: "INVALID_OTP" } });
+    });
+    await page.goto('/forgot-password');
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'vynguyen30082005@gmail.com');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    // Nhập mã OTP sai
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    for (let i = 0; i < 6; i++) {
+      await otpInputs.nth(i).fill('9');
+    }
+
+    // Kiểm tra thông báo lỗi hiển thị
+    const errorAlert = page.locator('div.bg-red-50');
+    await expect(errorAlert.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('RST_03: Nhập đúng mã OTP -> Chuyển sang Giai đoạn 2 (Đặt mật khẩu mới)', async ({ page }) => {
+    await page.route('**/auth/verify-reset-otp', async (route) => {
+      await route.fulfill({ status: 200, json: { message: "OTP verified", expires_in: 600 } });
+    });
+    await page.goto('/forgot-password');
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'vynguyen30082005@gmail.com');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    // Điền OTP 123456
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    for (let i = 0; i < 6; i++) {
+      await otpInputs.nth(i).fill(String(i + 1));
+    }
+
+    // Chờ chuyển sang Giai đoạn 2: ô nhập mật khẩu mới xuất hiện
+    await expect(page.locator('#new-password')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('#confirm-password')).toBeVisible();
+  });
+
+  test('RST_04: Giai đoạn 2 - Kiểm tra validation quy tắc mật khẩu mới', async ({ page }) => {
+    await page.route('**/auth/verify-reset-otp', async (route) => {
+      await route.fulfill({ status: 200, json: { message: "OTP verified", expires_in: 600 } });
+    });
+    await page.goto('/forgot-password');
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'vynguyen30082005@gmail.com');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    for (let i = 0; i < 6; i++) {
+      await otpInputs.nth(i).fill(String(i + 1));
+    }
+
+    await expect(page.locator('#new-password')).toBeVisible({ timeout: 5000 });
+    const newPass = page.locator('#new-password');
+
+    // Nhập mật khẩu yếu (chưa đủ ký tự)
+    await newPass.fill('Abc1');
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeDisabled();
+
+    // Nhập mật khẩu có ký tự đặc biệt -> Vi phạm quy tắc
+    await newPass.fill('Abc12345!@#');
+    await expect(submitBtn).toBeDisabled();
+
+    // Nhập mật khẩu hợp lệ (>= 8 ký tự, chữ hoa, chữ thường, số, không ký tự đặc biệt)
+    await newPass.fill('NewSecurePass123');
+    // Nút vẫn disabled vì chưa nhập confirmPassword
+    await expect(submitBtn).toBeDisabled();
+  });
+
+  test('RST_05: Giai đoạn 2 - Mật khẩu xác nhận không khớp -> Báo lỗi', async ({ page }) => {
+    await page.route('**/auth/verify-reset-otp', async (route) => {
+      await route.fulfill({ status: 200, json: { message: "OTP verified", expires_in: 600 } });
+    });
+    await page.goto('/forgot-password');
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'vynguyen30082005@gmail.com');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    for (let i = 0; i < 6; i++) {
+      await otpInputs.nth(i).fill(String(i + 1));
+    }
+
+    await expect(page.locator('#new-password')).toBeVisible({ timeout: 5000 });
+    await page.locator('#new-password').fill('NewSecurePass123');
+    await page.locator('#confirm-password').fill('DifferentPass123');
+    await page.locator('h2').click(); // blur
+
+    // Hiển thị thông báo mật khẩu xác nhận không khớp
+    await expect(page.locator('p.text-red-600')).toBeVisible();
+    await expect(page.locator('button[type="submit"]')).toBeDisabled();
+  });
+
+  test('RST_06: Giai đoạn 2 - Đổi mật khẩu thành công -> Chuyển về /login?resetSuccess=true', async ({ page }) => {
+    await page.route('**/auth/verify-reset-otp', async (route) => {
+      await route.fulfill({ status: 200, json: { message: "OTP verified", expires_in: 600 } });
+    });
+    await page.route('**/auth/reset-password', async (route) => {
+      await route.fulfill({ status: 200, json: { message: "Password has been reset" } });
+    });
+    await page.goto('/forgot-password');
+    await page.evaluate(() => {
+      sessionStorage.setItem('resetEmail', 'vynguyen30082005@gmail.com');
+      sessionStorage.setItem('resetExpiresAt', (Date.now() + 120000).toString());
+      sessionStorage.setItem('resetAttempts', '5');
+    });
+    await page.goto('/reset-password');
+
+    const otpInputs = page.locator('input[inputmode="numeric"]');
+    for (let i = 0; i < 6; i++) {
+      await otpInputs.nth(i).fill(String(i + 1));
+    }
+
+    await expect(page.locator('#new-password')).toBeVisible({ timeout: 5000 });
+    await page.locator('#new-password').fill('NewSecurePass123');
+    await page.locator('#confirm-password').fill('NewSecurePass123');
+
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled();
+    await submitBtn.click();
+
+    // Chuyển hướng về trang đăng nhập với cờ resetSuccess
+    await expect(page).toHaveURL(/.*\/login\?resetSuccess=true/, { timeout: 10000 });
   });
 });
