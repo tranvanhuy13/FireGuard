@@ -78,7 +78,16 @@ export const vi = {
     signingIn: "Đang đăng nhập...",
     signUp: "Đăng ký",
     signingUp: "Đang tạo tài khoản...",
-    orContinueWith: "Hoặc tiếp tục với",
+    passwordRules: {
+      title: "Yêu cầu mật khẩu:",
+      minLength: "Ít nhất 8 ký tự",
+      uppercase: "Có ít nhất 1 chữ hoa (A-Z)",
+      lowercase: "Có ít nhất 1 chữ thường (a-z)",
+      number: "Có ít nhất 1 chữ số (0-9)",
+      weak: "Yếu",
+      fair: "Trung bình",
+      strong: "Mạnh"
+    },
     dontHaveAccount: "Chưa có tài khoản?",
     alreadyHaveAccount: "Đã có tài khoản?",
     backToHome: "Quay lại trang chủ",
@@ -134,7 +143,6 @@ export const vi = {
       emailGmailOnly: "Vui lòng sử dụng địa chỉ Gmail hợp lệ (@gmail.com)",
       accountNotVerified: "Tài khoản chưa được kích hoạt OTP. Vui lòng xác thực tài khoản.",
       featureNotImplemented: "Tính năng chưa được kích hoạt trên máy chủ",
-      socialNotImplemented: "Tính năng đăng nhập qua Google/Facebook chưa được kích hoạt trên máy chủ",
       forgotNotImplemented: "Tính năng quên mật khẩu chưa được kích hoạt trên máy chủ",
       resendWait: "Vui lòng đợi {seconds} giây trước khi yêu cầu mã mới.",
       genericError: "Đã xảy ra lỗi. Vui lòng thử lại sau."

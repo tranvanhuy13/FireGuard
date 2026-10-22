@@ -10,12 +10,12 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { authApi } from "@/lib/api/auth";
 import { isMockAuth, ApiError } from "@/lib/api/client";
+import { PasswordRequirements, checkPasswordRules, isPasswordValid } from "@/components/PasswordRequirements";
 import { 
   ArrowLeft, 
   Lock, 
   Eye, 
   EyeOff, 
-  Check, 
   CheckCircle, 
   AlertCircle, 
   RefreshCw, 
@@ -327,26 +327,12 @@ export default function ResetPasswordPage() {
 
   // ==================== PHASE 2: NEW PASSWORD LOGIC ====================
 
-  const rules = {
-    length: newPassword.length >= 8,
-    upper: /[A-Z]/.test(newPassword),
-    lower: /[a-z]/.test(newPassword),
-    number: /[0-9]/.test(newPassword),
-    alphanumeric: /^[A-Za-z0-9]*$/.test(newPassword),
-  };
-  const isPasswordValid =
-    rules.length && rules.upper && rules.lower && rules.number && rules.alphanumeric;
-  const strengthScore =
-    (rules.length ? 1 : 0) +
-    (rules.upper ? 1 : 0) +
-    (rules.lower ? 1 : 0) +
-    (rules.number ? 1 : 0) +
-    (rules.alphanumeric ? 1 : 0);
-
+  const passwordRules = checkPasswordRules(newPassword);
+  const passwordValid = isPasswordValid(passwordRules);
   const passwordsMatch = confirmPassword.length > 0 && newPassword === confirmPassword;
 
   const canSubmitPhase2 =
-    isPasswordValid &&
+    passwordValid &&
     passwordsMatch &&
     !isResettingPassword &&
     !!verifiedOtp;
@@ -688,115 +674,7 @@ export default function ResetPasswordPage() {
                   </div>
 
                   {/* Password strength meter and checklist (only visible while typing) */}
-                  <AnimatePresence>
-                    {newPassword.length > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-2.5 p-3 bg-gray-50 rounded-lg border border-gray-100 space-y-2 overflow-hidden"
-                      >
-                        <div className="flex justify-between items-center text-xs">
-                          <span className="font-medium text-gray-600">
-                            {t.auth.forgotFlow.rules.title}
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              strengthScore < 2
-                                ? "text-red-600"
-                                : strengthScore < 4
-                                ? "text-amber-600"
-                                : "text-green-600"
-                            }`}
-                          >
-                            {strengthScore < 2
-                              ? t.auth.forgotFlow.strength.weak
-                              : strengthScore < 4
-                              ? t.auth.forgotFlow.strength.fair
-                              : t.auth.forgotFlow.strength.strong}
-                          </span>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="h-1.5 w-full bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full transition-all duration-300 ${
-                              strengthScore < 2
-                                ? "bg-red-500"
-                                : strengthScore < 4
-                                ? "bg-amber-500"
-                                : "bg-green-500"
-                            }`}
-                            style={{ width: `${(strengthScore / 5) * 100}%` }}
-                          />
-                        </div>
-
-                        {/* 4 Rules dynamically ticked */}
-                        <div className="text-[11px] grid grid-cols-2 gap-1.5 pt-1">
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.length ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.length ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.minLength}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.upper ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.upper ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.uppercase}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.lower ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.lower ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.lowercase}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.number ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.number ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.forgotFlow.rules.number}</span>
-                          </div>
-                          <div
-                            className={`flex items-center gap-1.5 ${
-                              rules.alphanumeric ? "text-green-600 font-medium" : "text-gray-400"
-                            }`}
-                          >
-                            {rules.alphanumeric ? (
-                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
-                            ) : (
-                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
-                            )}
-                            <span>{t.auth.errors.passwordNoSpecialChars}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  <PasswordRequirements password={newPassword} />
                 </div>
 
                 {/* Confirm New Password Input */}

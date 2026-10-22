@@ -78,7 +78,16 @@ export const en = {
     signingIn: "Signing in...",
     signUp: "Sign up",
     signingUp: "Creating account...",
-    orContinueWith: "Or continue with",
+    passwordRules: {
+      title: "Password requirements:",
+      minLength: "At least 8 characters",
+      uppercase: "At least 1 uppercase letter (A-Z)",
+      lowercase: "At least 1 lowercase letter (a-z)",
+      number: "At least 1 number (0-9)",
+      weak: "Weak",
+      fair: "Fair",
+      strong: "Strong"
+    },
     dontHaveAccount: "Don't have an account?",
     alreadyHaveAccount: "Already have an account?",
     backToHome: "Back to home",
@@ -134,7 +143,6 @@ export const en = {
       emailGmailOnly: "Please use a valid Gmail address (@gmail.com)",
       accountNotVerified: "Account not verified. Please verify your account.",
       featureNotImplemented: "Feature is not enabled on the server",
-      socialNotImplemented: "Google/Facebook login is not enabled on the server",
       forgotNotImplemented: "Forgot password is not enabled on the server",
       resendWait: "Please wait {seconds}s before requesting a new code.",
       genericError: "An error occurred. Please try again."
