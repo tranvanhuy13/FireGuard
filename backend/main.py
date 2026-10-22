@@ -94,6 +94,7 @@ app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://fireguard-279w.onrender.com",
         "https://fireguard-10hd.onrender.com",
         "http://localhost:3000",
         "http://192.168.1.12:3000",
