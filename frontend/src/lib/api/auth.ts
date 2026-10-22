@@ -29,17 +29,22 @@ export const api = {
               localStorage.setItem('mockUsers', JSON.stringify(users));
             }
 
+            const trimmedIdentifier = credentials.identifier.trim();
             const user = users.find((u: any) => 
-              (u.username === credentials.identifier || u.email === credentials.identifier) && 
+              (u.username.toLowerCase() === trimmedIdentifier.toLowerCase() || u.email.toLowerCase() === trimmedIdentifier.toLowerCase()) && 
               u.password === credentials.password
             );
 
             if (user) {
+              const userProfile: User = { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true };
               localStorage.setItem('mockRole', user.role);
               localStorage.setItem('mockUsername', user.username);
               localStorage.setItem('mockUserFull', JSON.stringify(user));
+              if (typeof window !== 'undefined') {
+                sessionStorage.setItem('user_profile', JSON.stringify(userProfile));
+              }
               resolve({
-                user: { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: user.role, is_active: true },
+                user: userProfile,
                 token: "mock-jwt-token",
               });
             } else {
@@ -50,7 +55,8 @@ export const api = {
       );
     }
 
-    const rawCreds = `${credentials.identifier.trim()}:${credentials.password}`;
+    const trimmedIdentifier = credentials.identifier.trim();
+    const rawCreds = `${trimmedIdentifier}:${credentials.password}`;
     const basicHeader = "Basic " + (typeof window !== 'undefined' ? btoa(unescape(encodeURIComponent(rawCreds))) : Buffer.from(rawCreds).toString('base64'));
 
     try {
@@ -179,7 +185,7 @@ export const api = {
 
   me: async (): Promise<{ user: User }> => {
     if (isMockAuth) {
-      return new Promise((resolve) =>
+      return new Promise((resolve, reject) =>
         setTimeout(() => {
           if (typeof window !== 'undefined') {
             const userStr = localStorage.getItem('mockUserFull');
@@ -198,10 +204,7 @@ export const api = {
               return;
             }
           }
-          // fallback
-          resolve({
-            user: { id: "0", username: "guest", fullName: "Guest", email: "guest@fireguard.ai", role: "viewer", is_active: false },
-          });
+          reject(new ApiError("UNAUTHORIZED", 401));
         }, 500)
       );
     }
@@ -236,6 +239,11 @@ export const api = {
   },
 
   logout: async (): Promise<{ message: string }> => {
+    if (isMockAuth && typeof window !== 'undefined') {
+      localStorage.removeItem('mockRole');
+      localStorage.removeItem('mockUsername');
+      localStorage.removeItem('mockUserFull');
+    }
     clearAuthSession();
     return { message: "Logged out" };
   },
@@ -269,10 +277,13 @@ export const api = {
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    return apiClient<{ message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email: email.trim().toLowerCase() }),
+    });
   },
 
-  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ resetToken: string; expiresIn: number }> => {
+  verifyResetOtp: async (data: { email: string; otp: string }): Promise<{ expiresIn: number }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
@@ -305,46 +316,54 @@ export const api = {
               return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));
             }
 
-            // Valid OTP -> return resetToken valid for 10 mins (600s)
-            const resetToken = `mock-reset-token-${Date.now()}`;
-            resolve({
-              resetToken,
-              expiresIn: 600,
-            });
+            resolve({ expiresIn: 600 });
           } else {
-            resolve({
-              resetToken: `mock-reset-token-${Date.now()}`,
-              expiresIn: 600,
-            });
+            resolve({ expiresIn: 600 });
           }
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    const result = await apiClient<{ expires_in: number }>("/auth/verify-reset-otp", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+        otp: data.otp.trim(),
+      }),
+    });
+    return { expiresIn: result.expires_in };
   },
 
-  resetPassword: async (data: { resetToken: string; newPassword: string; email?: string }): Promise<{ message: string }> => {
+  resetPassword: async (data: { email: string; otp: string; newPassword: string }): Promise<{ message: string }> => {
     if (isMockAuth) {
       return new Promise((resolve, reject) => {
         setTimeout(() => {
           if (typeof window !== 'undefined') {
-            if (!data.resetToken) {
+            if (data.otp !== "123456") {
               return reject(new ApiError("INVALID_RESET_TOKEN", 400));
             }
 
             // Success: update password in mockUsers if user exists
-            const targetEmail = data.email || sessionStorage.getItem('resetEmail');
+            const targetEmail = (data.email || sessionStorage.getItem('resetEmail') || "").toLowerCase();
             const usersStr = localStorage.getItem('mockUsers');
-            if (usersStr && targetEmail) {
-              try {
-                const users = JSON.parse(usersStr);
-                const userIndex = users.findIndex((u: any) => u.email === targetEmail);
-                if (userIndex !== -1) {
-                  users[userIndex].password = data.newPassword;
-                  localStorage.setItem('mockUsers', JSON.stringify(users));
-                }
-              } catch (e) {}
+            if (!usersStr || !targetEmail) {
+              return reject(new ApiError("ACCOUNT_NOT_FOUND", 404));
             }
+            let users: Array<{ email: string; password: string }>;
+            try {
+              users = JSON.parse(usersStr);
+            } catch {
+              return reject(new ApiError("MOCK_USER_DATA_INVALID", 500));
+            }
+            if (!Array.isArray(users) ||
+                users.some((user) => !user || typeof user.email !== "string" || typeof user.password !== "string")) {
+              return reject(new ApiError("MOCK_USER_DATA_INVALID", 500));
+            }
+            const userIndex = users.findIndex((user) => user.email.toLowerCase() === targetEmail);
+            if (userIndex === -1) {
+              return reject(new ApiError("ACCOUNT_NOT_FOUND", 404));
+            }
+            users[userIndex].password = data.newPassword;
+            localStorage.setItem('mockUsers', JSON.stringify(users));
 
             resolve({ message: "RESET_SUCCESS" });
           } else {
@@ -353,7 +372,14 @@ export const api = {
         }, 500);
       });
     }
-    throw new ApiError("FEATURE_NOT_IMPLEMENTED", 501, { detail: "Tính năng chưa được kích hoạt trên máy chủ" });
+    return apiClient<{ message: string }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+        otp: data.otp.trim(),
+        new_password: data.newPassword,
+      }),
+    });
   },
 };
 

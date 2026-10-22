@@ -91,7 +91,13 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 #### 1.1.4. Đăng nhập (Login)
 - **Method:** `GET`
 - **Path:** `/auth/login`
-- **Auth:** `Authorization: Basic base64(username:password)`
+- **Auth:** `Authorization: Basic base64(identifier:password)` (trong đó `identifier` có thể là `username` hoặc `email`)
+- **Lưu ý nghiệp vụ:**
+  - Backend đã hỗ trợ đăng nhập bằng **username hoặc email** (nếu chuỗi identifier chứa ký tự `@`, backend sẽ tự động tìm kiếm người dùng theo email).
+  - Header HTTP Basic Auth gửi lên dạng `Basic base64(identifier:password)`.
+  - Frontend tự động loại bỏ khoảng trắng đầu/cuối của chuỗi nhập trước khi gửi.
+  - Khi thông tin đăng nhập không chính xác, backend trả về `401 Unauthorized`, Frontend hiển thị thông báo: `"Sai tên đăng nhập/email hoặc mật khẩu."`.
+  - Sau khi đăng nhập thành công, Frontend cập nhật đối tượng người dùng vào `AuthContext`, lưu `user_profile` và `auth_header` vào `sessionStorage` (để hỗ trợ F5 tải lại trang mượt mà), sau đó dùng `router.replace` chuyển hướng theo tham số `redirect` (chỉ chấp nhận đường dẫn nội bộ hợp lệ bắt đầu bằng `/`, không chứa `//` hay `http:`).
 - **Response thành công (HTTP 200):**
   ```json
   {
@@ -102,7 +108,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Mã lỗi:**
-  - `401`: `"Incorrect username or password"`
+  - `401`: `"Incorrect username or password"` (Frontend hiển thị: `"Sai tên đăng nhập/email hoặc mật khẩu."`)
   - `403`: `"Account not verified"` (Frontend tự động chuyển hướng sang `/verify-otp`)
 
 #### 1.1.5. Lấy thông tin tài khoản hiện tại (Current User)
@@ -342,11 +348,9 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
   - `GET /audit-logs`: Danh sách nhật ký thao tác hệ thống (thời gian, user, action, target, IP, result).
 
 ### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
-- **Hiện trạng:** Chưa có endpoint quên và đặt lại mật khẩu.
-- **Cần Backend bổ sung:**
-  - `POST /auth/forgot-password`: Nhận `{ "email": str }`, gửi OTP khôi phục qua email.
-  - `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`, xác thực mã và trả về `reset_token` ngắn hạn.
-  - `POST /auth/reset-password`: Nhận `{ "reset_token": str, "new_password": str }`, đổi mật khẩu an toàn.
+- `POST /auth/forgot-password`: Nhận `{ "email": str }`; trả thông báo chung và gửi mã nếu tài khoản đã xác thực tồn tại.
+- `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`; xác thực mã và trả về `{ "message": str, "expires_in": int }`. Có tối đa 5 lần nhập sai.
+- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu phải có tối thiểu 8 ký tự chữ và số; mã OTP chỉ dùng được đến khi hết hạn hoặc đổi mật khẩu thành công.
 
 ### 2.5. Đăng Xuất (Logout API)
 - **Hiện trạng:** HTTP Basic Auth là stateless nên phía backend chưa có endpoint đăng xuất. Frontend hiện tại chỉ xóa thông tin phiên ở client memory và `sessionStorage`.

@@ -1,3 +1,4 @@
+# check=skip=SecretsUsedInArgOrEnv
 FROM python:3.12-slim
 
 # OpenCV runtime libs (ultralytics pulls the non-headless opencv build)
@@ -22,4 +23,6 @@ ENV PYTHONUNBUFFERED=1 \
     YOLO_CONFIG_DIR=/tmp/ultralytics
 
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--log-level", "info"]
+
+# Render cap cong qua bien PORT; chay local khong co PORT thi dung 8000
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]

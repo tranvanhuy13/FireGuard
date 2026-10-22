@@ -117,6 +117,7 @@ export const vi = {
     redirectLogin: "Đang chuyển hướng đến đăng nhập...",
     errors: {
       identifierRequired: "Vui lòng nhập tên đăng nhập hoặc email",
+      usernameRequired: "Vui lòng nhập tên đăng nhập",
       passwordMin: "Mật khẩu phải có ít nhất 8 ký tự",
       passwordMatch: "Mật khẩu xác nhận không khớp",
       fullNameMin: "Họ tên phải có ít nhất 2 ký tự",
@@ -125,7 +126,8 @@ export const vi = {
       phoneInvalid: "Số điện thoại Việt Nam không hợp lệ",
       termsRequired: "Bạn phải đồng ý với các điều khoản dịch vụ",
       invalidOtp: "Mã OTP không hợp lệ",
-      invalidCredentials: "Tên đăng nhập/email hoặc mật khẩu không chính xác",
+      invalidCredentials: "Sai tên đăng nhập/email hoặc mật khẩu.",
+      invalidCredentialsUsername: "Sai tên đăng nhập hoặc mật khẩu.",
       emailExists: "Email hoặc tên đăng nhập này đã được đăng ký",
       usernameNoSpecialChars: "Tên đăng nhập không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
       passwordNoSpecialChars: "Mật khẩu không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",

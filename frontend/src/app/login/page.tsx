@@ -13,8 +13,25 @@ import { api } from "@/lib/api/auth";
 import { isMockAuth } from "@/lib/api/client";
 import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
+import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeOff, ArrowLeft, CheckCircle } from "lucide-react";
 import { Logo } from "@/components/Logo";
+
+function getSafeRedirect(redirect: string | null): string {
+  if (!redirect) return "/dashboard";
+  const trimmed = redirect.trim();
+  if (
+    trimmed.startsWith("/") &&
+    !trimmed.startsWith("//") &&
+    !trimmed.includes("\\") &&
+    !trimmed.toLowerCase().includes("http") &&
+    !trimmed.includes(":") &&
+    !trimmed.startsWith("/login")
+  ) {
+    return trimmed;
+  }
+  return "/dashboard";
+}
 
 const getLoginSchema = (t: any) => z.object({
   identifier: z.string().min(1, t.auth.errors.identifierRequired),
@@ -27,6 +44,7 @@ function LoginFormContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { t } = useLanguage();
+  const { login, user, isLoading: authLoading } = useAuth();
   const loginSchema = getLoginSchema(t);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -34,7 +52,6 @@ function LoginFormContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  const redirectUrl = searchParams.get("redirect") || "/dashboard";
   const verifiedParam = searchParams.get("verified");
 
   const {
@@ -45,6 +62,13 @@ function LoginFormContent() {
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
   });
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
+      router.replace(safeRedirect);
+    }
+  }, [authLoading, user, searchParams, router]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -74,14 +98,18 @@ function LoginFormContent() {
       setIsLoading(true);
       setError("");
 
+      const trimmedIdentifier = data.identifier.trim();
+
       if (rememberMe) {
-        localStorage.setItem("remembered_username", data.identifier.trim());
+        localStorage.setItem("remembered_username", trimmedIdentifier);
       } else {
         localStorage.removeItem("remembered_username");
       }
 
-      await api.login({ identifier: data.identifier, password: data.password });
-      router.push(redirectUrl);
+      const res = await api.login({ identifier: trimmedIdentifier, password: data.password });
+      await login(res.user);
+      const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
+      router.replace(safeRedirect);
     } catch (err: any) {
       if (err.status === 403 || err.message === "accountNotVerified") {
         setError(t.auth.errors.accountNotVerified);

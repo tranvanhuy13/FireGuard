@@ -117,6 +117,7 @@ export const en = {
     redirectLogin: "Redirecting to login...",
     errors: {
       identifierRequired: "Username or email is required",
+      usernameRequired: "Username is required",
       passwordMin: "Password must be at least 8 characters",
       passwordMatch: "Passwords do not match",
       fullNameMin: "Full name must be at least 2 characters",
@@ -125,7 +126,8 @@ export const en = {
       phoneInvalid: "Invalid Vietnam phone number",
       termsRequired: "You must accept the terms and conditions",
       invalidOtp: "Invalid OTP code",
-      invalidCredentials: "Username/email or password is incorrect",
+      invalidCredentials: "Incorrect username/email or password.",
+      invalidCredentialsUsername: "Incorrect username or password.",
       emailExists: "This email or username is already registered",
       usernameNoSpecialChars: "Username must not contain special characters (letters and numbers only)",
       passwordNoSpecialChars: "Password must not contain special characters (letters and numbers only)",
