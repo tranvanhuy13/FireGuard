@@ -32,8 +32,8 @@ export default function ResetPasswordPage() {
 
   // Phase state: 1 = Verify OTP, 2 = Set New Password
   const [phase, setPhase] = useState<1 | 2>(1);
-  // resetToken is STRICTLY stored only in React state (NEVER in localStorage, NEVER in URL)
-  const [resetToken, setResetToken] = useState<string | null>(null);
+  // Keep the verified OTP only in React state; never persist it or put it in the URL.
+  const [verifiedOtp, setVerifiedOtp] = useState<string | null>(null);
 
   // Email and session
   const [email, setEmail] = useState("");
@@ -130,9 +130,9 @@ export default function ResetPasswordPage() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  // 5. resetToken countdown timer (Phase 2 - 10 minutes)
+  // 5. Verified OTP countdown timer
   useEffect(() => {
-    if (phase !== 2 || !resetToken) return;
+    if (phase !== 2 || !verifiedOtp) return;
 
     const timer = setInterval(() => {
       setTokenTimeLeft((prev) => {
@@ -148,7 +148,7 @@ export default function ResetPasswordPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [phase, resetToken, router, t]);
+  }, [phase, verifiedOtp, router, t]);
 
   // Mask email: ab***@gmail.com
   const maskEmail = (raw: string): string => {
@@ -226,8 +226,8 @@ export default function ResetPasswordPage() {
 
       // Show temporary green checkmark
       setShowOtpSuccessBadge(true);
-      setResetToken(res.resetToken);
-      setTokenTimeLeft(res.expiresIn || 600);
+      setVerifiedOtp(code);
+      setTokenTimeLeft(res.expiresIn);
 
       // Transition to Phase 2 after 700ms
       setTimeout(() => {
@@ -247,6 +247,13 @@ export default function ResetPasswordPage() {
           setAttemptsLeft(rem);
           setOtpError(
             t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", rem.toString())
+          );
+        } else if (err.message === "INVALID_OTP") {
+          const remainingAttempts = Math.max(0, (attemptsLeft ?? 5) - 1);
+          setAttemptsLeft(remainingAttempts);
+          sessionStorage.setItem("resetAttempts", remainingAttempts.toString());
+          setOtpError(
+            t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", remainingAttempts.toString())
           );
         } else if (err.message === "OTP_EXPIRED") {
           setIsOtpExpired(true);
@@ -325,13 +332,16 @@ export default function ResetPasswordPage() {
     upper: /[A-Z]/.test(newPassword),
     lower: /[a-z]/.test(newPassword),
     number: /[0-9]/.test(newPassword),
+    alphanumeric: /^[A-Za-z0-9]*$/.test(newPassword),
   };
-  const isPasswordValid = rules.length && rules.upper && rules.lower && rules.number;
+  const isPasswordValid =
+    rules.length && rules.upper && rules.lower && rules.number && rules.alphanumeric;
   const strengthScore =
     (rules.length ? 1 : 0) +
     (rules.upper ? 1 : 0) +
     (rules.lower ? 1 : 0) +
-    (rules.number ? 1 : 0);
+    (rules.number ? 1 : 0) +
+    (rules.alphanumeric ? 1 : 0);
 
   const passwordsMatch = confirmPassword.length > 0 && newPassword === confirmPassword;
 
@@ -339,20 +349,20 @@ export default function ResetPasswordPage() {
     isPasswordValid &&
     passwordsMatch &&
     !isResettingPassword &&
-    !!resetToken;
+    !!verifiedOtp;
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canSubmitPhase2 || !resetToken) return;
+    if (!canSubmitPhase2 || !verifiedOtp) return;
 
     try {
       setIsResettingPassword(true);
       setPasswordError("");
 
       await authApi.resetPassword({
-        resetToken,
-        newPassword,
         email,
+        otp: verifiedOtp,
+        newPassword,
       });
 
       // Clear all temporary sessionStorage items
@@ -371,9 +381,15 @@ export default function ResetPasswordPage() {
       }, 1200);
     } catch (err: any) {
       if (err instanceof ApiError) {
-        if (err.status === 400 && err.message === "INVALID_RESET_TOKEN") {
+        if (err.status === 400 && err.message === "OTP_EXPIRED") {
           alert(t.auth.forgotFlow.tokenExpiredError);
           router.replace("/forgot-password");
+          return;
+        }
+        if (err.message === "INVALID_OTP") {
+          setPasswordError(
+            t.auth.forgotFlow.errors.otpInvalid.replace("{attempts}", (attemptsLeft ?? 5).toString())
+          );
           return;
         }
         if (err.status >= 500) {
@@ -436,13 +452,6 @@ export default function ResetPasswordPage() {
               : t.auth.forgotFlow.phase2Desc}
           </p>
         </div>
-
-        {!isMockAuth && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm p-3.5 rounded-xl flex items-center gap-2.5 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
-            <span className="font-medium">{t.auth.errors.forgotNotImplemented}</span>
-          </div>
-        )}
 
         {/* ======================================================== */}
         {/* GIAI ĐOẠN 1: XÁC THỰC MÃ OTP */}
@@ -610,9 +619,9 @@ export default function ResetPasswordPage() {
         )}
 
         {/* ======================================================== */}
-        {/* GIAI ĐOẠN 2: ĐẶT MẬT KHẨU MỚI (chỉ hiện khi có resetToken) */}
+        {/* GIAI ĐOẠN 2: ĐẶT MẬT KHẨU MỚI */}
         {/* ======================================================== */}
-        {phase === 2 && resetToken && (
+        {phase === 2 && verifiedOtp && (
           <div>
             {isFinalSuccess ? (
               <motion.div
@@ -718,7 +727,7 @@ export default function ResetPasswordPage() {
                                 ? "bg-amber-500"
                                 : "bg-green-500"
                             }`}
-                            style={{ width: `${(strengthScore / 4) * 100}%` }}
+                            style={{ width: `${(strengthScore / 5) * 100}%` }}
                           />
                         </div>
 
@@ -771,6 +780,18 @@ export default function ResetPasswordPage() {
                               <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
                             )}
                             <span>{t.auth.forgotFlow.rules.number}</span>
+                          </div>
+                          <div
+                            className={`flex items-center gap-1.5 ${
+                              rules.alphanumeric ? "text-green-600 font-medium" : "text-gray-400"
+                            }`}
+                          >
+                            {rules.alphanumeric ? (
+                              <Check className="w-3.5 h-3.5 text-green-600 stroke-[3]" />
+                            ) : (
+                              <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
+                            )}
+                            <span>{t.auth.errors.passwordNoSpecialChars}</span>
                           </div>
                         </div>
                       </motion.div>
