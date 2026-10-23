@@ -262,7 +262,7 @@ export const en = {
     noStats: "No stats available yet",
     dailyEvents: "DAILY EVENTS",
     roleAdmin: "Admin",
-    roleOperator: "Operator",
+
     roleViewer: "Viewer",
     totalCameras: "TOTAL CAMERAS",
     activeCameras: "ACTIVE CAMERAS",
@@ -428,7 +428,7 @@ export const en = {
       role: "Role",
       changePassword: "Change Password",
       passwordStrength: "Password Strength",
-      linkedAccounts: "Linked Accounts",
+
       preferences: "Preferences",
       save: "Save Changes",
       language: "Language",
@@ -436,20 +436,20 @@ export const en = {
       currentPassword: "Current Password",
       newPassword: "New Password",
       confirmNewPassword: "Confirm New Password",
-      disconnect: "Disconnect",
-      link: "Link",
-      linkedWith: "Linked with",
-      notLinked: "Not linked",
+
+
+
+
       adminRole: "Administrator",
       saveInfo: "Save Information",
       changePasswordBtn: "Change Password",
       configAlerts: "Configure Telegram/Zalo Alerts",
-      disconnectSuccess: "Disconnected successfully",
-      disconnectError: "Error disconnecting",
-      processing: "Processing...",
-      confirmDisconnectTitle: "Confirm",
-      confirmDisconnectMsg: "Are you sure you want to disconnect this account?",
-      cancel: "Cancel"
+
+
+
+
+
+
     },
     users: {
       title: "Users Management",
@@ -494,6 +494,7 @@ export const en = {
       forbidden: "Forbidden: You do not have access to this page.",
       saveSuccess: "Saved successfully",
       cancel: "Cancel"
+
     }
   },
     auditLog: {

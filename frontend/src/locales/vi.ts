@@ -262,7 +262,7 @@ export const vi = {
     noStats: "Chưa có dữ liệu thống kê",
     dailyEvents: "SỰ KIỆN HÀNG NGÀY",
     roleAdmin: "Quản trị viên",
-    roleOperator: "Điều hành viên",
+
     roleViewer: "Người xem",
     totalCameras: "TỔNG SỐ CAMERA",
     activeCameras: "CAMERA ĐANG HOẠT ĐỘNG",
@@ -428,7 +428,7 @@ export const vi = {
       role: "Vai trò",
       changePassword: "Đổi mật khẩu",
       passwordStrength: "Độ mạnh mật khẩu",
-      linkedAccounts: "Tài khoản liên kết",
+
       preferences: "Tùy chọn",
       save: "Lưu thay đổi",
       language: "Ngôn ngữ",
@@ -436,20 +436,20 @@ export const vi = {
       currentPassword: "Mật khẩu hiện tại",
       newPassword: "Mật khẩu mới",
       confirmNewPassword: "Xác nhận mật khẩu mới",
-      disconnect: "Ngắt kết nối",
-      link: "Liên kết",
-      linkedWith: "Đã liên kết với",
-      notLinked: "Chưa liên kết",
+
+
+
+
       adminRole: "Quản trị viên",
       saveInfo: "Lưu thông tin",
       changePasswordBtn: "Đổi mật khẩu",
       configAlerts: "Cấu hình nhận cảnh báo Telegram/Zalo",
-      disconnectSuccess: "Đã ngắt kết nối thành công",
-      disconnectError: "Lỗi khi ngắt kết nối",
-      processing: "Đang xử lý...",
-      confirmDisconnectTitle: "Xác nhận",
-      confirmDisconnectMsg: "Bạn có chắc chắn muốn ngắt kết nối tài khoản này không?",
-      cancel: "Hủy"
+
+
+
+
+
+
     },
     users: {
       title: "Quản lý người dùng",
@@ -494,6 +494,7 @@ export const vi = {
       forbidden: "Bị cấm: Bạn không có quyền truy cập trang này.",
       saveSuccess: "Lưu thành công",
       cancel: "Hủy"
+
     }
   },
     auditLog: {

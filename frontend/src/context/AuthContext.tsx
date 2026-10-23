@@ -17,19 +17,35 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const normalizeUser = (u: unknown): User | null => {
+  if (!u || typeof u !== 'object') return null;
+  const userObj = u as User;
+  return {
+    ...userObj,
+    role: userObj.role === 'admin' ? 'admin' : 'viewer',
+  };
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
+  const [user, setUserState] = useState<User | null>(() => {
     if (typeof window !== "undefined") {
       try {
         const stored = sessionStorage.getItem("user_profile");
         if (stored) {
-          return JSON.parse(stored);
+          return normalizeUser(JSON.parse(stored));
         }
       } catch {}
     }
     return null;
   });
   const [isLoading, setIsLoading] = useState(true);
+
+  const setUser = useCallback((val: User | null | ((prev: User | null) => User | null)) => {
+    setUserState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val;
+      return normalizeUser(next);
+    });
+  }, []);
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const refreshStreamTokenRef = useRef<() => Promise<string | null>>(async () => null);
@@ -57,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refreshStreamTokenRef.current = refreshStreamToken;
-  }, [refreshStreamToken]);
+  }, [refreshStreamToken, setUser]);
 
   const login = useCallback(async (newUser: User) => {
     setUser(newUser);
@@ -65,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.setItem("user_profile", JSON.stringify(newUser));
     }
     await refreshStreamToken();
-  }, [refreshStreamToken]);
+  }, [refreshStreamToken, setUser]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -104,7 +120,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearTimeout(tokenRefreshTimerRef.current);
       }
     };
-  }, [refreshStreamToken]);
+  }, [refreshStreamToken, setUser]);
 
   const hasRole = (roles: User["role"][]) => {
     if (!user) return false;
@@ -114,8 +130,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const can = (permission: string) => {
     if (!user) return false;
     if (user.role === 'admin') return true;
-    if (user.role === 'operator' && permission !== 'manage_users' && permission !== 'manage_settings') return true;
-    if (user.role === 'viewer' && permission === 'view') return true;
+    if (user.role === 'viewer') {
+      const adminOnly = ['manage_users', 'manage_settings', 'add_camera', 'edit_camera', 'delete_camera', 'audit_log'];
+      return !adminOnly.includes(permission);
+    }
+
     return false;
   };
 

@@ -332,7 +332,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 ### 2.1. Phân Quyền & Vai Trò Người Dùng (RBAC Role Field)
 - **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"viewer"` (không giả lập quyền cao).
 - **Cần Backend bổ sung:**
-  - Cột `role` (`"admin"` | `"operator"` | `"viewer"`) trong database `users`.
+  - Cột `role` (`"admin"` | `"viewer"`) trong database `users` (vai trò `operator` đã được loại bỏ trên frontend và gộp quyền vào `viewer`; nếu backend trả về `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `viewer`).
   - Trả về trường `role` trong response của `GET /auth/login` và `GET /users/me`.
 
 ### 2.2. Quản Lý Danh Sách Người Dùng (Users Management)

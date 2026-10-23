@@ -536,7 +536,7 @@ export const getMockData = () => {
 ],
     users: [
       { id: 'u1', username: 'admin', name: 'System Admin', role: 'admin', status: 'active', lastLogin: new Date().toISOString() },
-      { id: 'u2', username: 'operator1', name: 'Camera Operator', role: 'operator', status: 'active', lastLogin: new Date(Date.now() - 86400000).toISOString() },
+      { id: 'u2', username: 'operator1', name: 'Camera Operator', role: 'viewer', status: 'active', lastLogin: new Date(Date.now() - 86400000).toISOString() },
       { id: 'u3', username: 'viewer1', name: 'Guest Viewer', role: 'viewer', status: 'blocked', lastLogin: new Date(Date.now() - 172800000).toISOString() }
     ],
     aiSettings: { fireThreshold: 75, smokeThreshold: 70, persistence: 5, cooldown: 60 },

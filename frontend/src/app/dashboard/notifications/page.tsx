@@ -46,15 +46,15 @@ const AccountCard = ({ item, isGroup, n, hasRole, onToggle, onEdit, onDelete, ma
         </div>
       </div>
       <div className="flex items-center gap-3 self-end sm:self-auto">
-        {hasRole(['admin', 'operator']) && (
+        {hasRole(['admin', 'viewer']) && (
           <button onClick={() => onToggle(item)} className={`w-11 h-6 rounded-full relative transition-colors ${item.active ? 'bg-sky-500' : 'bg-slate-300'}`}>
             <motion.div className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm" animate={{ left: item.active ? '24px' : '4px' }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
           </button>
         )}
-        <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['admin', 'operator'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
+        <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['admin', 'viewer'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
           {testState === 'loading' ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" /> : testState === 'success' ? <CheckCircle2 className="w-4 h-4 text-white" /> : testState === 'error' ? <AlertCircle className="w-4 h-4 text-white" /> : n.test}
         </Button>
-        {hasRole(['admin', 'operator']) && (
+        {hasRole(['admin', 'viewer']) && (
           <>
             <button onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-sky-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
             <button onClick={() => onDelete(item)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -76,12 +76,12 @@ const RuleCard = ({ rule, n, hasRole, onToggle, onEdit, onDelete }: any) => (
         <p className="text-sm text-slate-500 mt-2">{n.cameras}: {rule.cameras?.includes('all') ? n.allCameras : rule.cameras?.join(', ')} &bull; {n.minConfidence}: {rule.minConfidence}%</p>
       </div>
       <div className="flex items-center gap-3">
-        {hasRole(['admin', 'operator']) && (
+        {hasRole(['admin', 'viewer']) && (
           <button onClick={() => onToggle(rule)} className={`w-11 h-6 rounded-full relative transition-colors ${rule.active ? 'bg-sky-500' : 'bg-slate-300'}`}>
             <motion.div className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm" animate={{ left: rule.active ? '24px' : '4px' }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
           </button>
         )}
-        {hasRole(['admin', 'operator']) && (
+        {hasRole(['admin', 'viewer']) && (
           <>
             <button onClick={() => onEdit(rule)} className="p-2 text-slate-400 hover:text-sky-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
             <button onClick={() => onDelete(rule)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -151,7 +151,7 @@ export default function NotificationsPage() {
     fetch('/notifications/accounts').then(r => r.json()).then(d => setAccounts(d.accounts || []));
     fetch('/notifications/groups').then(r => r.json()).then(d => setGroups(d.groups || []));
     fetch('/notifications/rules').then(r => r.json()).then(d => setRules(d.rules || []));
-    if (hasRole(['admin', 'operator', 'viewer'])) {
+    if (hasRole(['admin', 'viewer'])) {
       fetch('/notifications/config').then(r => r.json()).then(d => {
         if (d) setConfig(d);
       });
@@ -259,7 +259,7 @@ export default function NotificationsPage() {
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                   <div><h2 className="text-xl font-bold text-slate-800">{n.accountsTitle}</h2><p className="text-slate-500 mt-1">{n.accountsDesc}</p></div>
-                  {hasRole(['admin', 'operator']) && (
+                  {hasRole(['admin', 'viewer']) && (
                     <Button onClick={() => { resetForm(); setShowAccountModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.addAccount}</Button>
                   )}
                 </div>
@@ -274,7 +274,7 @@ export default function NotificationsPage() {
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                   <div><h2 className="text-xl font-bold text-slate-800">{n.groupsTitle}</h2><p className="text-slate-500 mt-1">{n.groupsDesc}</p></div>
-                  {hasRole(['admin', 'operator']) && (
+                  {hasRole(['admin', 'viewer']) && (
                     <Button onClick={() => { resetForm(); setShowGroupModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.createGroup}</Button>
                   )}
                 </div>
@@ -289,7 +289,7 @@ export default function NotificationsPage() {
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                   <div><h2 className="text-xl font-bold text-slate-800">{n.rulesTitle}</h2><p className="text-slate-500 mt-1">{n.rulesDesc}</p></div>
-                  {hasRole(['admin', 'operator']) && (
+                  {hasRole(['admin', 'viewer']) && (
                     <Button onClick={() => { resetRuleForm(); setShowRuleModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.createRule}</Button>
                   )}
                 </div>
@@ -346,7 +346,7 @@ export default function NotificationsPage() {
                   <span className="font-medium text-slate-700">{n.connectedStatus}:</span>
                   {config.isConnected ? <span className="text-emerald-600 font-semibold flex items-center gap-2"><CheckCircle2 className="w-5 h-5"/> {n.connectedStatus}</span> : <span className="text-slate-500">{n.disconnectedStatus}</span>}
                 </div>
-                {hasRole(['operator']) && (
+                {hasRole(['viewer']) && (
                   <Button variant="outline" className="mt-6 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl py-2.5 px-6">{n.sendTestAlert}</Button>
                 )}
               </div>
