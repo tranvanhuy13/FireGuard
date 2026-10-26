@@ -1,0 +1,47 @@
+# Real-time fire and smoke detection
+
+The backend uses `MODEL_PATH`, defaulting to `backend/best.pt` when started from the backend directory. The model must expose both `fire` and `smoke` classes (case-insensitive; `flame`/`flames` map to `fire`). Startup reports an explicit error if either class is missing. No alternate model is downloaded automatically.
+
+## Video playback
+
+Upload through **Analyze Video → Upload and play**. Select 5, 10, or 15 detection updates per second. The player displays analyzed JPEG frames with matching boxes, confidence, and video timestamps. Play/pause, restart from the beginning, stop, and evidence images are supported. Preview is a silent analyzed-frame stream, not an audio player; it does not support arbitrary seeking. Camera inference gets priority. When inference is slower than the selected cadence, playback slows and shows buffering instead of attaching late boxes to unrelated frames.
+
+- `POST /video-analysis`: multipart `file`, `sample_fps` (1–15, default 5). Returns `{ "job_id": "..." }`.
+- `GET /video-analysis` and `GET /video-analysis/{job_id}`: metadata and summaries, without image payloads.
+- `POST /video-analysis/{job_id}/playback`: `{ "action": "pause" | "resume" | "restart" }`. Returns a job ID. Restart creates a fresh run using the retained upload and returns its new ID.
+- `POST /video-analysis/{job_id}/cancel`: stop the active or queued analysis.
+- `WS /ws/video-analysis/{job_id}`: pushed job state. Each newly analyzed frame includes a base64 JPEG in `frame`, `frame_id`, `current_time`, `detections`, and `confirmed`. The JPEG already contains its matching overlay. Metadata-only updates omit `frame`; clients retain the previous image. Other fields include `effective_fps`, `buffering`, `progress`, `events`, `summary`, `error`, and `revision`.
+
+States are `queued`, `processing`, `paused`, `done`, `error`, and `cancelled`. Reconnecting immediately receives the latest state and image. Missing/evicted jobs close the socket with code 1008. Closing the modal pauses its job; reopening permits resume. Upload errors and corrupt/empty videos produce explicit errors.
+
+One video is processed at a time, including while paused. Queued jobs can be cancelled immediately. At most 20 jobs are retained; the oldest completed job is evicted as needed. Upload sources are retained for restart until their final referencing job is evicted or the server shuts down; startup removes leftover temporary uploads. Each video keeps at most 24 evidence snapshots and one preview frame. Uploaded-video results do not create camera alarm events or send notifications.
+
+## Cameras and settings
+
+Camera capture runs independently of model inference. A single model scheduler serializes callers and gives waiting camera requests priority over video requests. Camera inference reads the latest frame rather than building a frame queue. Slow snapshot storage and notifications run separately. Overlays and detection status expire after one second without a fresh analyzed capture.
+
+`WS /ws/detections` sends `{ "cameras": [...] }` up to 10 times per second. Camera records contain `camera_id`, `active`, `status`, `stale`, `detections`, and `confirmed`. Fresh records also include `frame_id`, `timestamp` (Unix time), and `latency_ms` (capture through inference). The dashboard clears detection badges when the connection or data becomes stale. Bounding boxes continue to appear on the existing camera MJPEG streams.
+
+The AI settings page and both inference paths use:
+
+| Setting | Units | Behavior |
+| --- | --- | --- |
+| `fire_threshold` | 0–100 percent | Minimum fire confidence |
+| `smoke_threshold` | 0–100 percent | Minimum smoke confidence |
+| `persistence` | 1–30 analyzed frames | Consecutive observations before confirmation |
+| `cooldown` | 0–3600 seconds | Minimum interval between alarms for each class on each camera |
+
+Existing `ai_confidence_threshold`, `ai_persistence_frames`, and `ai_cooldown_seconds` provide fallbacks when the newer settings are absent. `GET /settings` exposes effective values so the controls match the backend. Invalid numeric updates are rejected. A high-confidence box still obeys confirmation. Multiple boxes of one class count once per frame; fire and smoke confirmation/cooldowns are independent. Missing detections reset that class's streak. Changes take effect on subsequent analyzed frames.
+
+## Verification
+
+From `backend/`:
+
+```powershell
+.\venv\Scripts\python.exe -m unittest discover -s tests -p test_realtime_detection.py
+.\venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_lifecycle.py
+```
+
+These offline tests exercise sampled video decoding, confirmation/thresholds, synchronized frame metadata, negative and corrupt input, playback controls, queued cancellation, source retention, model serialization/camera priority, API handler contracts, camera cooldowns, lifecycle, and stale detection expiry. API handler tests run in-process with a fake socket; they do not open a network listener or a physical webcam.
+
+From `frontend/`, run `node_modules/.bin/tsc --noEmit` (or `tsc.cmd` on Windows). Actual camera latency, smoke recall, and false positives still require representative footage from the deployment site; synthetic rule tests and blank-frame FPS are not accuracy measurements.

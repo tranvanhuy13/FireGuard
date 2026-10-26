@@ -3,7 +3,10 @@ import threading
 import time
 import os
 import logging
+import queue
 from collections import namedtuple
+from detection_rules import read_settings, filter_detections, confirm_frame, draw_detections
+from inference_scheduler import InferenceScheduler
 
 import numpy as np
 
@@ -87,8 +90,8 @@ def save_snapshot_async(camera, frame, generation):
             if not camera.running or not camera.is_active or camera._generation != generation:
                 return
             filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{camera.id}.jpg"
-            storage.save_snapshot(filename, img)
-            logger.info("[Cam %s] Periodic snapshot saved: %s", camera.id, filename)
+        storage.save_snapshot(filename, img)
+        logger.info("[Cam %s] Periodic snapshot saved: %s", camera.id, filename)
 
     threading.Thread(target=task, args=(frame.copy(),), daemon=True).start()
 
@@ -125,6 +128,9 @@ class Camera:
         self.detection_persistence = {}
         self.last_event_time = 0
         self.last_detection_log_time = {}
+        self.last_class_event_time = {}
+        self.detection_state = None
+        self.captured_at = 0
 
         self.last_periodic_snapshot_time = 0
         self.last_no_frame_log = 0
@@ -154,6 +160,8 @@ class Camera:
             self._generation += 1
             self.status = "connecting" if self.is_active else "disconnected"
             self.detection_persistence = {}
+            self.detection_state = None
+            self.last_class_event_time = {}
             self.last_detected_id = 0
             self.last_periodic_snapshot_time = 0
             with self._frame_lock:
@@ -204,6 +212,7 @@ class Camera:
         with self._frame_lock:
             self.last_frame = frame
             self.frame_id += 1
+            self.captured_at = time.monotonic()
 
     def _maybe_snapshot(self, frame):
         if not self.running or not self.is_active:
@@ -276,7 +285,7 @@ class Camera:
         with self._frame_lock:
             return self.frame_id, self.last_frame
 
-    def set_overlay(self, original, annotated):
+    def set_overlay(self, original, annotated, captured_at=None):
         """
         Remember what the detector drew (boxes/labels) so it can be painted on
         top of every new raw frame, keeping the annotated stream at full FPS.
@@ -285,13 +294,14 @@ class Camera:
             self.overlay = None
             return
         mask = np.any(annotated != original, axis=2)
-        self.overlay = Overlay(annotated, mask, time.time()) if mask.any() else None
+        self.overlay = Overlay(annotated, mask, captured_at or time.monotonic()) if mask.any() else None
+        self._jpeg_cache = (0, None)
 
     # -------------------------------------------------------------- streaming
     def _compose(self, frame):
         ov = self.overlay
         if (ov is not None
-                and time.time() - ov.timestamp < OVERLAY_TTL_SECONDS
+                and time.monotonic() - ov.timestamp < OVERLAY_TTL_SECONDS
                 and ov.mask.shape == frame.shape[:2]):
             out = frame.copy()
             out[ov.mask] = ov.pixels[ov.mask]
@@ -328,9 +338,12 @@ class CameraManager:
         self.detector = detector
         # One model, many callers (live cameras + uploaded-video analysis):
         # serialize inference so the model is never called from two threads at once.
-        self.detector_lock = threading.Lock()
+        self.scheduler = InferenceScheduler(detector)
+        self._events = queue.Queue(maxsize=32)
         self.running = True
         self.alert_callback = None
+        self.event_thread = threading.Thread(target=self._event_loop, daemon=True, name="camera-events")
+        self.event_thread.start()
 
         self.load_cameras_from_db()
 
@@ -404,10 +417,36 @@ class CameraManager:
         for cam in list(self.cameras.values()):
             cam.stop()
 
-    def detect(self, frame):
+    def detect(self, frame, background=False, cancelled=None):
         """Run the shared AI model (thread-safe). Returns (annotated_frame, detections)."""
-        with self.detector_lock:
-            return self.detector.process_frame(frame)
+        return self.scheduler.detect(frame, background=background, cancelled=cancelled)
+
+    def detection_states(self):
+        states = []
+        for cam in list(self.cameras.values()):
+            with cam._state_lock:
+                state = cam.detection_state
+                fresh = bool(state and time.monotonic() - state["captured_at"] < OVERLAY_TTL_SECONDS)
+                states.append({"camera_id": cam.id, "active": cam.is_active, "status": cam.status,
+                               "stale": not fresh, **({key: value for key, value in state.items()
+                               if key != "captured_at"} if fresh else {"detections": [], "confirmed": []})})
+        return states
+
+    def _event_loop(self):
+        while self.running or not self._events.empty():
+            try:
+                cam, generation, name, confidence, frame = self._events.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                with cam._state_lock:
+                    valid = cam.running and cam.is_active and cam._generation == generation
+                if valid:
+                    self._save_event(cam, name, confidence, frame)
+            except Exception:
+                logger.exception("[Cam %s] Event storage failed", cam.id)
+            finally:
+                self._events.task_done()
 
     # ---------------------------------------------------------------- streaming
     def get_frame_id(self, camera_id):
@@ -465,62 +504,52 @@ class CameraManager:
                     cam.last_detected_id = frame_id
                     cam.last_detection_time = now
                     generation = cam._generation
+                    captured_at = cam.captured_at
                 did_work = True
 
                 try:
                     # Pass a copy: the detector may draw on the image in place
                     annotated_frame, detections = self.detect(frame.copy())
+                    import database
+                    settings = read_settings(database.get_setting)
+                    detections = filter_detections(detections, settings)
+                    annotated_frame = draw_detections(frame, detections)
                 except Exception:
                     logger.exception("[Camera %s] Detection failed", cam.id)
+                    with cam._state_lock:
+                        cam.detection_persistence = {}
+                        cam.detection_state = None
+                        cam.overlay = None
                     continue
 
                 with cam._state_lock:
                     if not cam.running or not cam.is_active or cam._generation != generation:
                         continue
-                    cam.set_overlay(frame, annotated_frame)
-
-                    if detections:
-                        self._process_detections(cam, detections, annotated_frame)
-                    else:
-                        cam.detection_persistence = {}
+                    cam.set_overlay(frame, annotated_frame, captured_at)
+                    confirmed = self._process_detections(cam, detections, annotated_frame, settings)
+                    cam.detection_state = {"frame_id": frame_id, "timestamp": time.time(),
+                        "captured_at": captured_at, "detections": detections, "confirmed": list(confirmed),
+                        "latency_ms": round((time.monotonic() - captured_at) * 1000)}
 
             if not did_work:
                 time.sleep(0.005)
 
-    def _process_detections(self, cam, detections, annotated_frame):
-        current_classes = set()
-
-        import database
-        try:
-            conf_threshold = float(database.get_setting("ai_confidence_threshold", "0.25"))
-            persistence_limit = int(database.get_setting("ai_persistence_frames", "2"))
-            configured_cooldown = float(database.get_setting("ai_cooldown_seconds", "5"))
-            cooldown_seconds = max(configured_cooldown, SNAPSHOT_INTERVAL_SECONDS)
-        except Exception:
-            conf_threshold = 0.25
-            persistence_limit = 2
-            cooldown_seconds = 5
-
-        for det in detections:
-            cls_name = det["class"]
-            conf = det["confidence"]
-
-            if conf < conf_threshold:
+    def _process_detections(self, cam, detections, annotated_frame, settings=None):
+        if settings is None:
+            import database
+            settings = read_settings(database.get_setting)
+            detections = filter_detections(detections, settings)
+        confirmed = confirm_frame(cam.detection_persistence, detections, settings["persistence"])
+        now = time.monotonic()
+        for name, confidence in confirmed.items():
+            if now - cam.last_class_event_time.get(name, -1e9) < settings["cooldown"]:
                 continue
-
-            current_classes.add(cls_name)
-            cam.detection_persistence[cls_name] = cam.detection_persistence.get(cls_name, 0) + 1
-
-            if cam.detection_persistence[cls_name] >= persistence_limit or conf > 0.6:
-                current_time = time.time()
-                if current_time - cam.last_event_time > cooldown_seconds:
-                    self._save_event(cam, cls_name, conf, annotated_frame)
-                    cam.last_event_time = current_time
-                    break
-
-        for existing_cls in list(cam.detection_persistence.keys()):
-            if existing_cls not in current_classes:
-                cam.detection_persistence[existing_cls] = 0
+            try:
+                self._events.put_nowait((cam, cam._generation, name, confidence, annotated_frame.copy()))
+                cam.last_class_event_time[name] = now
+            except queue.Full:
+                logger.warning("[Cam %s] Event queue full; retrying on next detection", cam.id)
+        return confirmed
 
     def _save_event(self, cam, cls_name, conf, frame):
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
