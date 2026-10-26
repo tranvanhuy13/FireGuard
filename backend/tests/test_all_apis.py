@@ -45,6 +45,22 @@ async def test_cameras_crud_and_toggle():
         cam_id = add_data.get("id")
         assert cam_id is not None
 
+        # PUT cập nhật thông tin camera (tên và trạng thái)
+        res_put = await client.put(f"/cameras/{cam_id}", json={
+            "name": "Camera AutoTest Updated",
+            "is_active": True
+        })
+        assert res_put.status_code == 200
+        assert res_put.json().get("status") == "ok"
+
+        # PUT cập nhật camera không tồn tại -> 404
+        res_put_404 = await client.put("/cameras/999999", json={
+            "name": "Non-existent",
+            "is_active": False
+        })
+        assert res_put_404.status_code == 404
+        assert res_put_404.json().get("detail") == "Camera not found"
+
         # POST toggle tắt camera
         res_toggle_off = await client.post(f"/cameras/{cam_id}/toggle?active=false")
         assert res_toggle_off.status_code == 200
@@ -148,6 +164,15 @@ async def test_video_analysis_api():
         res_cancel_404 = await client.post("/video-analysis/invalid-job-id-999/cancel")
         assert res_cancel_404.status_code == 404
 
+        # POST playback job không tồn tại -> 404
+        res_playback_404 = await client.post("/video-analysis/invalid-job-id-999/playback", json={"action": "pause"})
+        assert res_playback_404.status_code == 404
+        assert "Analysis job not found" in res_playback_404.json().get("detail", "")
+
+        # POST playback action không hợp lệ -> 422
+        res_playback_bad = await client.post("/video-analysis/invalid-job-id-999/playback", json={"action": "invalid_action"})
+        assert res_playback_bad.status_code == 422
+
         # POST upload file sai định dạng (ví dụ .txt) -> 400 Unsupported file type
         files_bad_ext = {"file": ("test.txt", io.BytesIO(b"dummy text"), "text/plain")}
         res_bad_ext = await client.post("/video-analysis", files=files_bad_ext)
@@ -192,3 +217,72 @@ async def test_otp_verification_edge_cases():
         })
         assert res_resend_active.status_code == 400
         assert "Account already verified" in res_resend_active.json().get("detail", "")
+
+
+@pytest.mark.asyncio
+async def test_edge_case_camera_source_hardcoding():
+    """7. Truong hop bien: Kiem tra them camera voi luong RTSP (Ghi nhan BUG-007)"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/cameras", json={
+            "source": "rtsp://admin:pass@192.168.1.100:554/live",
+            "name": "Camera RTSP Ngoai Vi",
+            "is_active": False
+        })
+        assert res.status_code == 200
+        cam_id = res.json().get("id")
+        try:
+            cams_res = await client.get("/cameras")
+            cam = next((c for c in cams_res.json().get("cameras", []) if c["id"] == cam_id), None)
+            assert cam is not None
+            # Ghi nhan BUG-007: source bi hardcode thanh '0' thay vi giu nguyen RTSP URL
+            assert cam["source"] == "0"
+        finally:
+            await client.delete(f"/cameras/{cam_id}")
+
+@pytest.mark.asyncio
+async def test_edge_case_unauthenticated_endpoints():
+    """8. Truong hop bien bao mat: Kiem tra cac endpoint khong yeu cau xac thuc (BUG-008 va BUG-009)"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # GET /video-analysis khong yeu cau header Authorization
+        res_vid = await client.get("/video-analysis")
+        assert res_vid.status_code == 200
+
+        # GET /settings cong khai doc duoc cau hinh
+        res_set = await client.get("/settings")
+        assert res_set.status_code == 200
+
+@pytest.mark.asyncio
+async def test_edge_case_settings_strict_bounds():
+    """9. Truong hop bien: Kiem tra validation chat che cua cac gia tri cau hinh AI"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        # Nguong lua vuot qua 100% -> 400
+        res1 = await client.post("/settings", json={"key": "fire_threshold", "value": "150"})
+        assert res1.status_code == 400
+
+        # Nguong lua am (< 0) -> 400
+        res2 = await client.post("/settings", json={"key": "fire_threshold", "value": "-5"})
+        assert res2.status_code == 400
+
+        # Persistence la so thap phan (3.5) thay vi so nguyen -> 400
+        res3 = await client.post("/settings", json={"key": "persistence", "value": "3.5"})
+        assert res3.status_code == 400
+
+        # Cooldown qua 3600 giay -> 400
+        res4 = await client.post("/settings", json={"key": "cooldown", "value": "5000"})
+        assert res4.status_code == 400
+
+        # Gia tri khong phai so (NaN / String) -> 400
+        res5 = await client.post("/settings", json={"key": "smoke_threshold", "value": "not_a_number"})
+        assert res5.status_code == 400
+
+@pytest.mark.asyncio
+async def test_edge_case_signup_special_character_rejection():
+    """10. Truong hop bien: Backend tu choi mat khau co ky tu dac biet (Ghi nhan BUG-010)"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/auth/signup", json={
+            "username": "validuser123",
+            "email": "validuser123@gmail.com",
+            "password": "SecurePass@2026"
+        })
+        assert res.status_code == 400
+        assert "special characters" in res.json().get("detail", "").lower()

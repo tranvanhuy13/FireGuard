@@ -30,6 +30,10 @@ backend/snapshots/
 # Runtime artifacts
 backend/runtime*.log
 
+# Testing
+test-results/
+playwright-report/
+
 # OS
 .DS_Store
 Thumbs.db

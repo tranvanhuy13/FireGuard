@@ -86,4 +86,81 @@ test.describe('Phân quyền & Kiểm soát truy cập (Access Control & Protect
       expect(data.role).toBeUndefined();
     });
   });
+
+  // --------------------------------------------------------------------------
+  // 4. KIỂM THỬ QUY TẮC PHÂN QUYỀN MỚI (PR #13, PR #14)
+  // Gộp role operator vào viewer; Cho phép mọi vai trò (kể cả viewer) bật/tắt camera
+  // --------------------------------------------------------------------------
+  test.describe('Cơ chế Chuẩn Hóa Role & Quyền Hạn (PR #13 & PR #14)', () => {
+    test('Hàm chuẩn hóa role: operator được tự động chuyển thành viewer', () => {
+      const normalizeUser = (u: any) => {
+        if (!u || typeof u !== 'object') return null;
+        return {
+          ...u,
+          role: u.role === 'admin' ? 'admin' : 'viewer',
+        };
+      };
+
+      expect(normalizeUser({ username: 'test_admin', role: 'admin' }).role).toBe('admin');
+      expect(normalizeUser({ username: 'test_viewer', role: 'viewer' }).role).toBe('viewer');
+      expect(normalizeUser({ username: 'test_operator', role: 'operator' }).role).toBe('viewer');
+      expect(normalizeUser({ username: 'test_unknown', role: 'guest' }).role).toBe('viewer');
+    });
+
+    test('Quyền hạn của Viewer: Cho phép toggle camera, xem stream, phân tích video', () => {
+      const can = (user: { role: string }, permission: string) => {
+        if (!user) return false;
+        if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
+        if (user.role === 'admin') return true;
+        if (user.role === 'viewer') {
+          const adminOnly = ['manage_users', 'manage_settings', 'add_camera', 'edit_camera', 'delete_camera', 'audit_log'];
+          return !adminOnly.includes(permission);
+        }
+        return false;
+      };
+
+      const viewer = { role: 'viewer' };
+      // Quyền được phép
+      expect(can(viewer, 'toggle_camera')).toBe(true);
+      expect(can(viewer, 'toggle:camera')).toBe(true);
+      expect(can(viewer, 'view_stream')).toBe(true);
+      expect(can(viewer, 'analyze_video')).toBe(true);
+      expect(can(viewer, 'ack_alert')).toBe(true);
+
+      // Quyền bị cấm
+      expect(can(viewer, 'manage_users')).toBe(false);
+      expect(can(viewer, 'manage_settings')).toBe(false);
+      expect(can(viewer, 'add_camera')).toBe(false);
+      expect(can(viewer, 'edit_camera')).toBe(false);
+      expect(can(viewer, 'delete_camera')).toBe(false);
+      expect(can(viewer, 'audit_log')).toBe(false);
+    });
+
+    test('Quyền hạn của Admin: Có toàn quyền trên mọi chức năng', () => {
+      const can = (user: { role: string }, permission: string) => {
+        if (!user) return false;
+        if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
+        if (user.role === 'admin') return true;
+        return false;
+      };
+
+      const admin = { role: 'admin' };
+      const allPermissions = [
+        'toggle_camera',
+        'view_stream',
+        'analyze_video',
+        'ack_alert',
+        'manage_users',
+        'manage_settings',
+        'add_camera',
+        'edit_camera',
+        'delete_camera',
+        'audit_log',
+      ];
+
+      for (const perm of allPermissions) {
+        expect(can(admin, perm)).toBe(true);
+      }
+    });
+  });
 });

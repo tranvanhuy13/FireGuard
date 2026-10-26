@@ -7,7 +7,14 @@ BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
+from unittest.mock import patch
 from auth.utils import get_password_hash
+
+@pytest.fixture(autouse=True)
+def mock_otp_email_sending():
+    """Mock việc gửi email SMTP thật để test chạy độc lập, tốc độ cao và không phụ thuộc mạng ngoại vi"""
+    with patch("auth.routes.send_otp_email", return_value=True):
+        yield
 
 @pytest.fixture(autouse=True)
 def setup_test_user():
