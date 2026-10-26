@@ -5,6 +5,8 @@ Run with: python -m unittest discover -s tests -p test_camera_lifecycle.py
 import importlib.util
 import sys
 import threading
+import queue
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -176,6 +178,40 @@ class CameraLifecycleTests(unittest.TestCase):
             self.assertEqual([call.args[1] for call in camera.call_args_list], ['0', '0'])
             manager.add_camera('rtsp://old', 'New', False)
             database.add_db_camera.assert_called_once_with('New', '0', 0)
+
+
+    def test_fire_and_smoke_have_independent_confirmation_and_cooldowns(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager._events = queue.Queue(maxsize=10)
+        camera = self.camera()
+        settings = {"fire": 0.5, "smoke": 0.5, "persistence": 2, "cooldown": 60}
+        detections = [{"class": "fire", "confidence": 0.8},
+                      {"class": "smoke", "confidence": 0.8},
+                      {"class": "smoke", "confidence": 0.9}]
+        frame = np.zeros((2, 2, 3), dtype=np.uint8)
+        self.assertEqual(manager._process_detections(camera, detections, frame, settings), {})
+        self.assertEqual(manager._events.qsize(), 0)
+        confirmed = manager._process_detections(camera, detections, frame, settings)
+        self.assertEqual(set(confirmed), {"fire", "smoke"})
+        self.assertEqual(manager._events.qsize(), 2)
+        manager._process_detections(camera, detections, frame, settings)
+        self.assertEqual(manager._events.qsize(), 2)
+        manager._process_detections(camera, [], frame, settings)
+        self.assertEqual(camera.detection_persistence, {"fire": 0, "smoke": 0})
+
+    def test_detection_metadata_and_overlay_expire(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        camera = self.camera()
+        manager.cameras = {camera.id: camera}
+        camera.detection_state = {"captured_at": time.monotonic() - 2,
+                                  "detections": [{"class": "smoke"}], "confirmed": ["smoke"]}
+        state = manager.detection_states()[0]
+        self.assertTrue(state["stale"])
+        self.assertEqual(state["detections"], [])
+        original = np.zeros((2, 2, 3), dtype=np.uint8)
+        annotated = np.ones_like(original)
+        camera.set_overlay(original, annotated, time.monotonic() - 2)
+        self.assertTrue(np.array_equal(camera._compose(original), original))
 
 
 if __name__ == "__main__":

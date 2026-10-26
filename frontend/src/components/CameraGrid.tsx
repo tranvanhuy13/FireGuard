@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
 import VideoAnalysisModal from "./VideoAnalysisModal";
+import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
 import { isMockData } from "../lib/api/client";
 
@@ -17,6 +18,7 @@ interface Camera {
 }
 
 const CameraGrid = () => {
+  const detections = useCameraDetections();
   const { t } = useLanguage();
   const { user, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
@@ -307,6 +309,7 @@ const CameraGrid = () => {
             className={`relative rounded-xl overflow-hidden bg-[#0B2540] border border-sky-900/50 group shadow-sm flex items-center justify-center w-full ${itemsToRender.length === 1 ? 'max-w-[800px]' : ''}`}
             style={{ aspectRatio: '4/3' }}
           >
+            {cam.is_active && !isMockData && <CameraDetectionStatus state={detections[cam.id]} />}
             {/* Controls Overlay */}
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
               {canToggle && (
