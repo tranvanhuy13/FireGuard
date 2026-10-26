@@ -41,7 +41,7 @@ const CameraGrid = () => {
 
   const canManage = user?.role === "admin";
   const canToggle = !!user;
-  const canAnalyze = user?.role === "admin" || user?.role === "operator";
+  const canAnalyze = user?.role === "admin" || user?.role === "viewer";
 
   // Mock animation states for bounding boxes
   const [time, setTime] = useState(0);

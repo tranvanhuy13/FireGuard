@@ -31,7 +31,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
 
-  const canManageAlerts = user?.role === "admin" || user?.role === "operator";
+  const canManageAlerts = user?.role === "admin" || user?.role === "viewer";
 
   useEffect(() => {
     const fetchSoundSetting = async () => {
