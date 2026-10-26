@@ -15,3 +15,4 @@ export const getWsUrl = () => {
 
 export const API_URL = getBackendUrl();
 export const WS_URL = getWsUrl();
+export const MIN_PASSWORD_LENGTH = 8;
