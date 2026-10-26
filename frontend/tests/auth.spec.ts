@@ -30,12 +30,10 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
     await expect(page.locator('h2')).toContainText(/Xác thực OTP|Verify OTP/i);
   });
 
-  test('REG_02: Để trống tất cả các trường -> Báo lỗi validation', async ({ page }) => {
+  test('REG_02: Để trống tất cả các trường -> Nút Đăng ký bị vô hiệu hóa (disabled)', async ({ page }) => {
     await page.goto('/register');
-    await page.click('button[type="submit"]');
-
-    // Kiểm tra có thông báo lỗi hiển thị dưới các trường
-    await expect(page.locator('p.text-red-600')).toHaveCount(4); // username, email, password, terms
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeDisabled();
   });
 
   test('REG_03: Username quá ngắn (< 3 ký tự) -> Báo lỗi', async ({ page }) => {
@@ -66,12 +64,46 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
     await expect(page.locator('p.text-red-600').first()).toBeVisible();
   });
 
-  test('REG_07: Mật khẩu xác nhận không khớp -> Báo lỗi', async ({ page }) => {
+  test('REG_07: Mật khẩu xác nhận không khớp -> Nút Đăng ký bị vô hiệu hóa (disabled)', async ({ page }) => {
     const u = newUser();
     await fillRegister(page, { ...u, confirmPassword: 'DifferentPassword123' });
-    await page.click('button[type="submit"]');
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeDisabled();
+  });
 
-    await expect(page.locator('p.text-red-600').first()).toBeVisible();
+  test('REG_09: Password Requirements hiển thị checklist 4 điều kiện khi nhập mật khẩu', async ({ page }) => {
+    await page.goto('/register');
+    await page.fill('#password', 'a');
+    const checklist = page.locator('text=Yêu cầu mật khẩu, text=Password requirements');
+    await expect(checklist.first()).toBeVisible();
+  });
+
+  test('REG_10: Password Strength Meter phản ánh độ mạnh của mật khẩu theo thời gian thực', async ({ page }) => {
+    await page.goto('/register');
+    const passInput = page.locator('#password');
+    await passInput.fill('abcdefgh');
+    await expect(page.locator('text=Yếu, text=Weak').first()).toBeVisible();
+    await passInput.fill('Abcdefgh1');
+    await expect(page.locator('text=Mạnh, text=Strong').first()).toBeVisible();
+  });
+
+  test('REG_11: Nút Đăng ký được kích hoạt (enabled) khi mật khẩu hợp lệ và xác nhận khớp', async ({ page }) => {
+    const u = newUser();
+    await fillRegister(page, u);
+    const submitBtn = page.locator('button[type="submit"]');
+    await expect(submitBtn).toBeEnabled();
+  });
+
+  test('REG_12: Loại bỏ hoàn toàn các nút mạng xã hội (Google / Facebook) tại /register và /login', async ({ page }) => {
+    await page.goto('/register');
+    await expect(page.locator('button:has-text("Google")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Facebook")')).toHaveCount(0);
+    await page.goto('/login');
+    await expect(page.locator('button:has-text("Google")')).toHaveCount(0);
+    await expect(page.locator('button:has-text("Facebook")')).toHaveCount(0);
+  });
+    const u = newUser();
+
   });
 
   test('REG_08: Chưa tích đồng ý điều khoản (Terms) -> Báo lỗi', async ({ page }) => {
