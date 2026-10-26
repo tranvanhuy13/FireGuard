@@ -16,7 +16,8 @@ import storage
 logger = logging.getLogger(__name__)
 
 CAMERA_FPS = 30                  # target capture / stream rate
-SNAPSHOT_INTERVAL_SECONDS = 10    # periodic snapshot per camera
+SNAPSHOT_INTERVAL_SECONDS = 15    # periodic snapshot per camera
+DETECTION_LOG_INTERVAL_SECONDS = 15  # detection console output per camera/class
 DETECTION_FPS = 10               # max AI inferences per second per camera
 OVERLAY_TTL_SECONDS = 1.0        # hide boxes if detector stalls longer than this
 RECONNECT_DELAY_SECONDS = 10
@@ -126,6 +127,7 @@ class Camera:
         self.last_detection_time = 0
         self.detection_persistence = {}
         self.last_event_time = 0
+        self.last_detection_log_time = {}
         self.last_class_event_time = {}
         self.detection_state = None
         self.captured_at = 0
@@ -559,7 +561,10 @@ class CameraManager:
         import database
         event_id, timestamp = database.add_event(cls_name, conf, snapshot_url)
 
-        print(f"[Cam {cam.id}] Detected {cls_name} ({conf:.2f})")
+        now = time.monotonic()
+        if now - cam.last_detection_log_time.get(cls_name, -1e9) >= DETECTION_LOG_INTERVAL_SECONDS:
+            print(f"[Cam {cam.id}] Detected {cls_name} ({conf:.2f})")
+            cam.last_detection_log_time[cls_name] = now
 
         if self.alert_callback:
             try:

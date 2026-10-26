@@ -4,10 +4,10 @@
 import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
+import { isMockData } from "../lib/api/client";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
-import { isMockData } from "../lib/api/client";
 
 interface Camera {
   id: number;
@@ -43,9 +43,6 @@ const CameraGrid = () => {
   const canToggle = !!user;
   const canAnalyze = user?.role === "admin" || user?.role === "viewer";
 
-  // Mock animation states for bounding boxes
-  const [time, setTime] = useState(0);
-
   const fetchCameras = async () => {
     try {
       const res = await fetch(`${API_URL}/cameras`);
@@ -63,11 +60,6 @@ const CameraGrid = () => {
     fetchCameras();
     const interval = setInterval(fetchCameras, 3000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const timer = setInterval(() => setTime(t => t + 1), 1000);
-    return () => clearInterval(timer);
   }, []);
 
   const handleAddCamera = async () => {
@@ -290,19 +282,7 @@ const CameraGrid = () => {
       <div
         className={`grid gap-4 flex-1 min-h-0 overflow-y-auto ${gridCols} ${itemsToRender.length === 1 ? 'place-items-center' : ''}`}
       >
-        {itemsToRender.map((cam, idx) => {
-          const isSmoke = idx % 2 === 1;
-          const boxType = isSmoke ? "SMOKE" : "FIRE";
-          const boxColor = isSmoke ? "border-yellow-400 bg-yellow-400/10 text-yellow-400" : "border-red-500 bg-red-500/10 text-white";
-          const labelBg = isSmoke ? "bg-yellow-400 text-black" : "bg-red-500 text-white";
-          
-          const topPos = 20 + Math.sin(time + idx) * 10;
-          const leftPos = 20 + Math.cos(time + idx) * 10;
-          const wSize = 30 + (idx * 5);
-          const hSize = 40 + (idx * 2);
-          const conf = (85 + (Math.sin(time * 0.5 + idx) * 10)).toFixed(1);
-
-          return (
+        {itemsToRender.map((cam) => (
           <div
             key={cam.id}
             id={`cam-container-${cam.id}`}
@@ -416,24 +396,6 @@ const CameraGrid = () => {
               </div>
             ) : (
               <div className="relative w-full h-full bg-[#071728]">
-                {isMockData && (
-                <div className="absolute inset-0 pointer-events-none z-10 p-4 overflow-hidden">
-                   <div className={`absolute bottom-0 left-0 w-full h-1 ${isSmoke ? 'bg-yellow-400' : 'bg-red-500'} animate-pulse`}></div>
-                   
-                   <div 
-                     className={`absolute border-2 ${boxColor} transition-all duration-1000 ease-in-out`}
-                     style={{ top: `${topPos}%`, left: `${leftPos}%`, width: `${wSize}%`, height: `${hSize}%` }}
-                   >
-                     <div className={`absolute -top-5 left-[-2px] ${labelBg} text-[10px] font-bold px-1 py-0.5 whitespace-nowrap`}>
-                       {boxType} ({conf}%)
-                     </div>
-                   </div>
-                   
-                   <div className="absolute bottom-4 right-4 bg-black/60 text-white text-[10px] px-2 py-1 rounded font-mono border border-white/10 backdrop-blur-sm">
-                     {new Date().toLocaleTimeString()}
-                   </div>
-                </div>
-                )}
                 <img
                   src={`${API_URL}/video_feed/${cam.id}${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`}
                   alt={cam.name}
@@ -447,7 +409,7 @@ const CameraGrid = () => {
               </div>
             )}
           </div>
-        )})}
+        ))}
       </div>
 
       <VideoAnalysisModal
