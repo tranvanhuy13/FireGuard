@@ -22,14 +22,14 @@ export default function AiSettingsPage() {
 
   useEffect(() => {
     fetch(`${API_URL}/settings`)
-      .then(res => res.json())
+      .then(res => { if (!res.ok) throw new Error("Settings request failed"); return res.json(); })
       .then(data => {
         const raw = data.settings || data;
         const mapped = {
-          fireThreshold: raw.fire_threshold ? Number(raw.fire_threshold) : (raw.fireThreshold || DEFAULT_SETTINGS.fireThreshold),
-          smokeThreshold: raw.smoke_threshold ? Number(raw.smoke_threshold) : (raw.smokeThreshold || DEFAULT_SETTINGS.smokeThreshold),
-          persistence: raw.persistence ? Number(raw.persistence) : (raw.persistence || DEFAULT_SETTINGS.persistence),
-          cooldown: raw.cooldown ? Number(raw.cooldown) : (raw.cooldown || DEFAULT_SETTINGS.cooldown),
+          fireThreshold: Number(raw.fire_threshold ?? raw.fireThreshold ?? DEFAULT_SETTINGS.fireThreshold),
+          smokeThreshold: Number(raw.smoke_threshold ?? raw.smokeThreshold ?? DEFAULT_SETTINGS.smokeThreshold),
+          persistence: Number(raw.persistence ?? DEFAULT_SETTINGS.persistence),
+          cooldown: Number(raw.cooldown ?? DEFAULT_SETTINGS.cooldown),
         };
         setSettings(mapped);
         setOriginalSettings(mapped);
@@ -53,26 +53,20 @@ export default function AiSettingsPage() {
 
   const handleSave = async () => {
     try {
-      await fetch(`${API_URL}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'fire_threshold', value: String(settings.fireThreshold) })
-      });
-      await fetch(`${API_URL}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'smoke_threshold', value: String(settings.smokeThreshold) })
-      });
-      await fetch(`${API_URL}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'persistence', value: String(settings.persistence) })
-      });
-      await fetch(`${API_URL}/settings`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'cooldown', value: String(settings.cooldown) })
-      });
+      const updates = {
+        fire_threshold: settings.fireThreshold,
+        smoke_threshold: settings.smokeThreshold,
+        persistence: settings.persistence,
+        cooldown: settings.cooldown,
+      };
+      const responses = await Promise.all(Object.entries(updates).map(([key, value]) =>
+        fetch(`${API_URL}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, value: String(value) }),
+        })
+      ));
+      if (responses.some(response => !response.ok)) throw new Error('Settings save failed');
       setOriginalSettings(settings);
       alert(t.pages?.common?.saveSuccess || 'Saved successfully');
     } catch (err) {

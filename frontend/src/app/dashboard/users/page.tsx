@@ -125,7 +125,7 @@ export default function UsersPage() {
                         className="border rounded p-1 text-sm bg-white text-gray-700 disabled:opacity-50 disabled:bg-gray-100"
                       >
                         <option value="viewer">Viewer</option>
-                        <option value="operator">Operator</option>
+
                         <option value="admin">Admin</option>
                       </select>
                     </td>

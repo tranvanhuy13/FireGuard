@@ -213,13 +213,37 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Method:** `POST`
 - **Path:** `/cameras/{camera_id}/toggle?active=true` (hoặc `active=false`)
 - **Auth:** Basic Auth
+- **Phân quyền người dùng (RBAC):**
+  - **Mọi vai trò** (`admin`, `operator`, `viewer`) sau khi đăng nhập đều có quyền thấy và sử dụng công tắc bật/tắt camera trên cả Dashboard (`CameraGrid`, `VideoFeed`) và trang Quản lý Camera (`/dashboard/cameras`).
+- **Hành vi phía Frontend:**
+  - **Xác nhận khi tắt:** Khi người dùng chuyển công tắc camera từ BẬT sang TẮT, Frontend bắt buộc hiển thị hộp thoại xác nhận: *"Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?"*. Khi bật lại camera, hệ thống thực hiện ngay và không yêu cầu xác nhận.
+  - **Xử lý lỗi và hoàn tác trạng thái (Rollback on Error):** Gọi `POST /cameras/{id}/toggle?active=...`. Nếu xảy ra lỗi `401` (hết phiên), `403` (không có quyền) hoặc lỗi mất kết nối mạng, Frontend hiển thị thông báo tiếng Việt tương ứng và **lập tức gạt công tắc về lại đúng trạng thái thực tế ban đầu** của camera, ngăn chặn hoàn toàn việc giao diện bị lệch so với dữ liệu backend.
 - **Response:** `{"status": "ok", "message": "Camera enabled"}`
 
 ---
 
-### 1.4. Cảnh Báo, Thống Kê & Lịch Sử
+### 1.4. Bảng Ma Trận Phân Quyền (RBAC Matrix)
 
-#### 1.4.1. Danh sách cảnh báo gần đây (Alerts)
+Bảng đối chiếu quyền hạn chi tiết giữa 3 vai trò người dùng trong hệ thống FireGuard:
+
+| Tính năng / Hành động | Viewer (Người xem) | Operator (Điều hành viên) | Admin (Quản trị viên) | Quy tắc nghiệp vụ |
+| :--- | :---: | :---: | :---: | :--- |
+| **Bật / Tắt camera (Toggle ON/OFF)** | ✅ | ✅ | ✅ | **Mọi vai trò đã đăng nhập đều dùng được**, hỏi xác nhận khi TẮT, tự động hoàn tác khi lỗi |
+| **Xem Camera & Live Stream** | ✅ | ✅ | ✅ | Xem luồng MJPEG thời gian thực |
+| **Thêm / Chỉnh sửa / Xóa Camera** | ❌ | ❌ | ✅ | Chỉ Admin được CRUD camera |
+| **Phân tích video tải lên (Video Analysis)** | ❌ | ✅ | ✅ | Operator và Admin được tải video lên để AI phân tích |
+| **Xác nhận / Báo động sai (Alert Review)** | ❌ | ✅ | ✅ | Chỉ Operator và Admin có quyền xử lý cảnh báo sự cố |
+| **Xem lịch sử & sự kiện cảnh báo** | ✅ | ✅ | ✅ | Tất cả vai trò đều xem được lịch sử sự kiện |
+| **Quản lý thông báo cá nhân/nhóm** | ✅ | ✅ | ✅ | Cấu hình tài khoản, nhóm và quy tắc nhận cảnh báo |
+| **Cài đặt hệ thống AI (AI Settings)** | ❌ | ❌ | ✅ | Chỉ Admin được chỉnh ngưỡng phát hiện cháy/khói |
+| **Quản lý danh sách người dùng** | ❌ | ❌ | ✅ | Chỉ Admin được xem, phân quyền và khóa tài khoản |
+| **Nhật ký thao tác hệ thống (Audit Logs)** | ❌ | ❌ | ✅ | Chỉ Admin được truy cập nhật ký bảo mật |
+
+---
+
+### 1.5. Cảnh Báo, Thống Kê & Lịch Sử
+
+#### 1.5.1. Danh sách cảnh báo gần đây (Alerts)
 - **Method:** `GET`
 - **Path:** `/alerts`
 - **Auth:** Basic Auth
@@ -238,7 +262,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 
-#### 1.4.2. Thống kê theo ngày (Stats)
+#### 1.5.2. Thống kê theo ngày (Stats)
 - **Method:** `GET`
 - **Path:** `/stats`
 - **Auth:** Basic Auth
@@ -254,7 +278,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 
-#### 1.4.3. Lịch sử cảnh báo (History)
+#### 1.5.3. Lịch sử cảnh báo (History)
 - **Method:** `GET`
 - **Path:** `/history?limit=50&offset=0`
 - **Auth:** Basic Auth
@@ -276,9 +300,9 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 
 ---
 
-### 1.5. Cài Đặt Hệ Thống & Kiểm Tra Cảnh Báo
+### 1.6. Cài Đặt Hệ Thống & Kiểm Tra Cảnh Báo
 
-#### 1.5.1. Xem Cài Đặt
+#### 1.6.1. Xem Cài Đặt
 - **Method:** `GET`
 - **Path:** `/settings`
 - **Auth:** Basic Auth
@@ -295,7 +319,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   ```
   *(Các khóa bí mật được backend che bằng `********`).*
 
-#### 1.5.2. Lưu Từng Cài Đặt
+#### 1.6.2. Lưu Từng Cài Đặt
 - **Method:** `POST`
 - **Path:** `/settings`
 - **Auth:** Basic Auth
@@ -308,7 +332,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   ```
 - **Response:** `{"status": "ok", "message": "Setting saved"}`
 
-#### 1.5.3. Bắn Cảnh Báo Thử Nghiệm (Test Notification)
+#### 1.6.3. Bắn Cảnh Báo Thử Nghiệm (Test Notification)
 - **Method:** `POST`
 - **Path:** `/test-notification`
 - **Auth:** Basic Auth
@@ -316,7 +340,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 
 ---
 
-### 1.6. Phân Tích Video Tải Lên (Video Analysis)
+### 1.7. Phân Tích Video Tải Lên (Video Analysis)
 
 - **Tải lên & phân tích:** `POST /video-analysis` (Multipart Form: `file`, `sample_fps`) -> `{"job_id": "uuid"}`
 - **Danh sách tiến trình:** `GET /video-analysis` -> `{"jobs": [...]}`
@@ -332,7 +356,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 ### 2.1. Phân Quyền & Vai Trò Người Dùng (RBAC Role Field)
 - **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"viewer"` (không giả lập quyền cao).
 - **Cần Backend bổ sung:**
-  - Cột `role` (`"admin"` | `"operator"` | `"viewer"`) trong database `users`.
+  - Cột `role` (`"admin"` | `"viewer"`) trong database `users` (vai trò `operator` đã được loại bỏ trên frontend và gộp quyền vào `viewer`; nếu backend trả về `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `viewer`).
   - Trả về trường `role` trong response của `GET /auth/login` và `GET /users/me`.
 
 ### 2.2. Quản Lý Danh Sách Người Dùng (Users Management)

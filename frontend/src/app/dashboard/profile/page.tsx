@@ -4,25 +4,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { authApi } from '@/lib/api/auth';
 import { isMockAuth } from '@/lib/api/client';
-import { UserCircle, Key, Link as LinkIcon, Eye, EyeOff, Check, Camera } from 'lucide-react';
+import { UserCircle, Key, Eye, EyeOff, Check, Camera } from 'lucide-react';
 import Link from 'next/link';
-
-const GoogleIcon = () => (
-  <svg className="w-6 h-6" viewBox="0 0 24 24">
-    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-  </svg>
-);
-
-const FacebookIcon = () => (
-  <svg className="w-6 h-6" viewBox="0 0 24 24" fill="#1877F2">
-    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-  </svg>
-);
 
 export default function ProfilePage() {
   const { user, setUser } = useAuth();
@@ -71,33 +55,6 @@ export default function ProfilePage() {
   }
   const canSavePwd = newPassword && confirmPassword && password && strengthScore === 4 && !pwdError;
 
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState<string | null>(null);
-  const [googleLinked, setGoogleLinked] = useState(true);
-  const [facebookLinked, setFacebookLinked] = useState(false);
-  const [isDisconnecting, setIsDisconnecting] = useState(false);
-  const [disconnectMsg, setDisconnectMsg] = useState('');
-  
-  const googleEmail = user?.email || 'user@gmail.com';
-  const isOnlyLoginMethod = googleLinked && !facebookLinked && !user?.username;
-
-  const confirmDisconnect = async () => {
-    if (!showDisconnectConfirm || isOnlyLoginMethod) return;
-    setIsDisconnecting(true);
-    setDisconnectMsg('');
-    try {
-      await authApi.disconnect(showDisconnectConfirm);
-      setDisconnectMsg(t.pages?.profile?.disconnectSuccess || 'Đã ngắt kết nối thành công');
-      if (showDisconnectConfirm === 'google') setGoogleLinked(false);
-      if (showDisconnectConfirm === 'facebook') setFacebookLinked(false);
-      setTimeout(() => setShowDisconnectConfirm(null), 1000);
-    } catch {
-      setDisconnectMsg(t.pages?.profile?.disconnectError || 'Lỗi khi ngắt kết nối');
-    } finally {
-      setIsDisconnecting(false);
-      setTimeout(() => setDisconnectMsg(''), 3000);
-    }
-  };
-
   useEffect(() => {
     if (user) {
       setFullName(user.fullName || '');
@@ -140,11 +97,6 @@ export default function ProfilePage() {
       setIsPwdSaving(false);
       setTimeout(() => setPwdMessage(''), 3000);
     }
-  };
-
-  const handleDisconnect = (provider: string) => {
-    if (isOnlyLoginMethod && provider === 'google') return;
-    setShowDisconnectConfirm(provider);
   };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -310,91 +262,15 @@ export default function ProfilePage() {
         </form>
       </div>
 
-      {/* Linked Accounts Block */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <LinkIcon className="w-5 h-5" />
-          {t.pages?.profile?.linkedAccounts || 'Tài khoản liên kết'}
-        </h2>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between p-4 border rounded-lg hover:border-slate-300 transition-colors">
-            <div className="flex items-center gap-3">
-              <GoogleIcon />
-              <div>
-                <p className="font-medium text-gray-900">Google</p>
-                {googleLinked ? (
-                  <p className="text-sm text-gray-500">{t.pages?.profile?.linkedWith || 'Đã liên kết với'} {googleEmail}</p>
-                ) : (
-                  <p className="text-sm text-gray-500">{t.pages?.profile?.notLinked || 'Chưa liên kết'}</p>
-                )}
-              </div>
-            </div>
-            {googleLinked ? (
-              <div className="relative group">
-                <button 
-                  onClick={() => handleDisconnect('google')}
-                  disabled={isOnlyLoginMethod}
-                  className={`text-sm ${isOnlyLoginMethod ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:underline'}`}
-                >
-                  {t.pages?.profile?.disconnect || 'Ngắt kết nối'}
-                </button>
-                {isOnlyLoginMethod && (
-                  <div className="absolute right-0 bottom-full mb-2 w-48 bg-gray-800 text-white text-xs p-2 rounded hidden group-hover:block z-10 text-center">
-                    Không thể ngắt kết nối phương thức đăng nhập duy nhất
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button className="text-sky-600 text-sm font-medium hover:underline">{t.pages?.profile?.link || 'Liên kết'}</button>
-            )}
-          </div>
-          
-          <div className="flex items-center justify-between p-4 border rounded-lg hover:border-slate-300 transition-colors">
-            <div className="flex items-center gap-3">
-              <FacebookIcon />
-              <div>
-                <p className="font-medium text-gray-900">Facebook</p>
-                {facebookLinked ? (
-                  <p className="text-sm text-gray-500">{t.pages?.profile?.linkedWith || 'Đã liên kết với'} Facebook</p>
-                ) : (
-                  <p className="text-sm text-gray-500">{t.pages?.profile?.notLinked || 'Chưa liên kết'}</p>
-                )}
-              </div>
-            </div>
-            {facebookLinked ? (
-              <button onClick={() => handleDisconnect('facebook')} className="text-red-600 text-sm hover:underline">
-                {t.pages?.profile?.disconnect || 'Ngắt kết nối'}
-              </button>
-            ) : (
-              <button className="text-sky-600 text-sm font-medium hover:underline">{t.pages?.profile?.link || 'Liên kết'}</button>
-            )}
-          </div>
-          
-          <div className="pt-4 border-t mt-4 flex">
-            <Link href="/dashboard/notifications" className="text-sky-600 hover:text-sky-700 text-sm font-medium flex items-center gap-1">
-              {t.pages?.profile?.configAlerts || 'Cấu hình nhận cảnh báo Telegram/Zalo'} &rarr;
-            </Link>
-          </div>
+      {/* Quick Link to Notifications */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">{t.pages?.profile?.configAlerts || 'Cấu hình nhận cảnh báo Telegram/Zalo'}</h2>
         </div>
+        <Link href="/dashboard/notifications" className="text-sky-600 hover:text-sky-700 text-sm font-medium flex items-center gap-1">
+          {t.pages?.profile?.configAlerts || 'Cấu hình nhận cảnh báo Telegram/Zalo'} &rarr;
+        </Link>
       </div>
-
-      {showDisconnectConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl max-w-sm w-full shadow-2xl">
-            <h3 className="text-lg font-bold mb-2">{t.pages?.profile?.confirmDisconnectTitle || 'Xác nhận'}</h3>
-            <p className="text-gray-600 mb-6">{t.pages?.profile?.confirmDisconnectMsg || 'Bạn có chắc chắn muốn ngắt kết nối tài khoản này không?'}</p>
-            <div className="flex justify-end gap-3">
-              <button disabled={isDisconnecting} onClick={() => setShowDisconnectConfirm(null)} className="px-4 py-2 border rounded-lg font-medium text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
-                {t.pages?.profile?.cancel || 'Hủy'}
-              </button>
-              <button disabled={isDisconnecting} onClick={confirmDisconnect} className="px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50">
-                {isDisconnecting ? (t.pages?.profile?.processing || 'Đang xử lý...') : (t.pages?.profile?.disconnect || 'Ngắt kết nối')}
-              </button>
-            </div>
-            {disconnectMsg && <p className="text-sm mt-4 text-center font-medium text-green-600">{disconnectMsg}</p>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

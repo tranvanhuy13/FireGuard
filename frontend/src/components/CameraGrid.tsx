@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
 import VideoAnalysisModal from "./VideoAnalysisModal";
+import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
 import { isMockData } from "../lib/api/client";
 
@@ -17,11 +18,12 @@ interface Camera {
 }
 
 const CameraGrid = () => {
+  const detections = useCameraDetections();
   const { t } = useLanguage();
   const { user, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [newCamSource, setNewCamSource] = useState("");
+  const [newCamSource, setNewCamSource] = useState("0");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
   const [layoutMode, setLayoutMode] = useState<"auto" | "1" | "4">("auto");
@@ -38,7 +40,8 @@ const CameraGrid = () => {
   };
 
   const canManage = user?.role === "admin";
-  const canToggle = user?.role === "admin" || user?.role === "operator";
+  const canToggle = !!user;
+  const canAnalyze = user?.role === "admin" || user?.role === "viewer";
 
   // Mock animation states for bounding boxes
   const [time, setTime] = useState(0);
@@ -80,7 +83,7 @@ const CameraGrid = () => {
         }),
       });
       setIsAdding(false);
-      setNewCamSource("");
+      setNewCamSource("0");
       setNewCamName("");
       fetchCameras();
     } catch (error) {
@@ -103,6 +106,16 @@ const CameraGrid = () => {
 
   const handleToggleCamera = async (id: number, active: boolean) => {
     if (!canToggle || toggling[id]) return;
+
+    if (!active) {
+      const confirmMsg = t.camera?.confirmTurnOffCamera || "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?";
+      if (!window.confirm(confirmMsg)) return;
+    }
+
+    const currentCam = cameras.find((c) => c.id === id);
+    const prevActive = currentCam ? currentCam.is_active : !active;
+    const prevStatus = currentCam ? currentCam.status : (prevActive ? "connected" : "disconnected");
+
     setToggling((prev) => ({ ...prev, [id]: true }));
     setCameras((prev) =>
       prev.map((c) =>
@@ -122,17 +135,34 @@ const CameraGrid = () => {
           method: "POST",
         },
       );
-      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
-    } catch (error) {
-      console.error(error);
-      alert("Failed to toggle camera status");
+      if (!res.ok) {
+        let errorMsg = t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.";
+        if (res.status === 401) {
+          errorMsg = t.camera?.toggleError401 || "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
+        } else if (res.status === 403) {
+          errorMsg = t.camera?.toggleError403 || "Bạn không có quyền thực hiện thao tác này.";
+        } else {
+          try {
+            const data = await res.json();
+            if (data.detail) errorMsg = data.detail;
+          } catch {}
+        }
+        throw new Error(errorMsg);
+      }
+    } catch (error: any) {
+      setCameras((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, is_active: prevActive, status: prevStatus } : c,
+        ),
+      );
+      alert(error.message || t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
     } finally {
       setToggling((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
       });
-      fetchCameras();
+      await fetchCameras();
     }
   };
 
@@ -199,7 +229,7 @@ const CameraGrid = () => {
               4
             </button>
           </div>
-          {canToggle && (
+          {canAnalyze && (
             <button
               onClick={() => setIsAnalyzerOpen(true)}
               className="px-3 py-1 bg-white hover:bg-gray-100 rounded text-xs text-navy-900 font-medium transition-colors"
@@ -236,7 +266,8 @@ const CameraGrid = () => {
               placeholder={t.camera.cameraSource}
               className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-navy-900 text-xs outline-none focus:border-sky-500"
               value={newCamSource}
-              onChange={(e) => setNewCamSource(e.target.value)}
+              readOnly
+              title="PC webcam (source 0)"
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -278,6 +309,7 @@ const CameraGrid = () => {
             className={`relative rounded-xl overflow-hidden bg-[#0B2540] border border-sky-900/50 group shadow-sm flex items-center justify-center w-full ${itemsToRender.length === 1 ? 'max-w-[800px]' : ''}`}
             style={{ aspectRatio: '4/3' }}
           >
+            {cam.is_active && !isMockData && <CameraDetectionStatus state={detections[cam.id]} />}
             {/* Controls Overlay */}
             <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
               {canToggle && (

@@ -27,12 +27,14 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import math
 import os
 import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
 from typing import List, Optional
+from typing import Literal
 
 import uvicorn
 from dotenv import load_dotenv
@@ -58,6 +60,7 @@ from camera_manager import CameraManager
 from detection import FireDetector
 from users.routes import router as users_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
+from detection_rules import read_settings
 
 # ---------------------------------------------------------------------------
 # Stream tokens (kept only so the frontend's /auth/stream-token call still works)
@@ -86,6 +89,7 @@ async def lifespan(app: FastAPI):
     main_loop = asyncio.get_running_loop()
     camera_manager.alert_callback = broadcast_alert
     yield
+    video_analyzer.shutdown()
     camera_manager.shutdown()
 
 
@@ -107,7 +111,7 @@ app.add_middleware(
 database.init_db()
 
 # The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
-MODEL_PATH = os.getenv("MODEL_PATH", "best.pt")
+MODEL_PATH = os.getenv("MODEL_PATH") or "best.pt"
 storage.ensure_model(MODEL_PATH)
 storage.start_sync()
 detector = FireDetector(MODEL_PATH)
@@ -262,8 +266,9 @@ async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str
 # Cameras
 # ---------------------------------------------------------------------------
 class CameraModel(BaseModel):
-    source: str
+    source: str = "0"
     name: str
+    is_active: bool = False
 
 
 @app.get("/cameras")
@@ -284,7 +289,7 @@ def get_cameras():
 @app.post("/cameras")
 def add_new_camera(cam: CameraModel):
     """Add a new camera."""
-    new_id = camera_manager.add_camera(cam.source, cam.name)
+    new_id = camera_manager.add_camera("0", cam.name, cam.is_active)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
@@ -293,6 +298,13 @@ def delete_camera(camera_id: int):
     """Remove a camera."""
     if camera_manager.remove_camera(camera_id):
         return {"status": "ok", "message": "Camera removed"}
+    raise HTTPException(status_code=404, detail="Camera not found")
+
+
+@app.put("/cameras/{camera_id}")
+def update_camera(camera_id: int, cam: CameraModel):
+    if camera_manager.update_camera(camera_id, cam.name, cam.is_active):
+        return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
@@ -338,7 +350,11 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
             os.remove(tmp_path)
         raise
 
-    job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
+    try:
+        job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
+    except ValueError as error:
+        os.remove(tmp_path)
+        raise HTTPException(status_code=429, detail=str(error)) from error
     logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
     return {"job_id": job_id}
 
@@ -363,6 +379,60 @@ def cancel_video_analysis(job_id: str):
     if video_analyzer.cancel(job_id):
         return {"status": "ok", "message": "Cancelling"}
     raise HTTPException(status_code=404, detail="Job not found or already finished")
+
+
+class PlaybackControl(BaseModel):
+    action: Literal["pause", "resume", "restart"]
+
+
+@app.post("/video-analysis/{job_id}/playback")
+def control_video_playback(job_id: str, control: PlaybackControl):
+    try:
+        return {"job_id": video_analyzer.playback(job_id, control.action)}
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Analysis job not found") from error
+    except (ValueError, OSError) as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@app.websocket("/ws/video-analysis/{job_id}")
+async def video_analysis_updates(websocket: WebSocket, job_id: str):
+    await websocket.accept()
+    revision, frame_id = -1, -1
+    try:
+        while True:
+            job = video_analyzer.get(job_id, include_frame=True)
+            if job is None:
+                await websocket.close(code=1008, reason="Analysis job not found")
+                return
+            if job["revision"] != revision:
+                revision = job["revision"]
+                if job["frame_id"] == frame_id:
+                    job.pop("frame", None)
+                else:
+                    frame_id = job["frame_id"]
+                await asyncio.wait_for(websocket.send_json(job), timeout=5)
+                if job["status"] in ("done", "error", "cancelled"):
+                    await websocket.close()
+                    return
+            # Observe client disconnects even while a paused job has no updates.
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=0.04)
+            except asyncio.TimeoutError:
+                pass
+    except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+        return
+
+
+@app.websocket("/ws/detections")
+async def camera_detection_updates(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            await asyncio.wait_for(websocket.send_json({"cameras": camera_manager.detection_states()}), timeout=5)
+            await asyncio.sleep(0.1)
+    except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -407,6 +477,10 @@ class SettingsModel(BaseModel):
 def get_settings():
     """Get all settings (masking secrets)."""
     settings = database.get_all_settings()
+    effective = read_settings(database.get_setting)
+    settings.update(fire_threshold=str(effective["fire"] * 100),
+                    smoke_threshold=str(effective["smoke"] * 100),
+                    persistence=str(effective["persistence"]), cooldown=str(effective["cooldown"]))
     masked_keys = ["zalo_bot_token", "zalo_oa_access_token", "zalo_oa_refresh_token",
                    "zalo_oa_secret_key", "telegram_bot_token"]
     for key in masked_keys:
@@ -420,6 +494,20 @@ def save_setting(setting: SettingsModel):
     """Save a setting."""
     if setting.value == "********":      # never save the masked placeholder back
         return {"status": "skipped", "message": "Masked value ignored"}
+    bounds = {"fire_threshold": (0, 100), "smoke_threshold": (0, 100),
+              "persistence": (1, 30), "cooldown": (0, 3600),
+              "ai_confidence_threshold": (0, 1), "ai_persistence_frames": (1, 30),
+              "ai_cooldown_seconds": (0, 3600)}
+    if setting.key in bounds:
+        try:
+            value = float(setting.value)
+            low, high = bounds[setting.key]
+            if not math.isfinite(value) or not low <= value <= high:
+                raise ValueError()
+            if setting.key in ("persistence", "ai_persistence_frames") and not value.is_integer():
+                raise ValueError()
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=f"Invalid value for {setting.key}") from error
     database.set_setting(setting.key, setting.value)
     return {"status": "ok", "message": "Setting saved"}
 

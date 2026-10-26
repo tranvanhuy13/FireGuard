@@ -78,7 +78,16 @@ export const en = {
     signingIn: "Signing in...",
     signUp: "Sign up",
     signingUp: "Creating account...",
-    orContinueWith: "Or continue with",
+    passwordRules: {
+      title: "Password requirements:",
+      minLength: "At least 8 characters",
+      uppercase: "At least 1 uppercase letter (A-Z)",
+      lowercase: "At least 1 lowercase letter (a-z)",
+      number: "At least 1 number (0-9)",
+      weak: "Weak",
+      fair: "Fair",
+      strong: "Strong"
+    },
     dontHaveAccount: "Don't have an account?",
     alreadyHaveAccount: "Already have an account?",
     backToHome: "Back to home",
@@ -134,7 +143,6 @@ export const en = {
       emailGmailOnly: "Please use a valid Gmail address (@gmail.com)",
       accountNotVerified: "Account not verified. Please verify your account.",
       featureNotImplemented: "Feature is not enabled on the server",
-      socialNotImplemented: "Google/Facebook login is not enabled on the server",
       forgotNotImplemented: "Forgot password is not enabled on the server",
       resendWait: "Please wait {seconds}s before requesting a new code.",
       genericError: "An error occurred. Please try again."
@@ -220,7 +228,11 @@ export const en = {
     cameraIsInactive: "Camera is Inactive",
     turnOnCamera: "Turn on camera",
     connectionLost: "Connection Lost",
-    reconnecting: "Reconnecting..."
+    reconnecting: "Reconnecting...",
+    confirmTurnOffCamera: "Turning off this camera will stop fire detection on it. Are you sure?",
+    toggleError401: "Session expired. Please log in again.",
+    toggleError403: "You do not have permission to perform this action.",
+    toggleErrorNetwork: "Connection error while changing camera status."
   },
   alerts: {
     title: "Fire Alerts",
@@ -262,7 +274,7 @@ export const en = {
     noStats: "No stats available yet",
     dailyEvents: "DAILY EVENTS",
     roleAdmin: "Admin",
-    roleOperator: "Operator",
+
     roleViewer: "Viewer",
     totalCameras: "TOTAL CAMERAS",
     activeCameras: "ACTIVE CAMERAS",
@@ -403,7 +415,11 @@ export const en = {
       name: "Name",
       source: "Source",
       status: "Status",
-      actions: "Actions"
+      actions: "Actions",
+      confirmTurnOffCamera: "Turning off this camera will stop fire detection on it. Are you sure?",
+      toggleError401: "Session expired. Please log in again.",
+      toggleError403: "You do not have permission to perform this action.",
+      toggleErrorNetwork: "Connection error while changing camera status."
     },
     history: {
       title: "History",
@@ -428,7 +444,7 @@ export const en = {
       role: "Role",
       changePassword: "Change Password",
       passwordStrength: "Password Strength",
-      linkedAccounts: "Linked Accounts",
+
       preferences: "Preferences",
       save: "Save Changes",
       language: "Language",
@@ -436,20 +452,20 @@ export const en = {
       currentPassword: "Current Password",
       newPassword: "New Password",
       confirmNewPassword: "Confirm New Password",
-      disconnect: "Disconnect",
-      link: "Link",
-      linkedWith: "Linked with",
-      notLinked: "Not linked",
+
+
+
+
       adminRole: "Administrator",
       saveInfo: "Save Information",
       changePasswordBtn: "Change Password",
       configAlerts: "Configure Telegram/Zalo Alerts",
-      disconnectSuccess: "Disconnected successfully",
-      disconnectError: "Error disconnecting",
-      processing: "Processing...",
-      confirmDisconnectTitle: "Confirm",
-      confirmDisconnectMsg: "Are you sure you want to disconnect this account?",
-      cancel: "Cancel"
+
+
+
+
+
+
     },
     users: {
       title: "Users Management",
@@ -494,6 +510,7 @@ export const en = {
       forbidden: "Forbidden: You do not have access to this page.",
       saveSuccess: "Saved successfully",
       cancel: "Cancel"
+
     }
   },
     auditLog: {
