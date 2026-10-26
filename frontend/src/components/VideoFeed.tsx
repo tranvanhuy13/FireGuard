@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { API_URL } from "../config";
+import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
 import { useLanguage } from "../context/LanguageContext";
 
@@ -15,6 +16,7 @@ interface CameraInfo {
 }
 
 const VideoFeed = () => {
+  const detections = useCameraDetections();
   const { t } = useLanguage();
   const { streamToken, refreshStreamToken } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -117,6 +119,7 @@ const VideoFeed = () => {
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden shadow-2xl border border-gray-800 bg-black">
+      {camera?.is_active && <CameraDetectionStatus state={detections[camera.id]} />}
       {/* Header Overlay: camera name + status */}
       <div className="absolute top-4 left-4 z-10 hidden md:block">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10">

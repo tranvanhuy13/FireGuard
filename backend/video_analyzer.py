@@ -1,226 +1,241 @@
-"""
-video_analyzer.py - Check an uploaded video for fire / smoke with the SAME model
-and the SAME settings (confidence threshold, persistence) as the live cameras.
-
-Jobs run in the background (one at a time) so long videos never block the API.
-Uploaded videos are deleted after analysis. Results are NOT written to the events
-table and do NOT trigger Zalo/Telegram notifications - this is a check, not an alarm.
-"""
+"""Paced video playback. One bounded preview per job, no camera notifications."""
+import base64
 import copy
 import logging
+import math
 import os
-import re
 import threading
 import time
 import uuid
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict
 
 import cv2
-
 import storage
+from detection_rules import read_settings, filter_detections, confirm_frame, draw_detections
 
 logger = logging.getLogger(__name__)
-
 UPLOAD_DIR = "uploads_tmp"
 ALLOWED_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v", ".wmv"}
 MAX_UPLOAD_MB = 500
-MAX_SNAPSHOTS = 24            # evidence frames kept per video
-MIN_SNAPSHOT_GAP_SECONDS = 2.0
+MAX_SNAPSHOTS = 24
 MAX_JOBS_KEPT = 20
 FINISHED = ("done", "error", "cancelled")
 
 
-def _safe(name):
-    return re.sub(r"[^a-zA-Z0-9_-]", "", str(name)) or "obj"
-
-
 class VideoAnalyzer:
     def __init__(self, detect_fn, get_setting):
-        """
-        detect_fn(frame) -> (annotated_frame, detections)   (CameraManager.detect)
-        get_setting(key, default) -> str                    (database.get_setting)
-        """
         self.detect = detect_fn
         self.get_setting = get_setting
         self.jobs = OrderedDict()
-        self._cancel = {}
-        self._lock = threading.Lock()
-        self._slot = threading.Semaphore(1)      # one analysis at a time
-
+        self._controls = {}
+        self._lock = threading.RLock()
+        self._slot = threading.Semaphore(1)
+        self._closed = False
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        for f in os.listdir(UPLOAD_DIR):          # leftovers from a previous crash
-            try:
-                os.remove(os.path.join(UPLOAD_DIR, f))
-            except OSError:
-                pass
+        for name in os.listdir(UPLOAD_DIR):
+            self._remove(os.path.join(UPLOAD_DIR, name))
 
-    # ------------------------------------------------------------------ public
+    @staticmethod
+    def _remove(path):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
     def submit(self, path, filename, sample_fps):
-        job_id = uuid.uuid4().hex[:12]
-        job = {
-            "id": job_id, "filename": filename, "status": "queued",
-            "progress": 0.0, "sample_fps": sample_fps,
-            "duration": None, "frames_analyzed": 0,
-            "verdict": None, "summary": {}, "events": [],
-            "error": None, "created_at": time.time(), "finished_at": None,
-        }
         with self._lock:
-            self.jobs[job_id] = job
-            self._cancel[job_id] = threading.Event()
-            self._prune()
-        threading.Thread(target=self._run, args=(job_id, path), daemon=True,
-                         name=f"video-{job_id}").start()
-        return job_id
+            if self._closed:
+                raise ValueError("Analyzer is shutting down")
+            self._prune(preserve_path=path)
+            if len(self.jobs) >= MAX_JOBS_KEPT:
+                raise ValueError("Too many active analyses; cancel an existing job first")
+            job_id = uuid.uuid4().hex[:12]
+            self.jobs[job_id] = {
+                "id": job_id, "filename": filename, "status": "queued", "revision": 0,
+                "progress": 0.0, "sample_fps": max(1, min(15, int(sample_fps))),
+                "duration": None, "frames_analyzed": 0, "current_time": 0,
+                "effective_fps": 0, "buffering": False, "detections": [],
+                "confirmed": [], "frame": None, "frame_id": 0,
+                "verdict": None, "summary": {}, "events": [], "error": None,
+                "created_at": time.time(), "finished_at": None,
+            }
+            control = {"cancel": threading.Event(), "paused": False, "path": path,
+                       "wake": threading.Event()}
+            self._controls[job_id] = control
+            thread = threading.Thread(target=self._run, args=(job_id,), daemon=True,
+                                      name=f"video-{job_id}")
+            control["thread"] = thread
+            thread.start()
+            return job_id
 
-    def get(self, job_id):
+    def get(self, job_id, include_frame=False):
         with self._lock:
             job = self.jobs.get(job_id)
-            return copy.deepcopy(job) if job else None
+            if job is None:
+                return None
+            return copy.deepcopy({key: value for key, value in job.items()
+                                  if include_frame or key != "frame"})
 
     def list(self):
         with self._lock:
-            return [copy.deepcopy(j) for j in reversed(self.jobs.values())]
+            return [self.get(job_id) for job_id in reversed(self.jobs)]
 
     def cancel(self, job_id):
         with self._lock:
-            ev = self._cancel.get(job_id)
-            job = self.jobs.get(job_id)
-            if ev is None or job is None or job["status"] in FINISHED:
+            if job_id not in self.jobs or self.jobs[job_id]["status"] in FINISHED:
                 return False
-            ev.set()
+            self._controls[job_id]["cancel"].set()
+            self._controls[job_id]["wake"].set()
             return True
 
-    # ---------------------------------------------------------------- internal
-    def _update(self, job_id, **kw):
+    def playback(self, job_id, action):
         with self._lock:
-            self.jobs[job_id].update(kw)
+            if job_id not in self.jobs:
+                raise KeyError(job_id)
+            job, control = self.jobs[job_id], self._controls[job_id]
+            if action == "restart":
+                # Replay leases the retained source; do not copy a 500 MB upload
+                # under the job lock or delete it while another run still uses it.
+                new_id = self.submit(control["path"], job["filename"], job["sample_fps"])
+                self.cancel(job_id)
+                return new_id
+            if job["status"] in FINISHED:
+                raise ValueError("This analysis has finished; restart to play again")
+            control["paused"] = action == "pause"
+            control["wake"].set()
+            self._update(job_id, status="paused" if control["paused"] else "queued")
+            return job_id
 
-    def _prune(self):
-        """Keep only the newest MAX_JOBS_KEPT jobs (called with the lock held)."""
-        while len(self.jobs) > MAX_JOBS_KEPT:
-            old_id = next((i for i, j in self.jobs.items() if j["status"] in FINISHED), None)
-            if old_id is None:
-                break
-            for ev in self.jobs[old_id]["events"]:
-                storage.delete_snapshot(ev["snapshot"])
-            del self.jobs[old_id]
-            self._cancel.pop(old_id, None)
+    def _update(self, job_id, **values):
+        with self._lock:
+            self.jobs[job_id].update(values)
+            self.jobs[job_id]["revision"] += 1
 
-    def _run(self, job_id, path):
-        cancel = self._cancel[job_id]
+    def _prune(self, preserve_path=None):
+        while len(self.jobs) >= MAX_JOBS_KEPT:
+            old = next((key for key, job in self.jobs.items()
+                        if job["status"] in FINISHED and not self._controls[key]["thread"].is_alive()), None)
+            if old is None:
+                return
+            for event in self.jobs[old]["events"]:
+                storage.delete_snapshot(event["snapshot"])
+            path = self._controls.pop(old)["path"]
+            if path != preserve_path and not any(item["path"] == path for item in self._controls.values()):
+                self._remove(path)
+            del self.jobs[old]
+
+    def shutdown(self):
+        with self._lock:
+            self._closed = True
+            controls = list(self._controls.values())
+            for control in controls:
+                control["cancel"].set()
+                control["wake"].set()
+        for control in controls:
+            control["thread"].join(timeout=2)
+            if not control["thread"].is_alive():
+                self._remove(control["path"])
+
+    def _run(self, job_id):
+        control = self._controls[job_id]
+        cancel = control["cancel"]
         cap = None
+        acquired = False
         try:
-            with self._slot:
-                if cancel.is_set():
-                    self._update(job_id, status="cancelled", finished_at=time.time())
-                    return
+            while not cancel.is_set():
+                if not control["paused"] and self._slot.acquire(timeout=0.05):
+                    acquired = True
+                    break
+                cancel.wait(0.05)
+            if cancel.is_set():
+                raise InterruptedError()
+            cap = cv2.VideoCapture(control["path"])
+            if not cap.isOpened():
+                raise ValueError("Cannot open this video (unsupported codec or corrupted file).")
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            fps = fps if math.isfinite(fps) and 1 <= fps <= 240 else 25.0
+            count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+            total = int(count) if math.isfinite(count) and count > 0 else 0
+            duration = total / fps if total else None
+            step = max(1, round(fps / self.jobs[job_id]["sample_fps"]))
+            interval = step / fps
+            self._update(job_id, duration=duration, status="processing")
+            streak, summary, events, last_snap = {}, {}, [], {}
+            analyzed = index = 0
+            deadline = time.monotonic()
+            while not cancel.is_set():
+                if control["paused"]:
+                    self._update(job_id, status="paused", buffering=False)
+                    control["wake"].clear()
+                    control["wake"].wait(0.1)
+                    deadline = time.monotonic()
+                    continue
+                if not cap.grab():
+                    break
+                if index % step:
+                    index += 1
+                    continue
+                ok, frame = cap.retrieve()
+                timestamp = index / fps
+                index += 1
+                if not ok or frame is None:
+                    continue
+                started = time.monotonic()
                 self._update(job_id, status="processing")
-
-                cap = cv2.VideoCapture(path)
-                if not cap.isOpened():
-                    raise ValueError("Cannot open this video (unsupported codec or corrupted file).")
-
-                fps = cap.get(cv2.CAP_PROP_FPS) or 0
-                if not (1 <= fps <= 240):
-                    fps = 25.0
-                total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-                duration = total / fps if total > 0 else None
-                self._update(job_id, duration=round(duration, 2) if duration else None)
-
-                with self._lock:
-                    sample_fps = self.jobs[job_id]["sample_fps"]
-                step = max(1, round(fps / sample_fps))
-
-                try:
-                    conf_threshold = float(self.get_setting("ai_confidence_threshold", "0.25"))
-                    persistence_limit = int(self.get_setting("ai_persistence_frames", "2"))
-                except Exception:
-                    conf_threshold, persistence_limit = 0.25, 2
-
-                min_gap = max(MIN_SNAPSHOT_GAP_SECONDS,
-                              (duration / MAX_SNAPSHOTS) if duration else 0)
-
-                streak = defaultdict(int)
-                last_snap = {}
-                summary, events = {}, []
-                analyzed = idx = 0
-
-                while True:
-                    if cancel.is_set():
-                        self._update(job_id, status="cancelled", finished_at=time.time())
-                        return
-                    if not cap.grab():
-                        break
-
-                    if idx % step == 0:
-                        ok, frame = cap.retrieve()
-                        if ok and frame is not None:
-                            analyzed += 1
-                            t = idx / fps
-                            annotated, detections = self.detect(frame)
-
-                            present = {}
-                            for det in detections or []:
-                                conf = float(det["confidence"])
-                                if conf >= conf_threshold:
-                                    cls = str(det["class"]).lower()
-                                    present[cls] = max(present.get(cls, 0.0), conf)
-
-                            for cls in list(streak):
-                                if cls not in present:
-                                    streak[cls] = 0
-
-                            for cls, conf in present.items():
-                                streak[cls] += 1
-                                # same rule as the live cameras
-                                if streak[cls] < persistence_limit and conf <= 0.6:
-                                    continue
-                                info = summary.setdefault(
-                                    cls, {"samples": 0, "max_confidence": 0.0, "first_time": round(t, 2)})
-                                info["samples"] += 1
-                                info["max_confidence"] = round(max(info["max_confidence"], conf), 3)
-
-                                if (len(events) < MAX_SNAPSHOTS
-                                        and t - last_snap.get(cls, -1e9) >= min_gap):
-                                    last_snap[cls] = t
-                                    name = f"video_{job_id}_{int(t * 1000):08d}_{_safe(cls)}.jpg"
-                                    img = annotated if annotated is not None else frame
-                                    storage.save_snapshot(name, img)
-                                    events.append({"time": round(t, 2), "class": cls,
-                                                   "confidence": round(conf, 3),
-                                                   "snapshot": f"/snapshots/{name}"})
-
-                            if analyzed % 5 == 0:
-                                self._update(job_id, frames_analyzed=analyzed,
-                                             summary=copy.deepcopy(summary), events=list(events))
-                    idx += 1
-
-                    if idx % 15 == 0 and total > 0:
-                        self._update(job_id, progress=round(min(0.99, idx / total), 3))
-
-                if analyzed == 0:
-                    raise ValueError("No frames could be read from this video.")
-
-                classes = list(summary)
-                if any("fire" in c or "flame" in c for c in classes):
-                    verdict = "fire"
-                elif any("smoke" in c for c in classes):
-                    verdict = "smoke"
-                elif classes:
-                    verdict = "detected"
-                else:
-                    verdict = "none"
-
-                self._update(job_id, status="done", progress=1.0, verdict=verdict,
-                             frames_analyzed=analyzed, summary=summary, events=events,
-                             finished_at=time.time())
-        except Exception as e:
-            logger.exception("[Video %s] Analysis failed", job_id)
-            self._update(job_id, status="error", error=str(e), finished_at=time.time())
+                _, raw = self.detect(frame.copy(), background=True, cancelled=cancel)
+                if cancel.is_set():
+                    raise InterruptedError()
+                settings = read_settings(self.get_setting)
+                detections = filter_detections(raw, settings)
+                confirmed = confirm_frame(streak, detections, settings["persistence"])
+                annotated = draw_detections(frame, detections)
+                analyzed += 1
+                for name, confidence in confirmed.items():
+                    info = summary.setdefault(name, {"samples": 0, "max_confidence": 0, "first_time": timestamp})
+                    info["samples"] += 1
+                    info["max_confidence"] = max(info["max_confidence"], confidence)
+                    gap = max(2.0, (duration or 0) / MAX_SNAPSHOTS)
+                    if len(events) < MAX_SNAPSHOTS and timestamp - last_snap.get(name, -1e9) >= gap:
+                        snapshot = f"video_{job_id}_{int(timestamp * 1000)}_{name}.jpg"
+                        storage.save_snapshot(snapshot, annotated)
+                        events.append({"time": timestamp, "class": name, "confidence": confidence,
+                                       "snapshot": f"/snapshots/{snapshot}"})
+                        last_snap[name] = timestamp
+                height, width = annotated.shape[:2]
+                if width > 960:
+                    annotated = cv2.resize(annotated, (960, round(height * 960 / width)))
+                ok, jpeg = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if not ok:
+                    raise ValueError("Cannot encode preview frame")
+                elapsed = time.monotonic() - started
+                self._update(job_id, frame=base64.b64encode(jpeg).decode("ascii"), frame_id=analyzed,
+                             current_time=timestamp, frames_analyzed=analyzed,
+                             progress=min(0.999, index / total) if total else None,
+                             detections=detections, confirmed=list(confirmed), summary=copy.deepcopy(summary),
+                             events=list(events), effective_fps=round(1 / max(interval, elapsed), 1),
+                             buffering=elapsed > interval * 1.25,
+                             status="paused" if control["paused"] else "processing")
+                deadline += interval
+                delay = max(0, deadline - time.monotonic())
+                control["wake"].clear()
+                control["wake"].wait(delay)
+                deadline = max(deadline, time.monotonic())
+            if cancel.is_set():
+                raise InterruptedError()
+            if not analyzed:
+                raise ValueError("No frames could be read from this video.")
+            verdict = "fire" if "fire" in summary else "smoke" if "smoke" in summary else "none"
+            self._update(job_id, status="done", progress=1, verdict=verdict,
+                         buffering=False, finished_at=time.time())
+        except InterruptedError:
+            self._update(job_id, status="cancelled", buffering=False, finished_at=time.time())
+        except Exception as error:
+            logger.exception("[Video %s] Playback failed", job_id)
+            self._update(job_id, status="error", error=str(error), finished_at=time.time())
         finally:
             if cap is not None:
                 cap.release()
-            try:
-                os.remove(path)
-            except OSError:
-                pass
+            if acquired:
+                self._slot.release()
+            if self._closed:
+                self._remove(control["path"])

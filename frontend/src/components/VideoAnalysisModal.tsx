@@ -1,489 +1,251 @@
-/* eslint-disable */
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
-import { API_URL } from "../config";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { API_URL, WS_URL } from "../config";
 
-interface AnalysisEvent {
-  time: number;
-  class: string;
-  confidence: number;
-  snapshot: string;
-}
-
-interface ClassSummary {
-  samples: number;
-  max_confidence: number;
-  first_time: number | null;
-}
-
+interface Detection { class: string; confidence: number; bbox: number[] }
+interface AnalysisEvent { time: number; class: string; confidence: number; snapshot: string }
 interface Job {
-  id: string;
-  filename: string;
-  status: "queued" | "processing" | "done" | "error" | "cancelled";
-  progress: number | null;
-  sample_fps: number;
-  duration: number | null;
-  frames_analyzed: number;
-  verdict: "fire" | "smoke" | "detected" | "none" | null;
-  summary: Record<string, ClassSummary>;
-  events: AnalysisEvent[];
-  error: string | null;
+  id: string; filename: string; status: "queued" | "processing" | "paused" | "done" | "error" | "cancelled";
+  progress: number | null; duration: number | null; current_time: number; sample_fps: number;
+  frames_analyzed: number; effective_fps: number; buffering: boolean; frame?: string | null;
+  detections: Detection[]; confirmed: string[]; events: AnalysisEvent[];
+  summary: Record<string, { samples: number; max_confidence: number; first_time: number }>;
+  verdict: string | null; error: string | null;
 }
+const terminal = (status?: string) => ["done", "error", "cancelled"].includes(status ?? "");
+const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
+const button = "px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 text-sm";
 
-interface VideoAnalysisModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-const MAX_MB = 500;
-
-const formatTime = (sec: number) => {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-};
-
-const VERDICTS = {
-  fire: {
-    text: "FIRE DETECTED",
-    style: "bg-red-500/15 border-red-500/40 text-red-400",
-  },
-  smoke: {
-    text: "SMOKE DETECTED",
-    style: "bg-orange-500/15 border-orange-500/40 text-orange-400",
-  },
-  detected: {
-    text: "OBJECTS DETECTED",
-    style: "bg-amber-500/15 border-amber-500/40 text-amber-400",
-  },
-  none: {
-    text: "NO FIRE OR SMOKE DETECTED",
-    style: "bg-green-500/15 border-green-500/40 text-green-400",
-  },
-} as const;
-
-const VideoAnalysisModal = ({ isOpen, onClose }: VideoAnalysisModalProps) => {
+export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
-  const [sampleFps, setSampleFps] = useState("5");
+  const [sampleFps, setSampleFps] = useState("10");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [lightbox, setLightbox] = useState<string | null>(null);
-
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [controlling, setControlling] = useState(false);
+  const [lightbox, setLightbox] = useState<AnalysisEvent | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const jobRef = useRef<Job | null>(null);
+  const mountedRef = useRef(true);
+  const generationRef = useRef(0);
+  const frameReceivedRef = useRef(0);
+  const [waitingForFrame, setWaitingForFrame] = useState(false);
+  const active = !!job && !terminal(job.status);
 
-  const stopPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  };
+  const watch = useCallback((id: string) => {
+    generationRef.current += 1;
+    jobRef.current = null;
+    setJob(null);
+    setConnected(false);
+    const placeholder: Job = {
+      id, filename: "", status: "queued", progress: 0, duration: null,
+      current_time: 0, sample_fps: 10, frames_analyzed: 0, effective_fps: 0,
+      buffering: false, detections: [], confirmed: [], events: [], summary: {},
+      verdict: null, error: null,
+    };
+    jobRef.current = placeholder;
+    setJob(placeholder);
+  }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      stopPolling();
+      mountedRef.current = false;
+      generationRef.current += 1;
       xhrRef.current?.abort();
+      socketRef.current?.close();
+      const current = jobRef.current;
+      if (current && !terminal(current.status)) {
+        void fetch(`${API_URL}/video-analysis/${current.id}/playback`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "pause" }), keepalive: true,
+        }).catch(() => {});
+      }
     };
   }, []);
 
-  const pollJob = (jobId: string) => {
-    stopPolling();
-    const tick = async () => {
-      try {
-        const res = await fetch(`${API_URL}/video-analysis/${jobId}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: Job = await res.json();
-        setJob(data);
-        if (["done", "error", "cancelled"].includes(data.status)) stopPolling();
-      } catch (e) {
-        setError("Lost connection to the server.");
-        stopPolling();
-      }
+  const jobId = job?.id;
+  useEffect(() => {
+    if (!isOpen || !jobId) return;
+    const generation = generationRef.current;
+    let disposed = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let socket: WebSocket | null = null;
+    const connect = () => {
+      setConnected(false);
+      socket = new WebSocket(`${WS_URL}/ws/video-analysis/${jobId}`);
+      socketRef.current = socket;
+      socket.onopen = () => { if (!disposed && generation === generationRef.current) { setConnected(true); setError(null); } };
+      socket.onmessage = (event) => {
+        if (disposed || generation !== generationRef.current) return;
+        try {
+          const next: Job = JSON.parse(event.data);
+          const previous = jobRef.current;
+          const merged = { ...next, frame: next.frame === undefined ? previous?.frame : next.frame };
+          if (next.frame) frameReceivedRef.current = Date.now();
+          jobRef.current = merged;
+          setJob(merged);
+        } catch { setError("Invalid playback update received."); }
+      };
+      socket.onclose = (event) => {
+        if (disposed || generation !== generationRef.current) return;
+        setConnected(false);
+        if (event.code === 1008) { setError("This video has expired. Upload it again."); return; }
+        if (!terminal(jobRef.current?.status)) {
+          setError("Playback disconnected. Reconnecting...");
+          retry = setTimeout(connect, 1500);
+        }
+      };
+      socket.onerror = () => socket?.close();
     };
-    tick();
-    pollRef.current = setInterval(tick, 1000);
-  };
+    connect();
+    return () => { disposed = true; clearTimeout(retry); socket?.close(); };
+  }, [isOpen, jobId]);
 
-  const pickFile = (f: File | null) => {
-    if (!f) return;
-    if (f.size > MAX_MB * 1024 * 1024) {
-      setError(`Video is too large (max ${MAX_MB} MB).`);
-      return;
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWaitingForFrame(jobRef.current?.status === "processing" && Date.now() - frameReceivedRef.current > 1200);
+    }, 300);
+    return () => clearInterval(timer);
+  }, []);
+
+  const close = () => {
+    xhrRef.current?.abort();
+    const current = jobRef.current;
+    if (current && !terminal(current.status)) {
+      void fetch(`${API_URL}/video-analysis/${current.id}/playback`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "pause" }),
+      }).catch(() => {});
     }
-    setError(null);
-    setJob(null);
-    setFile(f);
+    onClose();
   };
 
-  const startAnalysis = () => {
+  const start = () => {
     if (!file) return;
-    setError(null);
-    setJob(null);
-    setUploadPct(0);
-
+    setError(null); setJob(null); jobRef.current = null; setUploadPct(0);
     const form = new FormData();
-    form.append("file", file);
-    form.append("sample_fps", sampleFps);
-
+    form.append("file", file); form.append("sample_fps", sampleFps);
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
     xhr.open("POST", `${API_URL}/video-analysis`);
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable)
-        setUploadPct(Math.round((e.loaded / e.total) * 100));
-    };
+    xhr.upload.onprogress = (event) => { if (event.lengthComputable) setUploadPct(Math.round(event.loaded / event.total * 100)); };
     xhr.onload = () => {
       xhrRef.current = null;
+      if (!mountedRef.current) return;
       setUploadPct(null);
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          pollJob(JSON.parse(xhr.responseText).job_id);
-        } catch {
-          setError("Unexpected response from the server.");
-        }
-      } else {
-        let msg = `Upload failed (${xhr.status})`;
-        try {
-          const detail = JSON.parse(xhr.responseText).detail;
-          if (typeof detail === "string") msg = detail;
-        } catch {}
-        setError(msg);
-      }
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (xhr.status < 200 || xhr.status >= 300) throw new Error(data.detail ?? "Upload failed");
+        frameReceivedRef.current = Date.now();
+        watch(data.job_id);
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "Upload failed"); }
     };
-    xhr.onerror = () => {
-      xhrRef.current = null;
-      setUploadPct(null);
-      setError("Could not reach the server.");
-    };
-    xhr.onabort = () => {
-      xhrRef.current = null;
-      setUploadPct(null);
-    };
+    xhr.onerror = () => { xhrRef.current = null; setUploadPct(null); setError("Could not reach the server."); };
+    xhr.onabort = () => { xhrRef.current = null; if (mountedRef.current) setUploadPct(null); };
     xhr.send(form);
   };
 
-  const cancel = async () => {
-    if (xhrRef.current) {
-      xhrRef.current.abort();
-      return;
-    }
-    if (!job) return;
+  const control = async (action: "pause" | "resume" | "restart" | "cancel") => {
+    if (!jobId || controlling) return;
+    const generation = generationRef.current;
+    setControlling(true); setError(null);
     try {
-      await fetch(`${API_URL}/video-analysis/${job.id}/cancel`, {
-        method: "POST",
+      const response = await fetch(`${API_URL}/video-analysis/${jobId}/${action === "cancel" ? "cancel" : "playback"}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        ...(action !== "cancel" ? { body: JSON.stringify({ action }) } : {}),
       });
-    } catch (e) {
-      setError("Failed to cancel.");
-    }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail ?? "Playback command failed");
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      if (action === "restart") watch(data.job_id);
+    } catch (cause) { if (mountedRef.current) setError(cause instanceof Error ? cause.message : "Playback command failed"); }
+    finally { if (mountedRef.current) setControlling(false); }
   };
 
   const reset = () => {
-    stopPolling();
-    setFile(null);
-    setJob(null);
-    setError(null);
-    setUploadPct(null);
-    if (inputRef.current) inputRef.current.value = "";
+    generationRef.current += 1;
+    jobRef.current = null; socketRef.current?.close();
+    setJob(null); setFile(null); setError(null); setLightbox(null);
   };
 
   if (!isOpen) return null;
-
-  const uploading = uploadPct !== null;
-  const running =
-    !!job && (job.status === "queued" || job.status === "processing");
-  const busy = uploading || running;
-  const finished = !!job && ["done", "error", "cancelled"].includes(job.status);
-  const verdict =
-    job?.status === "done" && job.verdict ? VERDICTS[job.verdict] : null;
-
+  const events = job?.events ?? [];
+  const buffering = active && job?.status === "processing" && (job.buffering || waitingForFrame);
+  const confirmed = job?.confirmed ?? [];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
-          onClick={() => setLightbox(null)}
-        >
-          <img
-            src={`${API_URL}${lightbox}`}
-            alt="Detection snapshot"
-            className="max-w-full max-h-full rounded-xl border border-white/10"
-          />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <section role="dialog" aria-modal="true" aria-label="Analyze Video" className="bg-[#0a0a0a] text-white border border-white/10 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden">
+        <header className="p-5 border-b border-white/10 flex justify-between gap-4">
+          <div><h2 className="text-xl font-bold">Analyze Video</h2><p className="text-xs text-gray-400 mt-1">Watch fire and smoke detection during playback. Video checks do not send camera alarms.</p></div>
+          <button onClick={close} className={button} aria-label="Close video analysis">Close</button>
+        </header>
+        <div className="p-5 overflow-y-auto space-y-4">
+          {error && <p role="alert" className="text-red-400 text-sm">{error}</p>}
+          {!job && uploadPct === null && <>
+            <label className="block p-6 rounded-xl border border-dashed border-white/25 cursor-pointer text-sm">
+              Choose video (MP4, AVI, MOV, MKV, WEBM; up to 500 MB)
+              <input type="file" accept="video/*,.mkv,.avi,.wmv" className="block mt-3 w-full" onChange={(event) => {
+                const selected = event.target.files?.[0];
+                if (!selected) return;
+                if (selected.size > 500 * 1024 * 1024) { setError("Maximum upload size is 500 MB."); return; }
+                setFile(selected); setError(null);
+              }} />
+            </label>
+            <label className="block text-sm">Detection updates per second
+              <select value={sampleFps} onChange={(event) => setSampleFps(event.target.value)} className="ml-3 p-2 bg-gray-900 rounded">
+                <option value="5">5 FPS</option><option value="10">10 FPS</option><option value="15">15 FPS</option>
+              </select>
+            </label>
+          </>}
+          {uploadPct !== null && <p role="status">Uploading… {uploadPct}%</p>}
+          {job && <>
+            <div className="relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center">
+              {job.frame ? <img src={`data:image/jpeg;base64,${job.frame}`} alt={`Analyzed video at ${formatTime(job.current_time ?? 0)}`} className="w-full h-full object-contain" /> : <p className="text-gray-400">{job.status === "paused" ? "Paused" : "Waiting for first analyzed frame…"}</p>}
+              <div className="absolute top-3 left-3 bg-black/80 rounded px-3 py-2 text-xs" aria-live="polite">
+                {job.status === "paused" ? "Paused" : job.status === "done" ? "Playback complete" : buffering ? "Buffering / inference below playback rate" : job.status === "queued" ? "Queued" : job.status === "processing" ? "Detecting" : job.status}
+                <span className="ml-3">{job.effective_fps ?? 0} FPS</span>
+              </div>
+              <div className="absolute bottom-3 left-3 flex gap-2">
+                {confirmed.map(name => <span key={name} className={`rounded px-3 py-1 text-xs font-bold ${name === "fire" ? "bg-red-600" : "bg-amber-600"}`}>{name.toUpperCase()} CONFIRMED</span>)}
+              </div>
+            </div>
+            <div className="flex flex-wrap justify-between gap-3 text-sm text-gray-400">
+              <span>{formatTime(job.current_time ?? 0)} / {job.duration ? formatTime(job.duration) : "--:--"}</span>
+              <span>{job.frames_analyzed ?? 0} frames checked · {active ? connected ? "Connected" : "Connecting…" : "Finished"}</span>
+            </div>
+            <progress className="w-full h-2 accent-amber-500" max={1} value={job.progress ?? undefined} aria-label="Analysis progress" />
+            <div className="flex flex-wrap gap-2">
+              {active && <button className={button} disabled={controlling} onClick={() => control(job.status === "paused" ? "resume" : "pause")}>{job.status === "paused" ? "Play" : "Pause"}</button>}
+              <button className={button} disabled={controlling} onClick={() => control("restart")}>Restart</button>
+              {active && <button className={button} disabled={controlling} onClick={() => control("cancel")}>Stop</button>}
+            </div>
+            {!!job.detections?.length && <p className="text-sm text-amber-300">{Array.from(new Set(job.detections.map(d => d.class))).map(name => {
+              const confidence = Math.max(...job.detections.filter(d => d.class === name).map(d => d.confidence));
+              return `${name}: ${(confidence * 100).toFixed(0)}%${confirmed.includes(name) ? "" : " (confirming…)"}`;
+            }).join(" · ")}</p>}
+            {job.status === "error" && <p role="alert" className="text-red-400">{job.error}</p>}
+            {job.status === "done" && <div className="p-3 bg-white/5 rounded-lg text-sm">
+              {Object.keys(job.summary ?? {}).length ? Object.entries(job.summary).map(([name, info]) => <p key={name}>{name.toUpperCase()} — first at {formatTime(info.first_time)}, maximum confidence {(info.max_confidence * 100).toFixed(1)}%</p>) : "No fire or smoke confirmed in the analyzed frames."}
+            </div>}
+            {events.length > 0 && <div><h3 className="text-sm mb-2">Detection timeline — select an event to view its evidence</h3>
+              <div className="flex gap-3 overflow-x-auto pb-2">{events.map((event, index) => <button key={index} onClick={() => setLightbox(event)} className="shrink-0 w-36 text-left rounded-lg overflow-hidden border border-white/15">
+                <img src={`${API_URL}${event.snapshot}`} alt={`${event.class} evidence`} className="w-full h-20 object-cover" />
+                <span className="block p-2 text-xs">{formatTime(event.time)} · {event.class} {(event.confidence * 100).toFixed(0)}%</span>
+              </button>)}</div>
+            </div>}
+          </>}
         </div>
-      )}
-
-      <div className="bg-[#0a0a0a] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="p-6 border-b border-white/5 flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-white">Analyze Video</h2>
-            <p className="text-xs text-gray-500 mt-1">
-              Checks an uploaded video for fire and smoke with the same AI model
-              and settings as the live cameras. No alerts are sent.
-            </p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-
-        <div className="p-6 space-y-5 overflow-y-auto min-h-0">
-          {error && (
-            <div className="p-3 rounded text-sm bg-red-500/10 text-red-400">
-              {error}
-            </div>
-          )}
-
-          {/* Picker */}
-          {!busy && !finished && (
-            <>
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setDragOver(false);
-                  pickFile(e.dataTransfer.files?.[0] ?? null);
-                }}
-                onClick={() => inputRef.current?.click()}
-                className={`cursor-pointer rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
-                  dragOver
-                    ? "border-amber-500 bg-amber-500/5"
-                    : "border-white/10 hover:border-white/30"
-                }`}
-              >
-                <input
-                  ref={inputRef}
-                  type="file"
-                  accept="video/*,.mkv"
-                  className="hidden"
-                  onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
-                />
-                {file ? (
-                  <div className="space-y-1">
-                    <p className="text-sm text-white font-medium break-all">
-                      {file.name}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {(file.size / (1024 * 1024)).toFixed(1)} MB - click to
-                      choose another
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="text-sm text-white font-medium">
-                      Drop a video here or click to browse
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      MP4, AVI, MOV, MKV, WEBM - up to {MAX_MB} MB
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs text-gray-400 font-medium">
-                  Analysis speed
-                </label>
-                <select
-                  value={sampleFps}
-                  onChange={(e) => setSampleFps(e.target.value)}
-                  className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-amber-500 outline-none"
-                >
-                  <option value="2">Fast - 2 frames per second</option>
-                  <option value="5">Normal - 5 frames per second</option>
-                  <option value="10">Thorough - 10 frames per second</option>
-                </select>
-              </div>
-            </>
-          )}
-
-          {/* Upload / analysis progress */}
-          {busy && (
-            <div className="space-y-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-white font-medium">
-                  {uploading
-                    ? `Uploading... ${uploadPct}%`
-                    : job?.status === "queued"
-                      ? "Waiting for another analysis to finish..."
-                      : `Analyzing... ${job?.progress != null ? Math.round(job.progress * 100) + "%" : ""}`}
-                </span>
-                {job && !uploading && (
-                  <span className="text-xs text-gray-500 font-mono">
-                    {job.frames_analyzed} frames checked
-                  </span>
-                )}
-              </div>
-              <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full bg-amber-500 transition-all duration-300 ${
-                    !uploading && job?.progress == null
-                      ? "w-full animate-pulse"
-                      : ""
-                  }`}
-                  style={
-                    uploading
-                      ? { width: `${uploadPct}%` }
-                      : job?.progress != null
-                        ? { width: `${Math.round(job.progress * 100)}%` }
-                        : undefined
-                  }
-                />
-              </div>
-              {job && job.events.length > 0 && (
-                <p className="text-xs text-red-400">
-                  {job.events.length} detection
-                  {job.events.length > 1 ? "s" : ""} so far...
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Result */}
-          {job?.status === "done" && verdict && (
-            <div className="space-y-4">
-              <div
-                className={`p-4 rounded-xl border text-center font-bold tracking-wide ${verdict.style}`}
-              >
-                {verdict.text}
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="p-3 rounded-lg bg-white/5">
-                  <div className="text-xs text-gray-500">Duration</div>
-                  <div className="text-sm text-white font-mono">
-                    {job.duration ? formatTime(job.duration) : "-"}
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg bg-white/5">
-                  <div className="text-xs text-gray-500">Frames checked</div>
-                  <div className="text-sm text-white font-mono">
-                    {job.frames_analyzed}
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg bg-white/5">
-                  <div className="text-xs text-gray-500">Checked at</div>
-                  <div className="text-sm text-white font-mono">
-                    {job.sample_fps} fps
-                  </div>
-                </div>
-              </div>
-
-              {Object.keys(job.summary).length > 0 && (
-                <div className="space-y-2">
-                  {(
-                    Object.entries(job.summary) as [string, ClassSummary][]
-                  ).map(([cls, info]) => (
-                    <div
-                      key={cls}
-                      className="flex items-center justify-between p-3 rounded-lg bg-white/5 text-sm"
-                    >
-                      <span className="text-white font-medium capitalize">
-                        {cls}
-                      </span>
-                      <span className="text-xs text-gray-400 font-mono">
-                        first at{" "}
-                        {info.first_time != null
-                          ? formatTime(info.first_time)
-                          : "-"}{" "}
-                        - max confidence{" "}
-                        {(info.max_confidence * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {job.events.length > 0 && (
-                <div>
-                  <h3 className="text-xs text-gray-400 font-medium mb-2">
-                    Evidence frames (click to enlarge)
-                  </h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {job.events.map((ev, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setLightbox(ev.snapshot)}
-                        className="group relative rounded-lg overflow-hidden border border-white/10 hover:border-white/30 transition-colors text-left"
-                      >
-                        <img
-                          src={`${API_URL}${ev.snapshot}`}
-                          alt={`${ev.class} at ${formatTime(ev.time)}`}
-                          className="w-full h-24 object-cover"
-                        />
-                        <div className="absolute bottom-0 inset-x-0 px-2 py-1 bg-black/70 text-[10px] text-white font-mono capitalize">
-                          {ev.class} {(ev.confidence * 100).toFixed(0)}% -{" "}
-                          {formatTime(ev.time)}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {job?.status === "error" && (
-            <div className="p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-sm text-red-400">
-              Analysis failed: {job.error ?? "unknown error"}
-            </div>
-          )}
-          {job?.status === "cancelled" && (
-            <div className="p-4 rounded-xl border border-white/10 bg-white/5 text-sm text-gray-400">
-              Analysis cancelled.
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="p-6 border-t border-white/5 flex justify-end gap-3 bg-black/20">
-          {busy ? (
-            <button
-              onClick={cancel}
-              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-sm transition-colors"
-            >
-              Cancel
-            </button>
-          ) : finished ? (
-            <button
-              onClick={reset}
-              className="px-4 py-2 bg-white text-black hover:bg-gray-200 rounded text-sm font-medium transition-colors"
-            >
-              Analyze another video
-            </button>
-          ) : (
-            <button
-              onClick={startAnalysis}
-              disabled={!file}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Start analysis
-            </button>
-          )}
-        </div>
-      </div>
+        <footer className="p-5 border-t border-white/10 flex justify-end gap-3">
+          {uploadPct !== null ? <button className={button} onClick={() => xhrRef.current?.abort()}>Cancel upload</button> : !job ? <button className={button} disabled={!file} onClick={start}>Upload and play</button> : terminal(job.status) ? <button className={button} onClick={reset}>Analyze another video</button> : null}
+        </footer>
+      </section>
+      {lightbox && <button className="fixed inset-0 z-[60] bg-black/95 p-6 flex flex-col items-center justify-center" onClick={() => setLightbox(null)} aria-label="Close evidence image">
+        <img src={`${API_URL}${lightbox.snapshot}`} alt={`${lightbox.class} at ${formatTime(lightbox.time)}`} className="max-w-full max-h-[80vh] object-contain" />
+        <span className="text-white mt-3">{formatTime(lightbox.time)} · {lightbox.class} · click to close</span>
+      </button>}
     </div>
   );
-};
-
-export default VideoAnalysisModal;
+}
