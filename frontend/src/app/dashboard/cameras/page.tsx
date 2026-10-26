@@ -48,13 +48,40 @@ export default function CamerasPage() {
   }, []);
 
   const handleToggle = async (cam: any) => {
+    const nextActive = !cam.is_active;
+    if (cam.is_active) {
+      const confirmMsg = t.pages.cameras.confirmTurnOffCamera || "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?";
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
+    }
+
+    // Optimistic update
+    setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, is_active: nextActive } : c));
+
     try {
-      const res = await fetch(`${API_URL}/cameras/${cam.id}/toggle?active=${!cam.is_active}`, {
+      const res = await fetch(`${API_URL}/cameras/${cam.id}/toggle?active=${nextActive}`, {
         method: 'POST'
       });
-      if (res.ok) fetchCameras();
+
+      if (!res.ok) {
+        // Revert switch to real state immediately
+        setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, is_active: cam.is_active } : c));
+        if (res.status === 401) {
+          alert(t.pages.cameras.toggleError401 || "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.");
+        } else if (res.status === 403) {
+          alert(t.pages.cameras.toggleError403 || "Bạn không có quyền thực hiện thao tác này.");
+        } else {
+          alert(t.pages.cameras.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
+        }
+      }
     } catch (e) {
       console.error(e);
+      // Revert switch to real state immediately
+      setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, is_active: cam.is_active } : c));
+      alert(t.pages.cameras.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
+    } finally {
+      fetchCameras();
     }
   };
 
@@ -151,7 +178,7 @@ export default function CamerasPage() {
                 </div>
                 <div className="text-sm text-gray-500 mb-4 break-all flex-1">{cam.source}</div>
                 <div className="mt-auto pt-4 border-t flex flex-wrap gap-2">
-                  {user?.role !== 'viewer' && (
+                  {user && (
                     <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} className="flex-1 min-w-[80px]" onClick={() => handleToggle(cam)}>
                       {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
                     </Button>
@@ -174,7 +201,7 @@ export default function CamerasPage() {
                   <th className="p-4 font-medium">{t.pages.cameras.name || 'Name'}</th>
                   <th className="p-4 font-medium">{t.pages.cameras.source || 'Source'}</th>
                   <th className="p-4 font-medium">{t.pages.cameras.status || 'Status'}</th>
-                  {user?.role !== 'viewer' && <th className="p-4 font-medium text-right">{t.pages.cameras.actions || 'Actions'}</th>}
+                  {user && <th className="p-4 font-medium text-right">{t.pages.cameras.actions || 'Actions'}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -185,7 +212,7 @@ export default function CamerasPage() {
                     <td className="p-4">
                       <Badge variant={cam.is_active ? 'success' : 'secondary'}>{cam.is_active ? t.pages.cameras.filterRunning : t.pages.cameras.filterDisabled}</Badge>
                     </td>
-                    {user?.role !== 'viewer' && (
+                    {user && (
                       <td className="p-4 flex gap-2 justify-end">
                         <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)}>
                           {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}

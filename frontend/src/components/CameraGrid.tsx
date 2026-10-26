@@ -38,7 +38,8 @@ const CameraGrid = () => {
   };
 
   const canManage = user?.role === "admin";
-  const canToggle = user?.role === "admin" || user?.role === "viewer";
+  const canToggle = !!user;
+  const canAnalyze = user?.role === "admin" || user?.role === "viewer";
 
   // Mock animation states for bounding boxes
   const [time, setTime] = useState(0);
@@ -103,6 +104,16 @@ const CameraGrid = () => {
 
   const handleToggleCamera = async (id: number, active: boolean) => {
     if (!canToggle || toggling[id]) return;
+
+    if (!active) {
+      const confirmMsg = t.camera?.confirmTurnOffCamera || "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?";
+      if (!window.confirm(confirmMsg)) return;
+    }
+
+    const currentCam = cameras.find((c) => c.id === id);
+    const prevActive = currentCam ? currentCam.is_active : !active;
+    const prevStatus = currentCam ? currentCam.status : (prevActive ? "connected" : "disconnected");
+
     setToggling((prev) => ({ ...prev, [id]: true }));
     setCameras((prev) =>
       prev.map((c) =>
@@ -122,17 +133,34 @@ const CameraGrid = () => {
           method: "POST",
         },
       );
-      if (!res.ok) throw new Error(`Backend responded with ${res.status}`);
-    } catch (error) {
-      console.error(error);
-      alert("Failed to toggle camera status");
+      if (!res.ok) {
+        let errorMsg = t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.";
+        if (res.status === 401) {
+          errorMsg = t.camera?.toggleError401 || "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
+        } else if (res.status === 403) {
+          errorMsg = t.camera?.toggleError403 || "Bạn không có quyền thực hiện thao tác này.";
+        } else {
+          try {
+            const data = await res.json();
+            if (data.detail) errorMsg = data.detail;
+          } catch {}
+        }
+        throw new Error(errorMsg);
+      }
+    } catch (error: any) {
+      setCameras((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, is_active: prevActive, status: prevStatus } : c,
+        ),
+      );
+      alert(error.message || t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
     } finally {
       setToggling((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
       });
-      fetchCameras();
+      await fetchCameras();
     }
   };
 
@@ -199,7 +227,7 @@ const CameraGrid = () => {
               4
             </button>
           </div>
-          {canToggle && (
+          {canAnalyze && (
             <button
               onClick={() => setIsAnalyzerOpen(true)}
               className="px-3 py-1 bg-white hover:bg-gray-100 rounded text-xs text-navy-900 font-medium transition-colors"
