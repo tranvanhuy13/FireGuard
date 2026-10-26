@@ -582,40 +582,14 @@ export const setupMockService = () => {
     const originalFetch = window.fetch;
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      const data = getMockData();
-      
-      if (url.includes('/cameras')) {
-        if (init?.method === 'POST') {
-          const body = JSON.parse(init.body as string);
-          const newCam = { ...body, id: Date.now(), status: 'connected' };
-          data.cameras.push(newCam);
-          saveMockData(data);
-          addAuditLog('admin', 'create_camera', newCam.name, '127.0.0.1', 'success');
-          return new Response(JSON.stringify(newCam), { status: 201 });
-        } else if (init?.method === 'PUT') {
-          const idMatch = url.match(/\/cameras\/(\d+)/);
-          if (idMatch) {
-              const id = parseInt(idMatch[1]);
-              const body = JSON.parse(init.body as string);
-              const index = data.cameras.findIndex((c: any) => c.id === id);
-              if (index !== -1) {
-                  data.cameras[index] = { ...data.cameras[index], ...body };
-                  saveMockData(data);
-                  return new Response(JSON.stringify(data.cameras[index]), { status: 200 });
-              }
-          }
-        } else if (init?.method === 'DELETE') {
-          const idMatch = url.match(/\/cameras\/(\d+)/);
-          if (idMatch) {
-              const id = parseInt(idMatch[1]);
-              data.cameras = data.cameras.filter((c: any) => c.id !== id);
-              saveMockData(data);
-              return new Response(null, { status: 204 });
-          }
-        }
-        return new Response(JSON.stringify({ cameras: data.cameras }), { status: 200 });
+      const parsedUrl = new URL(url, window.location.origin);
+      // Camera controls and video feeds must use the same backend state,
+      // including when other dashboard data is mocked.
+      if (/^\/cameras(?:\/|$)/.test(parsedUrl.pathname)) {
+        return originalFetch(input, init);
       }
-      
+      const data = getMockData();
+
       if (url.includes('/history')) {
         return new Response(JSON.stringify({ events: data.alerts }), { status: 200 });
       }

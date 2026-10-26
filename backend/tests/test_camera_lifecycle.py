@@ -1,0 +1,182 @@
+"""Isolated camera regression checks; no model, database, or webcam required.
+
+Run with: python -m unittest discover -s tests -p test_camera_lifecycle.py
+"""
+import importlib.util
+import sys
+import threading
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+with patch.dict(sys.modules, {"notification": Mock(), "storage": Mock()}):
+    spec = importlib.util.spec_from_file_location(
+        "camera_lifecycle_under_test", Path(__file__).resolve().parents[1] / "camera_manager.py"
+    )
+    cm = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cm)
+
+
+class CameraLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.capture = Mock()
+        self.capture.isOpened.return_value = True
+        self.capture.read.return_value = (True, np.zeros((2, 2, 3), dtype=np.uint8))
+        self.open_patch = patch.object(cm.cv2, "VideoCapture", return_value=self.capture)
+        self.open_capture = self.open_patch.start()
+        self.addCleanup(self.open_patch.stop)
+        self.cameras = []
+        cm.storage.save_snapshot.reset_mock()
+
+    def tearDown(self):
+        for camera in self.cameras:
+            camera.stop()
+        for camera in self.cameras:
+            camera.thread.join(timeout=2)
+            self.assertFalse(camera.thread.is_alive())
+
+    def camera(self, active=False):
+        camera = cm.Camera(len(self.cameras) + 1, "0", is_active=active)
+        self.cameras.append(camera)
+        return camera
+
+    def test_disabled_camera_never_opens_laptop_camera(self):
+        camera = self.camera()
+        camera.thread.join(timeout=0.25)
+        self.open_capture.assert_not_called()
+        cm.storage.save_snapshot.assert_not_called()
+        self.assertEqual(camera.status, "disconnected")
+
+    def test_disable_during_read_discards_frame_and_releases_device(self):
+        reading, finish_read, released = threading.Event(), threading.Event(), threading.Event()
+
+        def read():
+            reading.set()
+            finish_read.wait(2)
+            return True, np.zeros((2, 2, 3), dtype=np.uint8)
+
+        self.capture.read.side_effect = read
+        self.capture.release.side_effect = released.set
+        camera = self.camera(active=True)
+        self.assertTrue(reading.wait(1))
+        camera.set_active(False)
+        finish_read.set()
+        self.assertTrue(released.wait(1))
+        self.assertIsNone(camera.last_frame)
+        self.assertIsNone(camera.get_jpeg())
+        cm.storage.save_snapshot.assert_not_called()
+        calls = self.open_capture.call_count
+        camera.thread.join(timeout=0.25)
+        self.assertEqual(self.open_capture.call_count, calls)
+
+    def test_disable_during_open_releases_unwanted_capture(self):
+        opening, finish_open, released = threading.Event(), threading.Event(), threading.Event()
+
+        def open_capture(_source):
+            opening.set()
+            finish_open.wait(2)
+            return self.capture
+
+        self.open_capture.side_effect = open_capture
+        self.capture.release.side_effect = released.set
+        camera = self.camera(active=True)
+        self.assertTrue(opening.wait(1))
+        camera.set_active(False)
+        finish_open.set()
+        self.assertTrue(released.wait(1))
+        self.capture.read.assert_not_called()
+        cm.storage.save_snapshot.assert_not_called()
+        self.assertEqual(camera.status, "disconnected")
+
+    def test_queued_snapshot_cancelled_even_after_reenable(self):
+        camera = self.camera()
+        with camera._state_lock:
+            camera.set_active(True)
+            with patch.object(cm.threading, "Thread") as worker:
+                cm.save_snapshot_async(camera, np.zeros((2, 2, 3)), camera._generation)
+            task = worker.call_args.kwargs
+            camera.set_active(False)
+            task["target"](*task["args"])
+            camera.set_active(True)
+            task["target"](*task["args"])
+            camera.set_active(False)
+            cm.storage.save_snapshot.assert_not_called()
+
+    def test_manager_disables_all_cameras_and_allows_restart(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        camera = self.camera()
+        manager.cameras = {camera.id: camera}
+        saved = threading.Event()
+        with patch.dict(sys.modules, {"database": Mock()}), patch.object(
+            cm.storage, "save_snapshot", side_effect=lambda *_a: saved.set()
+        ):
+            self.assertTrue(manager.toggle_camera(camera.id, True))
+            self.assertTrue(saved.wait(1))
+            self.assertTrue(manager.toggle_camera(camera.id, False))
+            self.assertFalse(manager.has_active_camera())
+            self.assertIsNone(camera.get_jpeg())
+            count = cm.storage.save_snapshot.call_count
+            camera.thread.join(timeout=0.25)
+            self.assertEqual(cm.storage.save_snapshot.call_count, count)
+            saved.clear()
+            self.assertTrue(manager.toggle_camera(camera.id, True))
+            self.assertTrue(saved.wait(1))
+            manager.toggle_camera(camera.id, False)
+
+    def test_two_tiles_share_device_until_last_tile_is_disabled(self):
+        first_ready, second_ready = threading.Event(), threading.Event()
+
+        def saved(filename, _frame):
+            (first_ready if 'cam_1.' in filename else second_ready).set()
+
+        with patch.object(cm.storage, 'save_snapshot', side_effect=saved):
+            first = self.camera(active=True)
+            second = self.camera(active=True)
+            self.assertTrue(first_ready.wait(1))
+            self.assertTrue(second_ready.wait(1))
+            self.open_capture.assert_called_once_with(0)
+            first.set_active(False)
+            first.thread.join(timeout=0.3)
+            self.capture.release.assert_not_called()
+            self.assertIsNotNone(second.get_latest()[1])
+            second.set_active(False)
+            second.thread.join(timeout=0.3)
+            self.capture.release.assert_called_once()
+            self.assertFalse(cm.SharedWebcam._devices)
+
+    def test_shared_webcam_reuses_frame_for_multiple_tiles(self):
+        first = cm.SharedWebcam.acquire(0)
+        second = cm.SharedWebcam.acquire(0)
+        try:
+            with patch.object(cm.time, 'monotonic', return_value=100):
+                first_frame = first.read()[1]
+                self.assertIs(first_frame, second.read()[1])
+                self.capture.read.assert_called_once()
+            first.release()
+            self.capture.release.assert_not_called()
+        finally:
+            first.release()
+            second.release()
+        self.capture.release.assert_called_once()
+
+    def test_all_configured_and_new_tiles_use_source_zero(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager.cameras = {}
+        database = Mock()
+        database.get_all_db_cameras.return_value = [
+            {'id': 1, 'name': 'Gate', 'source': 'rtsp://old', 'is_active': 0},
+            {'id': 2, 'name': 'Lobby', 'source': '1', 'is_active': 0},
+        ]
+        database.add_db_camera.return_value = 3
+        with patch.dict(sys.modules, {'database': database}), patch.object(cm, 'Camera') as camera:
+            manager.load_cameras_from_db()
+            self.assertEqual([call.args[1] for call in camera.call_args_list], ['0', '0'])
+            manager.add_camera('rtsp://old', 'New', False)
+            database.add_db_camera.assert_called_once_with('New', '0', 0)
+
+
+if __name__ == "__main__":
+    unittest.main()

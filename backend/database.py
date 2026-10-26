@@ -222,6 +222,14 @@ def delete_db_camera(camera_id):
     conn.close()
     return True
 
+
+def update_db_camera(camera_id, name, source, is_active):
+    with sqlite3.connect(DB_NAME) as conn:
+        conn.execute(
+            'UPDATE cameras SET name = ?, source = ?, is_active = ? WHERE id = ?',
+            (name, source, int(is_active), camera_id),
+        )
+
 def get_all_db_cameras():
     """Get all cameras from the database."""
     conn = sqlite3.connect(DB_NAME)
