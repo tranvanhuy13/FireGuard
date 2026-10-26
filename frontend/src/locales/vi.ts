@@ -228,7 +228,11 @@ export const vi = {
     cameraIsInactive: "Camera đang tắt",
     turnOnCamera: "Bật camera",
     connectionLost: "Mất kết nối",
-    reconnecting: "Đang kết nối lại..."
+    reconnecting: "Đang kết nối lại...",
+    confirmTurnOffCamera: "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?",
+    toggleError401: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+    toggleError403: "Bạn không có quyền thực hiện thao tác này.",
+    toggleErrorNetwork: "Lỗi kết nối khi thay đổi trạng thái camera."
   },
   alerts: {
     title: "Cảnh báo cháy",
@@ -411,7 +415,11 @@ export const vi = {
       name: "Tên",
       source: "Nguồn",
       status: "Trạng thái",
-      actions: "Hành động"
+      actions: "Hành động",
+      confirmTurnOffCamera: "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?",
+      toggleError401: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+      toggleError403: "Bạn không có quyền thực hiện thao tác này.",
+      toggleErrorNetwork: "Lỗi kết nối khi thay đổi trạng thái camera."
     },
     history: {
       title: "Lịch sử",
