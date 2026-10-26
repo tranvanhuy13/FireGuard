@@ -25,7 +25,7 @@ export default function CamerasPage() {
   const [deletingCamera, setDeletingCamera] = useState<any>(null);
 
   // Form State
-  const [formData, setFormData] = useState({ name: '', source: '', is_active: true });
+  const [formData, setFormData] = useState({ name: '', source: '0', is_active: false });
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<'success'|'error'|null>(null);
 
@@ -110,7 +110,7 @@ export default function CamerasPage() {
       if (res.ok) {
         setShowAddModal(false);
         setEditingCamera(null);
-        setFormData({ name: '', source: '', is_active: true });
+        setFormData({ name: '', source: '0', is_active: false });
         setTestResult(null);
         fetchCameras();
       }
@@ -124,7 +124,7 @@ export default function CamerasPage() {
     setTestResult(null);
     setTimeout(() => {
       setTestingConnection(false);
-      setTestResult(formData.source.length > 5 ? 'success' : 'error');
+      setTestResult(formData.source === '0' || formData.source.length > 5 ? 'success' : 'error');
     }, 1000);
   };
 
@@ -150,7 +150,7 @@ export default function CamerasPage() {
             <button onClick={() => setViewMode('table')} className={`px-3 py-1 text-sm rounded ${viewMode==='table'?'bg-white shadow':''}`}>Table</button>
           </div>
           {user?.role === 'admin' && (
-            <Button onClick={() => { setEditingCamera(null); setFormData({ name: '', source: '', is_active: true }); setTestResult(null); setShowAddModal(true); }}>
+            <Button onClick={() => { setEditingCamera(null); setFormData({ name: '', source: '0', is_active: false }); setTestResult(null); setShowAddModal(true); }}>
               {t.pages.cameras.addCamera}
             </Button>
           )}
@@ -246,7 +246,7 @@ export default function CamerasPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">{t.pages.cameras.source || 'Source URL'}</label>
                   <div className="flex gap-2">
-                    <Input value={formData.source} onChange={e => setFormData({...formData, source: e.target.value})} placeholder="rtsp://..." className="flex-1" />
+                    <Input value="0" readOnly title="PC webcam (source 0)" className="flex-1" />
                     <Button variant="outline" onClick={handleTestConnection} disabled={testingConnection}>{testingConnection ? '...' : (t.pages.cameras.testConnection || 'Test')}</Button>
                   </div>
                   {testResult === 'success' && <p className="text-green-600 text-sm mt-1">Connection successful</p>}

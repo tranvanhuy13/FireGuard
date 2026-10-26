@@ -262,8 +262,9 @@ async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str
 # Cameras
 # ---------------------------------------------------------------------------
 class CameraModel(BaseModel):
-    source: str
+    source: str = "0"
     name: str
+    is_active: bool = False
 
 
 @app.get("/cameras")
@@ -284,7 +285,7 @@ def get_cameras():
 @app.post("/cameras")
 def add_new_camera(cam: CameraModel):
     """Add a new camera."""
-    new_id = camera_manager.add_camera(cam.source, cam.name)
+    new_id = camera_manager.add_camera("0", cam.name, cam.is_active)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
@@ -293,6 +294,13 @@ def delete_camera(camera_id: int):
     """Remove a camera."""
     if camera_manager.remove_camera(camera_id):
         return {"status": "ok", "message": "Camera removed"}
+    raise HTTPException(status_code=404, detail="Camera not found")
+
+
+@app.put("/cameras/{camera_id}")
+def update_camera(camera_id: int, cam: CameraModel):
+    if camera_manager.update_camera(camera_id, cam.name, cam.is_active):
+        return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 

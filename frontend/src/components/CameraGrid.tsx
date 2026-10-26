@@ -21,7 +21,7 @@ const CameraGrid = () => {
   const { user, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isAdding, setIsAdding] = useState(false);
-  const [newCamSource, setNewCamSource] = useState("");
+  const [newCamSource, setNewCamSource] = useState("0");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
   const [layoutMode, setLayoutMode] = useState<"auto" | "1" | "4">("auto");
@@ -81,7 +81,7 @@ const CameraGrid = () => {
         }),
       });
       setIsAdding(false);
-      setNewCamSource("");
+      setNewCamSource("0");
       setNewCamName("");
       fetchCameras();
     } catch (error) {
@@ -264,7 +264,8 @@ const CameraGrid = () => {
               placeholder={t.camera.cameraSource}
               className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-navy-900 text-xs outline-none focus:border-sky-500"
               value={newCamSource}
-              onChange={(e) => setNewCamSource(e.target.value)}
+              readOnly
+              title="PC webcam (source 0)"
             />
           </div>
           <div className="flex justify-end gap-2">

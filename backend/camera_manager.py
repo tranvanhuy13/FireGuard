@@ -25,12 +25,69 @@ JPEG_QUALITY = 80
 Overlay = namedtuple("Overlay", "pixels mask timestamp")
 
 
-def save_snapshot_async(cam_id, frame):
+class SharedWebcam:
+    """One physical webcam connection, leased by independently enabled tiles."""
+
+    _lock = threading.Lock()
+    _devices = {}
+
+    @classmethod
+    def acquire(cls, source):
+        with cls._lock:
+            device = cls._devices.get(source)
+            if device is None:
+                cap = cv2.VideoCapture(source)
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+                cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                device = {"cap": cap, "users": 0, "frame": None, "read_at": 0,
+                          "lock": threading.Lock()}
+                cls._devices[source] = device
+            device["users"] += 1
+            return cls(source, device)
+
+    def __init__(self, source, device):
+        self.source = source
+        self.device = device
+        self.released = False
+
+    def isOpened(self):
+        with self.device["lock"]:
+            return not self.released and self.device["cap"].isOpened()
+
+    def read(self):
+        with self.device["lock"]:
+            if self.released:
+                return False, None
+            # Reuse the latest frame across tiles instead of reading the device
+            # once per tile and multiplying its capture rate.
+            if time.monotonic() - self.device["read_at"] >= 1.0 / CAMERA_FPS:
+                ok, frame = self.device["cap"].read()
+                self.device["frame"] = frame if ok else None
+                self.device["read_at"] = time.monotonic()
+            frame = self.device["frame"]
+            return frame is not None, frame
+
+    def release(self):
+        with self._lock, self.device["lock"]:
+            if self.released:
+                return
+            self.released = True
+            self.device["users"] -= 1
+            if self.device["users"] == 0:
+                self.device["cap"].release()
+                self._devices.pop(self.source, None)
+
+
+def save_snapshot_async(camera, frame, generation):
     """Save a snapshot on a worker thread so disk / network I/O never stalls capture."""
     def task(img):
-        filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{cam_id}.jpg"
-        storage.save_snapshot(filename, img)
-        logger.info("[Cam %s] Periodic snapshot saved: %s", cam_id, filename)
+        with camera._state_lock:
+            if not camera.running or not camera.is_active or camera._generation != generation:
+                return
+            filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{camera.id}.jpg"
+            storage.save_snapshot(filename, img)
+            logger.info("[Cam %s] Periodic snapshot saved: %s", camera.id, filename)
 
     threading.Thread(target=task, args=(frame.copy(),), daemon=True).start()
 
@@ -40,7 +97,7 @@ class Camera:
     One camera = one capture thread.
 
     The capture thread does nothing but read frames (~30 FPS), publish the
-    newest one, and trigger the 5-second snapshot. AI detection runs elsewhere
+    newest one, and trigger periodic snapshots. AI detection runs elsewhere
     and can never slow the stream down.
     """
 
@@ -51,6 +108,8 @@ class Camera:
         self.is_active = is_active
 
         self._stop = threading.Event()
+        self._state_lock = threading.RLock()
+        self._generation = 0
         self._frame_lock = threading.Lock()
 
         # Published state
@@ -68,7 +127,7 @@ class Camera:
         self.last_periodic_snapshot_time = 0
         self.last_no_frame_log = 0
 
-        self.status = "connecting"
+        self.status = "connecting" if is_active else "disconnected"
         self.consecutive_failures = 0
         self.cap = None
 
@@ -83,30 +142,51 @@ class Camera:
 
     def stop(self):
         """Permanently stop this camera (used on remove / shutdown)."""
-        self._stop.set()
-        self.status = "disconnected"
+        with self._state_lock:
+            self._stop.set()
+            self.set_active(False)
+
+    def set_active(self, is_active):
+        with self._state_lock:
+            self.is_active = bool(is_active) and self.running
+            self._generation += 1
+            self.status = "connecting" if self.is_active else "disconnected"
+            self.detection_persistence = {}
+            self.last_detected_id = 0
+            self.last_periodic_snapshot_time = 0
+            with self._frame_lock:
+                self.last_frame = None
+                self.overlay = None
+                self._jpeg_cache = (0, None)
 
     # ---------------------------------------------------------------- capture
     def _open(self):
-        self.status = "connecting"
+        with self._state_lock:
+            if not self.running or not self.is_active:
+                return False
+            generation = self._generation
+            self.status = "connecting"
         try:
             src = int(self.source)
         except (TypeError, ValueError):
             src = self.source
 
-        cap = cv2.VideoCapture(src)
         if isinstance(src, int):
-            # USB webcams only reach 30 FPS at higher resolutions with MJPG
-            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-            cap.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # always read the freshest frame
+            cap = SharedWebcam.acquire(src)
+        else:
+            cap = cv2.VideoCapture(src)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
-        if cap.isOpened():
-            self.cap = cap
-            self.status = "connected"
-            self.consecutive_failures = 0
-            logger.info("[Camera %s] Connected (source type: %s)", self.id, type(src).__name__)
-            return True
+        with self._state_lock:
+            if not self.running or not self.is_active or self._generation != generation:
+                cap.release()
+                return False
+            if cap.isOpened():
+                self.cap = cap
+                self.status = "connected"
+                self.consecutive_failures = 0
+                logger.info("[Camera %s] Connected (source type: %s)", self.id, type(src).__name__)
+                return True
 
         cap.release()
         self.status = "disconnected"
@@ -124,10 +204,12 @@ class Camera:
             self.frame_id += 1
 
     def _maybe_snapshot(self, frame):
+        if not self.running or not self.is_active:
+            return
         now = time.time()
         if now - self.last_periodic_snapshot_time >= SNAPSHOT_INTERVAL_SECONDS:
             self.last_periodic_snapshot_time = now
-            save_snapshot_async(self.id, frame)
+            save_snapshot_async(self, frame, self._generation)
 
     def _capture_loop(self):
         interval = 1.0 / CAMERA_FPS
@@ -150,7 +232,14 @@ class Camera:
                     continue
 
             started = time.time()
+            generation = self._generation
             ok, frame = self.cap.read()
+
+            # Discard reads from a session disabled while the device was busy.
+            with self._state_lock:
+                if not self.running or not self.is_active or self._generation != generation:
+                    self._close()
+                    continue
 
             if not ok or frame is None:
                 self.consecutive_failures += 1
@@ -164,9 +253,13 @@ class Camera:
                     self._stop.wait(0.02)
                 continue
 
-            self.consecutive_failures = 0
-            self._publish(frame)
-            self._maybe_snapshot(frame)
+            with self._state_lock:
+                if not self.running or not self.is_active or self._generation != generation:
+                    self._close()
+                    continue
+                self.consecutive_failures = 0
+                self._publish(frame)
+                self._maybe_snapshot(frame)
 
             # Hold 30 FPS for sources that don't block (video files);
             # live streams already block in read(), so this is ~0 for them.
@@ -250,23 +343,27 @@ class CameraManager:
             for db_cam in db_cams:
                 cam_id = db_cam["id"]
                 name = db_cam["name"]
-                source = db_cam["source"]
+                # All dashboard tiles mirror the backend PC's default webcam.
+                source = "0"
                 is_active = db_cam["is_active"] == 1
+                if db_cam["source"] != source:
+                    database.update_db_camera(cam_id, name, source, is_active)
 
                 if cam_id in self.cameras:
                     self.cameras[cam_id].name = name
                     self.cameras[cam_id].source = source
-                    self.cameras[cam_id].is_active = is_active
+                    self.cameras[cam_id].set_active(is_active)
                 else:
                     self.cameras[cam_id] = Camera(cam_id, source, name, is_active)
             print(f"Loaded {len(db_cams)} cameras from database.")
         except Exception as e:
             print(f"Error loading cameras from database: {e}")
 
-    def add_camera(self, source, name="Camera"):
+    def add_camera(self, source="0", name="Camera", is_active=False):
         import database
-        cam_id = database.add_db_camera(name, source, 1)
-        self.cameras[cam_id] = Camera(cam_id, source, name, True)
+        source = "0"
+        cam_id = database.add_db_camera(name, source, int(is_active))
+        self.cameras[cam_id] = Camera(cam_id, source, name, bool(is_active))
         return cam_id
 
     def remove_camera(self, camera_id):
@@ -278,12 +375,25 @@ class CameraManager:
         database.delete_db_camera(camera_id)
         return True
 
+    def has_active_camera(self):
+        return any(cam.running and cam.is_active for cam in list(self.cameras.values()))
+
+    def update_camera(self, camera_id, name, is_active):
+        import database
+        cam = self.cameras.get(camera_id)
+        if cam is None:
+            return False
+        database.update_db_camera(camera_id, name, "0", is_active)
+        cam.name = name
+        cam.set_active(is_active)
+        return True
+
     def toggle_camera(self, camera_id, is_active):
         import database
         cam = self.cameras.get(camera_id)
         if cam is None:
             return False
-        cam.is_active = is_active          # capture thread reacts on its own
+        cam.set_active(is_active)
         database.set_db_camera_status(camera_id, is_active)
         return True
 
@@ -330,6 +440,9 @@ class CameraManager:
         min_interval = 1.0 / DETECTION_FPS
 
         while self.running:
+            if not self.has_active_camera():
+                time.sleep(0.2)
+                continue
             did_work = False
 
             for cam in list(self.cameras.values()):
@@ -340,12 +453,16 @@ class CameraManager:
                 if now - cam.last_detection_time < min_interval:
                     continue
 
-                frame_id, frame = cam.get_latest()
-                if frame is None or frame_id == cam.last_detected_id:
-                    continue
+                with cam._state_lock:
+                    if not cam.running or not cam.is_active:
+                        continue
+                    frame_id, frame = cam.get_latest()
+                    if frame is None or frame_id == cam.last_detected_id:
+                        continue
 
-                cam.last_detected_id = frame_id
-                cam.last_detection_time = now
+                    cam.last_detected_id = frame_id
+                    cam.last_detection_time = now
+                    generation = cam._generation
                 did_work = True
 
                 try:
@@ -355,12 +472,15 @@ class CameraManager:
                     logger.exception("[Camera %s] Detection failed", cam.id)
                     continue
 
-                cam.set_overlay(frame, annotated_frame)
+                with cam._state_lock:
+                    if not cam.running or not cam.is_active or cam._generation != generation:
+                        continue
+                    cam.set_overlay(frame, annotated_frame)
 
-                if detections:
-                    self._process_detections(cam, detections, annotated_frame)
-                else:
-                    cam.detection_persistence = {}
+                    if detections:
+                        self._process_detections(cam, detections, annotated_frame)
+                    else:
+                        cam.detection_persistence = {}
 
             if not did_work:
                 time.sleep(0.005)
