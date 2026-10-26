@@ -6,5 +6,6 @@ yolov8n.pt
 snapshots/
 uploads_tmp/
 .env
+.env.local
 *.env
 *.log
