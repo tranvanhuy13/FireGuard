@@ -10,3 +10,5 @@ class User:
     otp: str | None = None
     otp_expires_at: str | None = None
     otp_attempts: int = 0
+    role: str = "user"
+    is_blocked: bool = False

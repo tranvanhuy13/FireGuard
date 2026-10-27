@@ -2,6 +2,8 @@
 
 Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backend (nhánh `origin/authentication`), giao thức xác thực HTTP Basic Auth, cơ chế Stream Token, và liệt kê các tính năng còn thiếu cần Backend triển khai tiếp theo.
 
+> **Cập nhật phân quyền:** Xem [AUTHORIZATION.md](AUTHORIZATION.md) để biết quyền `user`/`admin`, các API `/users` đã triển khai, cơ chế khóa tài khoản và token media hiện tại. Các mục tính năng còn thiếu bên dưới là mô tả lịch sử; không dùng chúng để phủ nhận API đã được bổ sung.
+
 ---
 
 ## 1. Các API Đã Được Backend Hỗ Trợ & Frontend Kết Nối Thành Công

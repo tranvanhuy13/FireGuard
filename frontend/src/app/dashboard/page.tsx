@@ -20,7 +20,7 @@ import {
 
 export default function Home() {
   const { t, language, setLanguage } = useLanguage();
-  const { streamToken, refreshStreamToken } = useAuth();
+  const { user, streamToken, refreshStreamToken } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [cameras, setCameras] = useState<NormalizedCamera[]>([]);
   const [error, setError] = useState(false);
@@ -63,8 +63,10 @@ export default function Home() {
     // 2. Establish WebSocket connection for real-time updates
     let ws: WebSocket | null = null;
     let reconnectTimeout: any = null;
+    let disposed = false;
 
     const connectWebSocket = () => {
+      if (!streamToken) return;
       const wsUrl = `${WS_URL}/ws/alerts${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`;
       ws = new WebSocket(wsUrl);
 
@@ -94,8 +96,10 @@ export default function Home() {
       };
 
       ws.onclose = async (event) => {
+        if (disposed) return;
         if (event.code === 1008) {
           await refreshStreamToken();
+          return;
         }
         reconnectTimeout = setTimeout(connectWebSocket, 3000);
       };
@@ -104,6 +108,7 @@ export default function Home() {
     connectWebSocket();
 
     return () => {
+      disposed = true;
       if (ws) {
         ws.onclose = null;
         ws.close();
@@ -118,7 +123,7 @@ export default function Home() {
   return (
     <div className="h-full flex flex-col relative">
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal isOpen={isSettingsOpen && user?.role === "admin"} onClose={() => setIsSettingsOpen(false)} />
       
       {/* Red flashing banner if there is a new fire alert within last 15 seconds */}
       {alerts.some(a => a.type === 'fire' && (Date.now() - new Date(a.timestamp.replace(' ', 'T')).getTime() < 15000)) && (

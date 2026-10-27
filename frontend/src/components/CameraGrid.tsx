@@ -20,7 +20,7 @@ interface Camera {
 const CameraGrid = () => {
   const detections = useCameraDetections();
   const { t } = useLanguage();
-  const { user, streamToken, refreshStreamToken } = useAuth();
+  const { user, can, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [newCamSource, setNewCamSource] = useState("0");
@@ -39,7 +39,7 @@ const CameraGrid = () => {
     }
   };
 
-  const canManage = user?.role === "admin";
+  const canManage = can("add_camera");
   const canToggle = !!user;
   const canAnalyze = user?.role === "admin" || user?.role === "user";
 
@@ -397,7 +397,8 @@ const CameraGrid = () => {
             ) : (
               <div className="relative w-full h-full bg-[#071728]">
                 <img
-                  src={`${API_URL}/video_feed/${cam.id}${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`}
+                  key={streamToken}
+                  src={streamToken ? `${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}` : undefined}
                   alt={cam.name}
                   className="w-full h-full object-contain"
                   onError={(e) => {

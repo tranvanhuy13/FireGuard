@@ -12,7 +12,6 @@ from .utils import (
     generate_otp, otp_expiry, otp_expired, send_otp_email,
     OTP_RESEND_COOLDOWN_SECONDS, otp_seconds_since_sent, otp_seconds_until_expiry,
 )
-
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -53,12 +52,13 @@ def signup(user: UserCreate, db = Depends(get_db)):
     hashed_password = get_password_hash(user.password)
     # is_active = 0 until the OTP is verified
     cursor = db.execute(
-        "INSERT INTO users (username, email, hashed_password, is_active) VALUES (?, ?, ?, 0)",
+        "INSERT INTO users (username, email, hashed_password, is_active, role) VALUES (?, ?, ?, 0, 'user')",
         (user.username, email, hashed_password),
     )
     db.commit()
     send_new_otp(db, cursor.lastrowid, email)
-    return User(id=cursor.lastrowid, username=user.username, email=email, hashed_password=hashed_password)
+    return User(id=cursor.lastrowid, username=user.username, email=email,
+                hashed_password=hashed_password, role="user")
 
 @router.post("/verify-otp")
 def verify_otp(data: OTPVerify, db = Depends(get_db)):

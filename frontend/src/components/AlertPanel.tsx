@@ -1,5 +1,6 @@
 /* eslint-disable */
 "use client";
+import { mediaUrl } from "@/lib/api/client";
 
 import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
@@ -24,7 +25,7 @@ interface AlertPanelProps {
 
 const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, streamToken } = useAuth();
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
@@ -86,8 +87,14 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
     return localStatuses[key] || alert.status || "new";
   };
 
-  const updateStatus = (alert: Alert, status: string, e?: React.MouseEvent) => {
+  const updateStatus = async (alert: Alert, status: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (alert.id) {
+      const response = await fetch(`${API_URL}/alerts/${alert.id}/status`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+      }).catch(() => null);
+      if (!response?.ok) return;
+    }
     const key = alert.id ? alert.id.toString() : alert.timestamp;
     setLocalStatuses(prev => ({ ...prev, [key]: status }));
   };
@@ -126,7 +133,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
             
             <div className="bg-gray-100 flex items-center justify-center relative w-full h-64">
               {selectedAlert.snapshot ? (
-                <img src={`${selectedAlert.snapshot.startsWith('http') ? selectedAlert.snapshot : API_URL + selectedAlert.snapshot}`} alt="Event Snapshot" className="w-full h-full object-cover" />
+                <img src={mediaUrl(selectedAlert.snapshot, streamToken)} alt="Event Snapshot" className="w-full h-full object-cover" />
               ) : (
                 <div className="text-gray-400">No Image Available</div>
               )}
@@ -270,7 +277,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                 onClick={() => setSelectedAlert(alert)}
               >
                 {alert.snapshot ? (
-                  <img src={`${alert.snapshot.startsWith('http') ? alert.snapshot : API_URL + alert.snapshot}`} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" />
+                  <img src={mediaUrl(alert.snapshot, streamToken)} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" />
                 ) : (
                   <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${alert.type === "fire" ? "bg-red-50 text-red-500" : "bg-yellow-50 text-yellow-600"}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

@@ -142,6 +142,7 @@ export const en = {
       passwordNoSpecialChars: "Password must not contain special characters (letters and numbers only)",
       emailGmailOnly: "Please use a valid Gmail address (@gmail.com)",
       accountNotVerified: "Account not verified. Please verify your account.",
+      accountBlocked: "Your account has been blocked. Please contact an administrator.",
       featureNotImplemented: "Feature is not enabled on the server",
       forgotNotImplemented: "Forgot password is not enabled on the server",
       resendWait: "Please wait {seconds}s before requesting a new code.",

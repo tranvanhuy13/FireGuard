@@ -1,7 +1,7 @@
 /* eslint-disable */
-import React from 'react';
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+import React from "react";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -9,17 +9,17 @@ export function cn(...inputs: ClassValue[]) {
 
 export function Logo({
   className,
-  variant = 'default',
+  variant = "default",
   iconOnly = false,
 }: {
   className?: string;
-  variant?: 'default' | 'white';
+  variant?: "default" | "white";
   iconOnly?: boolean;
 }) {
-  const isWhite = variant === 'white';
-  
+  const isWhite = variant === "white";
+
   return (
-    <div className={cn('flex items-center gap-2', className)}>
+    <div className={cn("flex items-center gap-2", className)}>
       <img
         src="/logo.png"
         alt="FireGuard Logo"
@@ -29,8 +29,8 @@ export function Logo({
       {!iconOnly && (
         <span
           className={cn(
-            'text-xl font-bold tracking-wider',
-            isWhite ? 'text-white' : 'text-navy-900'
+            "text-xl font-bold tracking-wider",
+            isWhite ? "text-white" : "text-navy-900",
           )}
         >
           FIREGUARD
