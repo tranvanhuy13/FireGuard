@@ -29,7 +29,7 @@ class VideoAnalyzer:
         self.jobs = OrderedDict()
         self._controls = {}
         self._lock = threading.RLock()
-        self._slot = threading.Semaphore(1)
+        self._slot = threading.BoundedSemaphore(1)
         self._closed = False
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         for name in os.listdir(UPLOAD_DIR):
@@ -136,17 +136,31 @@ class VideoAnalyzer:
             if not control["thread"].is_alive():
                 self._remove(control["path"])
 
+    def _acquire_slot(self, job_id):
+        """Only the worker owns its lease; pause/cancel may change while waiting."""
+        control = self._controls[job_id]
+        while not control["cancel"].is_set():
+            with self._lock:
+                paused = control["paused"]
+                control["wake"].clear()
+            if paused:
+                control["wake"].wait(0.05)
+                continue
+            if self._slot.acquire(timeout=0.05):
+                with self._lock:
+                    if not control["paused"] and not control["cancel"].is_set():
+                        return
+                self._slot.release()
+        raise InterruptedError()
+
     def _run(self, job_id):
         control = self._controls[job_id]
         cancel = control["cancel"]
         cap = None
         acquired = False
         try:
-            while not cancel.is_set():
-                if not control["paused"] and self._slot.acquire(timeout=0.05):
-                    acquired = True
-                    break
-                cancel.wait(0.05)
+            self._acquire_slot(job_id)
+            acquired = True
             if cancel.is_set():
                 raise InterruptedError()
             cap = cv2.VideoCapture(control["path"])
@@ -164,10 +178,15 @@ class VideoAnalyzer:
             analyzed = index = 0
             deadline = time.monotonic()
             while not cancel.is_set():
-                if control["paused"]:
-                    self._update(job_id, status="paused", buffering=False)
-                    control["wake"].clear()
-                    control["wake"].wait(0.1)
+                with self._lock:
+                    paused = control["paused"]
+                    if paused:
+                        self._slot.release()
+                        acquired = False
+                        self._update(job_id, status="paused", buffering=False)
+                if paused:
+                    self._acquire_slot(job_id)
+                    acquired = True
                     deadline = time.monotonic()
                     continue
                 if not cap.grab():
@@ -217,8 +236,11 @@ class VideoAnalyzer:
                              status="paused" if control["paused"] else "processing")
                 deadline += interval
                 delay = max(0, deadline - time.monotonic())
-                control["wake"].clear()
-                control["wake"].wait(delay)
+                with self._lock:
+                    control["wake"].clear()
+                    paused = control["paused"]
+                if not paused:
+                    control["wake"].wait(delay)
                 deadline = max(deadline, time.monotonic())
             if cancel.is_set():
                 raise InterruptedError()

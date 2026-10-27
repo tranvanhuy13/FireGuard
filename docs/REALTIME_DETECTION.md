@@ -6,7 +6,7 @@ The backend uses `MODEL_PATH`, defaulting to `backend/best.pt` when started from
 
 Upload through **Analyze Video → Upload and play**. Select 5, 10, or 15 detection updates per second. The player displays analyzed JPEG frames with matching boxes, confidence, and video timestamps. Play/pause, restart from the beginning, stop, and evidence images are supported. Preview is a silent analyzed-frame stream, not an audio player; it does not support arbitrary seeking. Camera inference gets priority. When inference is slower than the selected cadence, playback slows and shows buffering instead of attaching late boxes to unrelated frames.
 
-- `POST /video-analysis`: multipart `file`, `sample_fps` (1–15, default 5). Returns `{ "job_id": "..." }`.
+- `POST /video-analysis`: multipart `file`, `sample_fps` (1–15, default 5). Returns `{ "job_id": "..." }`. HTTP Basic credentials are verified before the multipart body is read or spooled. Both verified, unblocked `user` and `admin` accounts may upload; rejected credentials return 401 and blocked/unverified accounts return 403. Empty/unsupported uploads return 400 and files over 500 MB return 413; failed uploads are removed.
 - `GET /video-analysis` and `GET /video-analysis/{job_id}`: metadata and summaries, without image payloads.
 - `POST /video-analysis/{job_id}/playback`: `{ "action": "pause" | "resume" | "restart" }`. Returns a job ID. Restart creates a fresh run using the retained upload and returns its new ID.
 - `POST /video-analysis/{job_id}/cancel`: stop the active or queued analysis.
@@ -14,7 +14,7 @@ Upload through **Analyze Video → Upload and play**. Select 5, 10, or 15 detect
 
 States are `queued`, `processing`, `paused`, `done`, `error`, and `cancelled`. Reconnecting immediately receives the latest state and image. Missing/evicted jobs close the socket with code 1008. Closing the modal pauses its job; reopening permits resume. Upload errors and corrupt/empty videos produce explicit errors.
 
-One video is processed at a time, including while paused. Queued jobs can be cancelled immediately. At most 20 jobs are retained; the oldest completed job is evicted as needed. Upload sources are retained for restart until their final referencing job is evicted or the server shuts down; startup removes leftover temporary uploads. Each video keeps at most 24 evidence snapshots and one preview frame. Uploaded-video results do not create camera alarm events or send notifications.
+One video actively holds the processing slot at a time. Pausing lets any in-flight frame finish, then releases the slot so another queued video can run. A paused job retains its decoder position, latest preview and analysis state. Resume sets it to `queued` until the slot is available, then continues from its next frame with playback timing reset. Paused and queued jobs can be cancelled immediately; cancelling/shutdown does not require resuming a paused job. At most 20 jobs are retained; the oldest completed job is evicted as needed. Upload sources are retained for restart until their final referencing job is evicted or the server shuts down; startup removes leftover temporary uploads. Each video keeps at most 24 evidence snapshots and one preview frame. Uploaded-video results do not create camera alarm events or send notifications.
 
 ## Cameras and settings
 

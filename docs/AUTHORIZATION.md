@@ -15,7 +15,7 @@ The backend is the authority for account roles. Frontend controls are only a use
 
 ## HTTP and media credentials
 
-Operational HTTP routes require HTTP Basic credentials in `Authorization`. Missing or incorrect credentials return 401. Unverified or blocked accounts and insufficient permissions return 403. `/auth/login` and `/users/me` return the persisted `role` (`user` or `admin`).
+Operational HTTP routes require HTTP Basic credentials in `Authorization`. `POST /video-analysis` uses a dedicated upload route that verifies credentials before FastAPI reads/parses the multipart body; its endpoint reuses that verified identity without checking the password a second time. Missing or incorrect credentials return 401. Unverified or blocked accounts and insufficient permissions return 403. `/auth/login` and `/users/me` return the persisted `role` (`user` or `admin`).
 
 The health endpoint `/`, generated API documentation, signup, account OTP and password recovery remain public. Successful OTP verification is required before using operational features. Blocking is stored separately from verification, so account verification/password recovery cannot unblock an account.
 
