@@ -6,7 +6,7 @@ export interface User {
   username: string;
   fullName: string;
   email: string;
-  role: "admin" | "viewer";
+  role: "admin" | "user";
   is_active?: boolean;
 }
 
@@ -24,7 +24,7 @@ export const api = {
               // Seed default users
               users = [
                 { id: "1", username: "admin", email: "admin@fireguard.ai", password: "admin123", fullName: "Admin User", role: "admin" },
-                { id: "2", username: "viewer", email: "viewer@fireguard.ai", password: "viewer123", fullName: "Viewer User", role: "viewer" }
+                { id: "2", username: "user", email: "user@fireguard.ai", password: "user123", fullName: "Standard User", role: "user" }
               ];
               localStorage.setItem('mockUsers', JSON.stringify(users));
             }
@@ -36,7 +36,7 @@ export const api = {
             );
 
             if (user) {
-              const normalizedRole: "admin" | "viewer" = user.role === "admin" ? "admin" : "viewer";
+              const normalizedRole: "admin" | "user" = user.role === "admin" ? "admin" : "user";
               const userProfile: User = { id: user.id, username: user.username, fullName: user.fullName, email: user.email, role: normalizedRole, is_active: true };
               localStorage.setItem('mockRole', normalizedRole);
               localStorage.setItem('mockUsername', user.username);
@@ -75,7 +75,7 @@ export const api = {
         username: res.username,
         fullName: res.username,
         email: res.email,
-        role: "viewer", // Real backend has no roles, default to viewer
+        role: "user", // Real backend defaults to user
         is_active: res.is_active,
       };
 
@@ -109,7 +109,7 @@ export const api = {
             } else {
               users = [
                 { id: "1", username: "admin", email: "admin@fireguard.ai", password: "admin123", fullName: "Admin User", role: "admin" },
-                { id: "2", username: "viewer", email: "viewer@fireguard.ai", password: "viewer123", fullName: "Viewer User", role: "viewer" }
+                { id: "2", username: "user", email: "user@fireguard.ai", password: "user123", fullName: "Standard User", role: "user" }
               ];
             }
 
@@ -123,7 +123,7 @@ export const api = {
                 email: data.email,
                 password: data.password,
                 fullName: data.username,
-                role: "viewer"
+                role: "user"
               };
               users.push(newUser);
               localStorage.setItem('mockUsers', JSON.stringify(users));
@@ -198,7 +198,7 @@ export const api = {
                   username: u.username,
                   fullName: u.fullName || u.username,
                   email: u.email,
-                  role: u.role === "admin" ? "admin" : "viewer",
+                  role: u.role === "admin" ? "admin" : "user",
                   is_active: true,
                 },
               });
@@ -221,7 +221,7 @@ export const api = {
       username: res.username,
       fullName: res.username,
       email: res.email,
-      role: res.role === "admin" ? "admin" : "viewer",
+      role: res.role === "admin" ? "admin" : "user",
       is_active: res.is_active,
     };
 

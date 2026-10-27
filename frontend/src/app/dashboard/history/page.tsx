@@ -201,7 +201,7 @@ export default function HistoryPage() {
               </div>
               <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => setSelectedAlert(null)}>{t.pages.common.cancel}</Button>
-                {user?.role !== 'viewer' && selectedAlert.status === 'new' && (
+                {(user?.role === 'admin' || user?.role === 'user') && selectedAlert.status === 'new' && (
                   <>
                     <Button variant="secondary" onClick={() => handleUpdateStatus('false_alarm')}>{t.pages.history.falseAlarm}</Button>
                     <Button variant="danger" onClick={() => handleUpdateStatus('confirmed')}>{t.pages.history.confirm}</Button>

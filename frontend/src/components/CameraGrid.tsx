@@ -41,7 +41,7 @@ const CameraGrid = () => {
 
   const canManage = user?.role === "admin";
   const canToggle = !!user;
-  const canAnalyze = user?.role === "admin" || user?.role === "viewer";
+  const canAnalyze = user?.role === "admin" || user?.role === "user";
 
   const fetchCameras = async () => {
     try {
