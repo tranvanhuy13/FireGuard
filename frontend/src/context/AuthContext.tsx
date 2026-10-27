@@ -22,7 +22,7 @@ const normalizeUser = (u: unknown): User | null => {
   const userObj = u as User;
   return {
     ...userObj,
-    role: userObj.role === 'admin' ? 'admin' : 'viewer',
+    role: userObj.role === 'admin' ? 'admin' : 'user',
   };
 };
 
@@ -131,7 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!user) return false;
     if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
     if (user.role === 'admin') return true;
-    if (user.role === 'viewer') {
+    if (user.role === 'user') {
       const adminOnly = ['manage_users', 'manage_settings', 'add_camera', 'edit_camera', 'delete_camera', 'audit_log'];
       return !adminOnly.includes(permission);
     }

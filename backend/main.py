@@ -33,6 +33,7 @@ import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 from typing import Literal
 
@@ -44,6 +45,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 
+BACKEND_DIR = Path(__file__).resolve().parent
+# Shell/hosting variables win, then local overrides, then the shared .env.
+load_dotenv(BACKEND_DIR / ".env.local")
 load_dotenv()
 logging.basicConfig(
     level=logging.INFO,
@@ -111,7 +115,8 @@ app.add_middleware(
 database.init_db()
 
 # The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
-MODEL_PATH = os.getenv("MODEL_PATH") or "best.pt"
+_model_path = Path(os.getenv("MODEL_PATH") or "best.pt")
+MODEL_PATH = str(_model_path if _model_path.is_absolute() else BACKEND_DIR / _model_path)
 storage.ensure_model(MODEL_PATH)
 storage.start_sync()
 detector = FireDetector(MODEL_PATH)

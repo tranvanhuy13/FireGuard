@@ -167,7 +167,7 @@ export default function ProfilePage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.pages?.profile?.role || 'Vai trò'}</label>
               <div className="w-full border rounded-lg p-2 bg-gray-50 flex items-center">
                 <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded capitalize">
-                  {user?.role === 'admin' ? (t.pages?.profile?.adminRole || 'Quản trị viên') : user?.role}
+                  {user?.role === 'admin' ? (t.pages?.profile?.adminRole || 'Quản trị viên') : (t.dashboard?.roleUser || 'Người dùng')}
                 </span>
               </div>
             </div>

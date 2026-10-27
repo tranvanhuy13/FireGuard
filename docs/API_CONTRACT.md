@@ -214,7 +214,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Path:** `/cameras/{camera_id}/toggle?active=true` (hoặc `active=false`)
 - **Auth:** Basic Auth
 - **Phân quyền người dùng (RBAC):**
-  - **Mọi vai trò** (`admin`, `operator`, `viewer`) sau khi đăng nhập đều có quyền thấy và sử dụng công tắc bật/tắt camera trên cả Dashboard (`CameraGrid`, `VideoFeed`) và trang Quản lý Camera (`/dashboard/cameras`).
+  - **Mọi vai trò** (`admin`, `user`) sau khi đăng nhập đều có quyền thấy và sử dụng công tắc bật/tắt camera trên cả Dashboard (`CameraGrid`, `VideoFeed`) và trang Quản lý Camera (`/dashboard/cameras`).
 - **Hành vi phía Frontend:**
   - **Xác nhận khi tắt:** Khi người dùng chuyển công tắc camera từ BẬT sang TẮT, Frontend bắt buộc hiển thị hộp thoại xác nhận: *"Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?"*. Khi bật lại camera, hệ thống thực hiện ngay và không yêu cầu xác nhận.
   - **Xử lý lỗi và hoàn tác trạng thái (Rollback on Error):** Gọi `POST /cameras/{id}/toggle?active=...`. Nếu xảy ra lỗi `401` (hết phiên), `403` (không có quyền) hoặc lỗi mất kết nối mạng, Frontend hiển thị thông báo tiếng Việt tương ứng và **lập tức gạt công tắc về lại đúng trạng thái thực tế ban đầu** của camera, ngăn chặn hoàn toàn việc giao diện bị lệch so với dữ liệu backend.
@@ -224,20 +224,20 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 
 ### 1.4. Bảng Ma Trận Phân Quyền (RBAC Matrix)
 
-Bảng đối chiếu quyền hạn chi tiết giữa 3 vai trò người dùng trong hệ thống FireGuard:
+Bảng đối chiếu quyền hạn chi tiết giữa 2 vai trò người dùng trong hệ thống FireGuard (vai trò `operator` và `viewer` cũ đã được gộp thành `user`):
 
-| Tính năng / Hành động | Viewer (Người xem) | Operator (Điều hành viên) | Admin (Quản trị viên) | Quy tắc nghiệp vụ |
-| :--- | :---: | :---: | :---: | :--- |
-| **Bật / Tắt camera (Toggle ON/OFF)** | ✅ | ✅ | ✅ | **Mọi vai trò đã đăng nhập đều dùng được**, hỏi xác nhận khi TẮT, tự động hoàn tác khi lỗi |
-| **Xem Camera & Live Stream** | ✅ | ✅ | ✅ | Xem luồng MJPEG thời gian thực |
-| **Thêm / Chỉnh sửa / Xóa Camera** | ❌ | ❌ | ✅ | Chỉ Admin được CRUD camera |
-| **Phân tích video tải lên (Video Analysis)** | ❌ | ✅ | ✅ | Operator và Admin được tải video lên để AI phân tích |
-| **Xác nhận / Báo động sai (Alert Review)** | ❌ | ✅ | ✅ | Chỉ Operator và Admin có quyền xử lý cảnh báo sự cố |
-| **Xem lịch sử & sự kiện cảnh báo** | ✅ | ✅ | ✅ | Tất cả vai trò đều xem được lịch sử sự kiện |
-| **Quản lý thông báo cá nhân/nhóm** | ✅ | ✅ | ✅ | Cấu hình tài khoản, nhóm và quy tắc nhận cảnh báo |
-| **Cài đặt hệ thống AI (AI Settings)** | ❌ | ❌ | ✅ | Chỉ Admin được chỉnh ngưỡng phát hiện cháy/khói |
-| **Quản lý danh sách người dùng** | ❌ | ❌ | ✅ | Chỉ Admin được xem, phân quyền và khóa tài khoản |
-| **Nhật ký thao tác hệ thống (Audit Logs)** | ❌ | ❌ | ✅ | Chỉ Admin được truy cập nhật ký bảo mật |
+| Tính năng / Hành động | User (Người dùng) | Admin (Quản trị viên) | Quy tắc nghiệp vụ |
+| :--- | :---: | :---: | :--- |
+| **Bật / Tắt camera (Toggle ON/OFF)** | ✅ | ✅ | **Mọi vai trò đã đăng nhập đều dùng được**, hỏi xác nhận khi TẮT, tự động hoàn tác khi lỗi |
+| **Xem Camera & Live Stream** | ✅ | ✅ | Xem luồng MJPEG thời gian thực |
+| **Thêm / Chỉnh sửa / Xóa Camera** | ❌ | ✅ | Chỉ Admin được CRUD camera |
+| **Phân tích video tải lên (Video Analysis)** | ✅ | ✅ | User và Admin được tải video lên để AI phân tích |
+| **Xác nhận / Báo động sai (Alert Review)** | ✅ | ✅ | User và Admin có quyền xử lý cảnh báo sự cố |
+| **Xem lịch sử & sự kiện cảnh báo** | ✅ | ✅ | Tất cả vai trò đều xem được lịch sử sự kiện |
+| **Quản lý thông báo cá nhân/nhóm** | ✅ | ✅ | Cấu hình tài khoản, nhóm và quy tắc nhận cảnh báo |
+| **Cài đặt hệ thống AI (AI Settings)** | ❌ | ✅ | Chỉ Admin được chỉnh ngưỡng phát hiện cháy/khói |
+| **Quản lý danh sách người dùng** | ❌ | ✅ | Chỉ Admin được xem, phân quyền và khóa tài khoản |
+| **Nhật ký thao tác hệ thống (Audit Logs)** | ❌ | ✅ | Chỉ Admin được truy cập nhật ký bảo mật |
 
 ---
 
@@ -354,9 +354,9 @@ Bảng đối chiếu quyền hạn chi tiết giữa 3 vai trò người dùng 
 Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng chế độ API thật (`NEXT_PUBLIC_USE_MOCK_AUTH=false` và `NEXT_PUBLIC_USE_MOCK_DATA=false`), frontend hiển thị thông báo **"Tính năng chưa được kích hoạt trên máy chủ"** thay vì giả lập thành công:
 
 ### 2.1. Phân Quyền & Vai Trò Người Dùng (RBAC Role Field)
-- **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"viewer"` (không giả lập quyền cao).
+- **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"user"` (không giả lập quyền cao).
 - **Cần Backend bổ sung:**
-  - Cột `role` (`"admin"` | `"viewer"`) trong database `users` (vai trò `operator` đã được loại bỏ trên frontend và gộp quyền vào `viewer`; nếu backend trả về `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `viewer`).
+  - Cột `role` (`"admin"` | `"user"`) trong database `users` (vai trò `operator`/`viewer` cũ đã được gộp và đổi tên thành `user`; nếu backend trả về `viewer`, `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `user`).
   - Trả về trường `role` trong response của `GET /auth/login` và `GET /users/me`.
 
 ### 2.2. Quản Lý Danh Sách Người Dùng (Users Management)

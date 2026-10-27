@@ -77,11 +77,11 @@ export default function DashboardLayout({
   }
 
   const navItems = [
-    { name: t.dashboard.dashboard, href: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" />, roles: ['viewer', 'admin'] },
-    { name: t.dashboard.cameras, href: '/dashboard/cameras', icon: <Camera className="w-5 h-5" />, roles: ['viewer', 'admin'] },
-    { name: t.dashboard.history || t.history.title, href: '/dashboard/history', icon: <History className="w-5 h-5" />, roles: ['viewer', 'admin'] },
-    { name: t.dashboard.notifications, href: '/dashboard/notifications', icon: <BellRing className="w-5 h-5" />, roles: ['viewer', 'admin'] },
-    { name: t.dashboard.profile, href: '/dashboard/profile', icon: <UserCircle className="w-5 h-5" />, roles: ['viewer', 'admin'] },
+    { name: t.dashboard.dashboard, href: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" />, roles: ['user', 'admin'] },
+    { name: t.dashboard.cameras, href: '/dashboard/cameras', icon: <Camera className="w-5 h-5" />, roles: ['user', 'admin'] },
+    { name: t.dashboard.history || t.history.title, href: '/dashboard/history', icon: <History className="w-5 h-5" />, roles: ['user', 'admin'] },
+    { name: t.dashboard.notifications, href: '/dashboard/notifications', icon: <BellRing className="w-5 h-5" />, roles: ['user', 'admin'] },
+    { name: t.dashboard.profile, href: '/dashboard/profile', icon: <UserCircle className="w-5 h-5" />, roles: ['user', 'admin'] },
     { name: t.dashboard.users, href: '/dashboard/users', icon: <Users className="w-5 h-5" />, roles: ['admin'] },
     { name: t.dashboard.auditLog, href: '/dashboard/audit-log', icon: <ShieldCheck className="w-5 h-5" />, roles: ['admin'] },
     { name: t.dashboard.aiSettings, href: '/dashboard/ai-settings', icon: <Settings className="w-5 h-5" />, roles: ['admin'] },
@@ -152,7 +152,7 @@ export default function DashboardLayout({
                 value={user.role}
                 onChange={(e) => setUser({ ...user, role: e.target.value as any })}
               >
-                <option value="viewer">Viewer</option>
+                <option value="user">User</option>
 
                 <option value="admin">Admin</option>
               </select>
@@ -168,7 +168,7 @@ export default function DashboardLayout({
               <div className="text-right hidden sm:block">
                 <div className="text-sm font-semibold text-navy-900">{user.fullName}</div>
                 <div className="text-xs text-gray-500 capitalize">
-                  {user.role === 'admin' ? t.dashboard.roleAdmin : t.dashboard.roleViewer}
+                  {user.role === 'admin' ? t.dashboard.roleAdmin : t.dashboard.roleUser}
                 </div>
               </div>
               <div className="w-9 h-9 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-sm overflow-hidden shadow-sm">
