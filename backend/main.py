@@ -12,7 +12,7 @@ from typing import Literal
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import (Depends, FastAPI, File, Form, HTTPException, Query,
+from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException, Query,
                      Request, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -32,6 +32,7 @@ import database
 import notification
 import storage
 from auth.dependencies import get_current_user, require_admin
+from auth.upload import AuthenticatedUploadRoute, get_upload_user
 from auth.audit import log_action
 from auth.database import get_connection as get_auth_connection
 from auth.stream_tokens import (create_stream_token, STREAM_TOKEN_TTL_SECONDS,
@@ -296,8 +297,11 @@ def toggle_camera(camera_id: int, active: bool, current_user=Depends(get_current
 # ---------------------------------------------------------------------------
 # Video upload analysis (requires: pip install python-multipart)
 # ---------------------------------------------------------------------------
-@app.post("/video-analysis", dependencies=[Depends(get_current_user)])
-def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5), current_user=Depends(get_current_user)):
+upload_router = APIRouter(route_class=AuthenticatedUploadRoute)
+
+
+@upload_router.post("/video-analysis")
+def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5), current_user=Depends(get_upload_user)):
     """Upload a video; it is analysed in the background with the live-camera model."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
@@ -329,12 +333,20 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
 
     try:
         job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
-    except ValueError as error:
-        os.remove(tmp_path)
-        raise HTTPException(status_code=429, detail=str(error)) from error
+    except Exception as error:
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
+        if isinstance(error, ValueError):
+            raise HTTPException(status_code=429, detail=str(error)) from error
+        raise
     log_action(current_user, "video.analyze", f"job:{job_id}")
     logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
     return {"job_id": job_id}
+
+
+app.include_router(upload_router)
 
 
 @app.get("/video-analysis", dependencies=[Depends(get_current_user)])
