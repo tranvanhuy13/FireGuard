@@ -50,9 +50,23 @@ def get_current_user(db = Depends(get_db), credentials: HTTPBasicCredentials = D
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Basic"},
         )
+    validate_account(user)
+    return user
+
+
+def validate_account(user):
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Account blocked")
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account not verified",
         )
-    return user
+    if user.role not in ("user", "admin"):
+        raise HTTPException(status_code=403, detail="Invalid account role")
+
+
+def require_admin(current_user=Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin permission required")
+    return current_user

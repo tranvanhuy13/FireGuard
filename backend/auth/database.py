@@ -30,5 +30,9 @@ def init_db():
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
     if "otp_attempts" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN otp_attempts INTEGER DEFAULT 0")
+    if "role" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin'))")
+    if "is_blocked" not in columns:
+        conn.execute("ALTER TABLE users ADD COLUMN is_blocked BOOLEAN NOT NULL DEFAULT 0")
     conn.commit()
     conn.close()

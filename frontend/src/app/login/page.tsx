@@ -110,7 +110,9 @@ function LoginFormContent() {
       const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
       router.replace(safeRedirect);
     } catch (err: any) {
-      if (err.status === 403 || err.message === "accountNotVerified") {
+      if (err.message === "accountBlocked") {
+        setError(t.auth.errors.accountBlocked);
+      } else if (err.message === "accountNotVerified") {
         setError(t.auth.errors.accountNotVerified);
         setTimeout(() => {
           router.push(`/verify-otp?target=${encodeURIComponent(data.identifier.trim())}`);

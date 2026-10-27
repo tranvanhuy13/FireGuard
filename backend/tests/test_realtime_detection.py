@@ -101,7 +101,7 @@ class SchedulerTests(unittest.TestCase):
 
 class SettingsTests(unittest.TestCase):
     def setUp(self):
-        from fastapi import FastAPI, HTTPException
+        from fastapi import FastAPI, HTTPException, Depends
         from pydantic import BaseModel
         import math
         self.values = {"ai_confidence_threshold": "0.25"}
@@ -113,12 +113,13 @@ class SettingsTests(unittest.TestCase):
         tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8-sig"))
         routes = ast.Module(body=[node for node in tree.body if getattr(node, "name", None) in names], type_ignores=[])
         self.namespace = dict(app=FastAPI(), HTTPException=HTTPException, BaseModel=BaseModel,
-                              math=math, database=database, read_settings=read_settings)
+                              math=math, database=database, read_settings=read_settings,
+                              Depends=Depends, get_current_user=lambda: None)
         exec(compile(routes, str(ROOT / "main.py"), "exec"), self.namespace)
 
     def test_ui_settings_expose_effective_values_and_update_rules(self):
-        self.assertEqual(float(self.namespace["get_settings"]()["settings"]["smoke_threshold"]), 25)
-        self.namespace["save_setting"](self.namespace["SettingsModel"](key="smoke_threshold", value="80"))
+        self.assertEqual(float(self.namespace["get_settings"](Mock(role="admin"))["settings"]["smoke_threshold"]), 25)
+        self.namespace["save_setting"](self.namespace["SettingsModel"](key="smoke_threshold", value="80"), Mock(role="admin"))
         settings = read_settings(lambda key, default: self.values.get(key, default))
         self.assertEqual(settings["smoke"], 0.8)
         self.assertEqual(settings["fire"], 0.25)
@@ -129,7 +130,7 @@ class SettingsTests(unittest.TestCase):
         for key, value in [("smoke_threshold", "nan"), ("fire_threshold", "101"),
                            ("persistence", "0"), ("persistence", "1.5"), ("cooldown", "-1")]:
             with self.subTest(key=key, value=value), self.assertRaises(HTTPException) as error:
-                self.namespace["save_setting"](self.namespace["SettingsModel"](key=key, value=value))
+                self.namespace["save_setting"](self.namespace["SettingsModel"](key=key, value=value), Mock(role="admin"))
             self.assertEqual(error.exception.status_code, 400)
         self.namespace["database"].set_setting.assert_not_called()
 
@@ -241,7 +242,7 @@ class PlaybackTests(unittest.TestCase):
         self.assertEqual(os.listdir(self.tmp.name), [])
 
     def test_http_and_websocket_playback_contract(self):
-        from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+        from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
         from pydantic import BaseModel, ValidationError
         from typing import Literal
         from unittest.mock import AsyncMock
@@ -253,7 +254,9 @@ class PlaybackTests(unittest.TestCase):
         routes = ast.Module(body=[node for node in tree.body if getattr(node, "name", None) in names], type_ignores=[])
         namespace = dict(app=FastAPI(), WebSocket=WebSocket, WebSocketDisconnect=WebSocketDisconnect,
                          HTTPException=HTTPException, BaseModel=BaseModel, Literal=Literal,
-                         asyncio=asyncio, video_analyzer=self.analyzer)
+                         asyncio=asyncio, video_analyzer=self.analyzer, time=time,
+                         Depends=Depends, get_current_user=lambda: None,
+                         authorize_websocket=AsyncMock(return_value=True))
         exec(compile(routes, str(ROOT / "main.py"), "exec"), namespace)
         job_id = self.submit(20)
         self.assertEqual(namespace["get_video_analysis"](job_id)["id"], job_id)

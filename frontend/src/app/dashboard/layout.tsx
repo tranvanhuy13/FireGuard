@@ -25,7 +25,7 @@ import { Logo } from '@/components/Logo';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { Button } from '@/components/ui/Button';
-import { isMockData } from '@/lib/api/client';
+import { isMockData, isMockAuth } from '@/lib/api/client';
 import { setupMockService } from '@/lib/api/mockService';
 
 export default function DashboardLayout({
@@ -146,7 +146,7 @@ export default function DashboardLayout({
               {language}
             </button>
 
-            {isMockData && (
+            {isMockData && isMockAuth && (
               <select
                 className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700"
                 value={user.role}

@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import { getAuthHeader, mediaUrl } from "../lib/api/client";
 import { API_URL, WS_URL } from "../config";
 
 interface Detection { class: string; confidence: number; bbox: number[] }
@@ -18,6 +20,7 @@ const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().p
 const button = "px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-40 text-sm";
 
 export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const { streamToken, refreshStreamToken } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [sampleFps, setSampleFps] = useState("10");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -69,14 +72,14 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
 
   const jobId = job?.id;
   useEffect(() => {
-    if (!isOpen || !jobId) return;
+    if (!isOpen || !jobId || !streamToken) return;
     const generation = generationRef.current;
     let disposed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let socket: WebSocket | null = null;
     const connect = () => {
       setConnected(false);
-      socket = new WebSocket(`${WS_URL}/ws/video-analysis/${jobId}`);
+      socket = new WebSocket(`${WS_URL}/ws/video-analysis/${jobId}?token=${encodeURIComponent(streamToken)}`);
       socketRef.current = socket;
       socket.onopen = () => { if (!disposed && generation === generationRef.current) { setConnected(true); setError(null); } };
       socket.onmessage = (event) => {
@@ -93,7 +96,11 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
       socket.onclose = (event) => {
         if (disposed || generation !== generationRef.current) return;
         setConnected(false);
-        if (event.code === 1008) { setError("This video has expired. Upload it again."); return; }
+        if (event.code === 1008) {
+          if (event.reason === "Authentication required") void refreshStreamToken();
+          setError("Playback unavailable. Check your session or upload the video again.");
+          return;
+        }
         if (!terminal(jobRef.current?.status)) {
           setError("Playback disconnected. Reconnecting...");
           retry = setTimeout(connect, 1500);
@@ -103,7 +110,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
     };
     connect();
     return () => { disposed = true; clearTimeout(retry); socket?.close(); };
-  }, [isOpen, jobId]);
+  }, [isOpen, jobId, streamToken, refreshStreamToken]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -131,6 +138,8 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
     xhr.open("POST", `${API_URL}/video-analysis`);
+    const authHeader = getAuthHeader();
+    if (authHeader) xhr.setRequestHeader("Authorization", authHeader);
     xhr.upload.onprogress = (event) => { if (event.lengthComputable) setUploadPct(Math.round(event.loaded / event.total * 100)); };
     xhr.onload = () => {
       xhrRef.current = null;
@@ -232,7 +241,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
             </div>}
             {events.length > 0 && <div><h3 className="text-sm mb-2">Detection timeline — select an event to view its evidence</h3>
               <div className="flex gap-3 overflow-x-auto pb-2">{events.map((event, index) => <button key={index} onClick={() => setLightbox(event)} className="shrink-0 w-36 text-left rounded-lg overflow-hidden border border-white/15">
-                <img src={`${API_URL}${event.snapshot}`} alt={`${event.class} evidence`} className="w-full h-20 object-cover" />
+                <img src={mediaUrl(event.snapshot, streamToken)} alt={`${event.class} evidence`} className="w-full h-20 object-cover" />
                 <span className="block p-2 text-xs">{formatTime(event.time)} · {event.class} {(event.confidence * 100).toFixed(0)}%</span>
               </button>)}</div>
             </div>}
@@ -243,7 +252,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
         </footer>
       </section>
       {lightbox && <button className="fixed inset-0 z-[60] bg-black/95 p-6 flex flex-col items-center justify-center" onClick={() => setLightbox(null)} aria-label="Close evidence image">
-        <img src={`${API_URL}${lightbox.snapshot}`} alt={`${lightbox.class} at ${formatTime(lightbox.time)}`} className="max-w-full max-h-[80vh] object-contain" />
+        <img src={mediaUrl(lightbox.snapshot, streamToken)} alt={`${lightbox.class} at ${formatTime(lightbox.time)}`} className="max-w-full max-h-[80vh] object-contain" />
         <span className="text-white mt-3">{formatTime(lightbox.time)} · {lightbox.class} · click to close</span>
       </button>}
     </div>

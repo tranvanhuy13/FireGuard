@@ -142,6 +142,7 @@ export const vi = {
       passwordNoSpecialChars: "Mật khẩu không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
       emailGmailOnly: "Vui lòng sử dụng địa chỉ Gmail hợp lệ (@gmail.com)",
       accountNotVerified: "Tài khoản chưa được kích hoạt OTP. Vui lòng xác thực tài khoản.",
+      accountBlocked: "Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.",
       featureNotImplemented: "Tính năng chưa được kích hoạt trên máy chủ",
       forgotNotImplemented: "Tính năng quên mật khẩu chưa được kích hoạt trên máy chủ",
       resendWait: "Vui lòng đợi {seconds} giây trước khi yêu cầu mã mới.",

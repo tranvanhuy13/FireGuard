@@ -43,7 +43,10 @@ def send_zalo(message, snapshot_path=None):
             return False
 
         if snapshot_path and public_base_url and os.path.exists(snapshot_path):
-            photo_url = f"{public_base_url.rstrip('/')}/snapshots/{quote(os.path.basename(snapshot_path))}"
+            from auth.stream_tokens import create_snapshot_token
+            name = os.path.basename(snapshot_path)
+            credential = quote(create_snapshot_token(name), safe="")
+            photo_url = f"{public_base_url.rstrip('/')}/snapshots/{quote(name)}?token={credential}"
             ok, error = _zalo_call(bot_token, "sendPhoto",
                                    {"chat_id": chat_id, "photo": photo_url, "caption": message})
             if ok:

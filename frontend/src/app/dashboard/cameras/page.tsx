@@ -11,7 +11,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function CamerasPage() {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const canManageCameras = can("add_camera");
   const [cameras, setCameras] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -149,7 +150,7 @@ export default function CamerasPage() {
             <button onClick={() => setViewMode('grid')} className={`px-3 py-1 text-sm rounded ${viewMode==='grid'?'bg-white shadow':''}`}>Grid</button>
             <button onClick={() => setViewMode('table')} className={`px-3 py-1 text-sm rounded ${viewMode==='table'?'bg-white shadow':''}`}>Table</button>
           </div>
-          {user?.role === 'admin' && (
+          {canManageCameras && (
             <Button onClick={() => { setEditingCamera(null); setFormData({ name: '', source: '0', is_active: false }); setTestResult(null); setShowAddModal(true); }}>
               {t.pages.cameras.addCamera}
             </Button>
@@ -183,7 +184,7 @@ export default function CamerasPage() {
                       {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
                     </Button>
                   )}
-                  {user?.role === 'admin' && (
+                  {canManageCameras && (
                     <>
                       <Button size="sm" variant="outline" className="flex-1 min-w-[60px]" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
                       <Button size="sm" variant="danger" className="flex-1 min-w-[60px]" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>
@@ -217,7 +218,7 @@ export default function CamerasPage() {
                         <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)}>
                           {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
                         </Button>
-                        {user?.role === 'admin' && (
+                        {canManageCameras && (
                           <>
                             <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
                             <Button size="sm" variant="danger" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>

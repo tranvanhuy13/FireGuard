@@ -1,6 +1,8 @@
 /* eslint-disable */
 "use client";
+import { mediaUrl } from "@/lib/api/client";
 
+import { useAuth } from "@/context/AuthContext";
 import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { API_URL } from '../config';
@@ -19,6 +21,7 @@ interface HistoryModalProps {
 }
 
 const HistoryModal = ({ isOpen, onClose }: HistoryModalProps) => {
+  const { streamToken } = useAuth();
   const { t } = useLanguage();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
@@ -165,7 +168,7 @@ const HistoryModal = ({ isOpen, onClose }: HistoryModalProps) => {
                 <div className="space-y-4 w-full">
                   <div className="rounded-lg overflow-hidden border border-gray-200 shadow-sm bg-gray-50">
                     <img 
-                      src={`${selectedSnapshot.startsWith('http') ? selectedSnapshot : API_URL + selectedSnapshot}`} 
+                      src={mediaUrl(selectedSnapshot, streamToken)}
                       alt="Preview" 
                       className="w-full h-auto object-cover"
                     />
