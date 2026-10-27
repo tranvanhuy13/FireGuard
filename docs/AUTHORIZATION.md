@@ -45,6 +45,6 @@ Admins can use the real frontend Users page or these HTTP Basic endpoints:
 
 ## Scope and verification
 
-This implements authorization for all existing backend operations and real account administration. The separate frontend mock notification accounts/groups/rules and audit-log screens do not yet have corresponding backend APIs. This change does not introduce those feature APIs or a persistent alert-status API.
+This implements authorization for all existing backend operations and real account administration. The separate frontend mock notification accounts/groups/rules do not yet have corresponding backend APIs. The existing branch's `PATCH /alerts/{id}/status` and `GET /audit-log` APIs are preserved, with `user`/`admin` permissions replacing legacy viewer/operator roles. `PUT /alerts/{id}` and `PUT /users/{id}/role` remain supported for compatibility. The audit-log frontend screen still uses its existing mock integration.
 
 For authorization changes, verify anonymous rejection, role boundaries, account blocking, media expiry/revocation and legacy migration using disposable accounts and fake camera/storage/video services. Both roles must be able to add, edit and delete cameras; system configuration and user administration remain admin-only. Run the existing offline suites from `backend/`: `python -m unittest discover -s tests -p test_camera_lifecycle.py` and `python -m unittest discover -s tests -p test_realtime_detection.py`.

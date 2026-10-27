@@ -34,5 +34,11 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin'))")
     if "is_blocked" not in columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_blocked BOOLEAN NOT NULL DEFAULT 0")
+    # Earlier authorization branches used viewer/operator; both now map to user.
+    conn.execute("UPDATE users SET role='user' WHERE role IN ('viewer', 'operator')")
+    conn.execute("""CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL,
+        username TEXT NOT NULL, role TEXT NOT NULL, action TEXT NOT NULL,
+        target TEXT, detail TEXT)""")
     conn.commit()
     conn.close()

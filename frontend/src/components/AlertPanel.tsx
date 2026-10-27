@@ -87,8 +87,14 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
     return localStatuses[key] || alert.status || "new";
   };
 
-  const updateStatus = (alert: Alert, status: string, e?: React.MouseEvent) => {
+  const updateStatus = async (alert: Alert, status: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    if (alert.id) {
+      const response = await fetch(`${API_URL}/alerts/${alert.id}/status`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
+      }).catch(() => null);
+      if (!response?.ok) return;
+    }
     const key = alert.id ? alert.id.toString() : alert.timestamp;
     setLocalStatuses(prev => ({ ...prev, [key]: status }));
   };

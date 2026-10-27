@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 import database
 import notification
 import storage
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, require_admin
+from auth.audit import log_action
+from auth.database import get_connection as get_auth_connection
 from auth.stream_tokens import (create_stream_token, STREAM_TOKEN_TTL_SECONDS,
                                 require_stream_user, require_snapshot_user,
                                 authorize_websocket, stream_is_authorized)
@@ -258,31 +260,35 @@ def get_cameras():
 
 
 @app.post("/cameras", dependencies=[Depends(get_current_user)])
-def add_new_camera(cam: CameraModel):
+def add_new_camera(cam: CameraModel, current_user=Depends(get_current_user)):
     """Add a new camera."""
     new_id = camera_manager.add_camera("0", cam.name, cam.is_active)
+    log_action(current_user, "camera.add", f"camera:{new_id}", cam.name)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
 @app.delete("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def delete_camera(camera_id: int):
+def delete_camera(camera_id: int, current_user=Depends(get_current_user)):
     """Remove a camera."""
     if camera_manager.remove_camera(camera_id):
+        log_action(current_user, "camera.delete", f"camera:{camera_id}")
         return {"status": "ok", "message": "Camera removed"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
 @app.put("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def update_camera(camera_id: int, cam: CameraModel):
+def update_camera(camera_id: int, cam: CameraModel, current_user=Depends(get_current_user)):
     if camera_manager.update_camera(camera_id, cam.name, cam.is_active):
+        log_action(current_user, "camera.update", f"camera:{camera_id}")
         return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
 @app.post("/cameras/{camera_id}/toggle", dependencies=[Depends(get_current_user)])
-def toggle_camera(camera_id: int, active: bool):
+def toggle_camera(camera_id: int, active: bool, current_user=Depends(get_current_user)):
     """Enable or disable a camera."""
     if camera_manager.toggle_camera(camera_id, active):
+        log_action(current_user, "camera.toggle", f"camera:{camera_id}", "on" if active else "off")
         return {"status": "ok", "message": f"Camera {'enabled' if active else 'disabled'}"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
@@ -291,7 +297,7 @@ def toggle_camera(camera_id: int, active: bool):
 # Video upload analysis (requires: pip install python-multipart)
 # ---------------------------------------------------------------------------
 @app.post("/video-analysis", dependencies=[Depends(get_current_user)])
-def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5)):
+def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5), current_user=Depends(get_current_user)):
     """Upload a video; it is analysed in the background with the live-camera model."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
@@ -326,6 +332,7 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
     except ValueError as error:
         os.remove(tmp_path)
         raise HTTPException(status_code=429, detail=str(error)) from error
+    log_action(current_user, "video.analyze", f"job:{job_id}")
     logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
     return {"job_id": job_id}
 
@@ -434,6 +441,8 @@ def get_alerts():
             "type": event["type"],
             "confidence": event["confidence"],
             "snapshot": event["snapshot_path"],
+            "status": event.get("status", "new"),
+            "handled_by": event.get("handled_by"),
         })
     return {"alerts": formatted_alerts}
 
@@ -498,13 +507,15 @@ def save_setting(setting: SettingsModel, current_user=Depends(get_current_user))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid value for {setting.key}") from error
     database.set_setting(setting.key, setting.value)
+    log_action(current_user, "setting.update", setting.key)
     return {"status": "ok", "message": "Setting saved"}
 
 
 @app.post("/test-notification", dependencies=[Depends(get_current_user)])
-def test_notification():
+def test_notification(current_user=Depends(get_current_user)):
     """Trigger a test notification."""
     notification.trigger_notifications("TEST EVENT", 0.99, None)
+    log_action(current_user, "notification.test")
     return {"status": "ok", "message": "Test notification triggered"}
 
 
@@ -529,6 +540,30 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
         pass
     finally:
         manager.disconnect(websocket)
+
+
+class AlertStatusModel(BaseModel):
+    status: Literal["confirmed", "false_alarm"]
+
+
+@app.patch("/alerts/{event_id}/status")
+@app.put("/alerts/{event_id}")
+def set_alert_status(event_id: int, body: AlertStatusModel, current_user=Depends(get_current_user)):
+    if not database.update_event_status(event_id, body.status, current_user.username):
+        raise HTTPException(status_code=404, detail="Alert not found")
+    log_action(current_user, "alert.status", f"alert:{event_id}", body.status)
+    return {"status": "ok"}
+
+
+@app.get("/audit-log", dependencies=[Depends(require_admin)])
+def get_audit_log(limit: int = 200, offset: int = 0):
+    conn = get_auth_connection()
+    try:
+        rows = conn.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+                            (max(1, min(limit, 500)), max(0, offset))).fetchall()
+        return {"logs": [dict(row) for row in rows]}
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from typing import Literal
 from auth.dependencies import get_current_user, get_db, require_admin, validate_account
+from auth.audit import log_action
 from .schemas import User
 from .models import User as UserModel
 
@@ -52,7 +53,18 @@ def update_user(user_id: int, update: UserUpdate, admin=Depends(require_admin), 
         db.execute("UPDATE users SET role=?, is_blocked=? WHERE id=?", (role, blocked, user_id))
         result = public_user(db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone())
         db.commit()
+        log_action(admin, "user.update", f"user:{target["username"]}")
         return result
     except Exception:
         db.rollback()
         raise
+
+
+class RoleUpdate(BaseModel):
+    role: Literal["user", "admin"]
+
+
+@router.put("/{user_id}/role", response_model=User)
+def set_user_role(user_id: int, body: RoleUpdate, db=Depends(get_db), admin=Depends(require_admin)):
+    """Compatibility route for clients of the earlier authorization branch."""
+    return update_user(user_id, UserUpdate(role=body.role), admin, db)

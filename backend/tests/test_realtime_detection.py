@@ -114,7 +114,7 @@ class SettingsTests(unittest.TestCase):
         routes = ast.Module(body=[node for node in tree.body if getattr(node, "name", None) in names], type_ignores=[])
         self.namespace = dict(app=FastAPI(), HTTPException=HTTPException, BaseModel=BaseModel,
                               math=math, database=database, read_settings=read_settings,
-                              Depends=Depends, get_current_user=lambda: None)
+                              Depends=Depends, get_current_user=lambda: None, log_action=Mock())
         exec(compile(routes, str(ROOT / "main.py"), "exec"), self.namespace)
 
     def test_ui_settings_expose_effective_values_and_update_rules(self):
