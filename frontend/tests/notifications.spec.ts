@@ -29,13 +29,13 @@ test.describe('Cảnh báo qua Telegram & Zalo (Notification Channels & Settings
     }
   });
 
-  test('NOTIF_03: Phân quyền: Cả Admin và Viewer đều có quyền quản lý và test thông báo', () => {
-    // Kiểm tra logic phân quyền hasRole(['admin', 'viewer']) trong notifications/page.tsx
+  test('NOTIF_03: Phân quyền: Cả Admin và User (Viewer cũ) đều có quyền quản lý và test thông báo', () => {
+    // Kiểm tra logic phân quyền hasRole(['admin', 'user']) trong notifications/page.tsx
     const hasRole = (userRole: string, allowedRoles: string[]) => allowedRoles.includes(userRole);
 
-    expect(hasRole('admin', ['admin', 'viewer'])).toBe(true);
-    expect(hasRole('viewer', ['admin', 'viewer'])).toBe(true);
-    expect(hasRole('guest', ['admin', 'viewer'])).toBe(false);
+    expect(hasRole('admin', ['admin', 'user'])).toBe(true);
+    expect(hasRole('user', ['admin', 'user'])).toBe(true);
+    expect(hasRole('guest', ['admin', 'user'])).toBe(false);
   });
 
   test('NOTIF_04: Endpoint POST /test-notification kích hoạt cảnh báo thử nghiệm thành công (200 OK)', async ({ request }) => {

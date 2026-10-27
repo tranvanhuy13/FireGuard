@@ -102,9 +102,6 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
     await expect(page.locator('button:has-text("Google")')).toHaveCount(0);
     await expect(page.locator('button:has-text("Facebook")')).toHaveCount(0);
   });
-    const u = newUser();
-
-  });
 
   test('REG_08: Chưa tích đồng ý điều khoản (Terms) -> Báo lỗi', async ({ page }) => {
     const u = newUser();
