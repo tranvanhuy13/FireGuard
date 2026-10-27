@@ -275,7 +275,7 @@ export const vi = {
     dailyEvents: "SỰ KIỆN HÀNG NGÀY",
     roleAdmin: "Quản trị viên",
 
-    roleViewer: "Người xem",
+    roleUser: "Người dùng",
     totalCameras: "TỔNG SỐ CAMERA",
     activeCameras: "CAMERA ĐANG HOẠT ĐỘNG",
     totalDetections: "TỔNG SỐ PHÁT HIỆN",
@@ -363,7 +363,7 @@ export const vi = {
     testConnection: "Kiểm tra kết nối",
     connectedStatus: "Đã kết nối",
     disconnectedStatus: "Chưa kết nối",
-    operatorViewerWarning: "Bạn chỉ có thể xem trạng thái kết nối.",
+    userWarning: "Bạn chỉ có thể xem trạng thái kết nối.",
     unsavedWarning: "Có thay đổi chưa lưu!",
     systemSettings: "Cài đặt hệ thống",
     sendTestAlert: "Gửi cảnh báo thử",

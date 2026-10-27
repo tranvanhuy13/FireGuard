@@ -275,7 +275,7 @@ export const en = {
     dailyEvents: "DAILY EVENTS",
     roleAdmin: "Admin",
 
-    roleViewer: "Viewer",
+    roleUser: "User",
     totalCameras: "TOTAL CAMERAS",
     activeCameras: "ACTIVE CAMERAS",
     totalDetections: "TOTAL DETECTIONS",
@@ -363,7 +363,7 @@ export const en = {
     testConnection: "Test Connection",
     connectedStatus: "Connected",
     disconnectedStatus: "Disconnected",
-    operatorViewerWarning: "You can only view the connection status.",
+    userWarning: "You can only view the connection status.",
     unsavedWarning: "There are unsaved changes!",
     systemSettings: "System Settings",
     sendTestAlert: "Send Test Alert",
