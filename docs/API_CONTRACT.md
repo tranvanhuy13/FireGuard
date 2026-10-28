@@ -28,7 +28,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Quy tắc kiểm tra phía Backend:**
-  - `username` và `password` không được chứa ký tự đặc biệt (chỉ chấp nhận ký tự chữ và số).
+  - `username` chỉ chứa chữ và số. Mật khẩu cho phép ký tự đặc biệt, tối thiểu 8 ký tự, tối đa 72 byte UTF-8; không tự cắt hoặc trim mật khẩu.
   - `email` bắt buộc phải là địa chỉ Gmail hợp lệ (kết thúc bằng `@gmail.com`).
   - Tài khoản mới tạo sẽ có `is_active = 0` và tự động gửi mã OTP xác thực qua email.
 - **Response thành công (HTTP 200):**
@@ -39,7 +39,8 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Mã lỗi:**
-  - `400`: `"Username and password must not contain special characters"`
+  - `400`: `"Username must not contain special characters"`
+  - `400`: `PASSWORD_TOO_LONG` (vượt 72 byte UTF-8), `PASSWORD_INVALID` (ký tự NUL).
   - `400`: `"Please use a valid Gmail address (example@gmail.com)."`
   - `400`: `"Username already registered"`
   - `400`: `"Email already registered"`
@@ -65,6 +66,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Mã lỗi:**
   - `400`: `"Invalid OTP"`
   - `400`: `"OTP has expired"`
+  - `429`: `"Too many attempts. Please request a new code."` từ lần sai thứ 5; mã cũ bị hủy và tiếp tục bị khóa đến khi cấp mã mới. Thời gian gửi được giữ lại để bảo toàn cooldown.
   - `400`: `"Account already verified"`
   - `404`: `"Account not found"`
 
@@ -97,7 +99,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Lưu ý nghiệp vụ:**
   - Backend đã hỗ trợ đăng nhập bằng **username hoặc email** (nếu chuỗi identifier chứa ký tự `@`, backend sẽ tự động tìm kiếm người dùng theo email).
   - Header HTTP Basic Auth gửi lên dạng `Basic base64(identifier:password)`.
-  - Frontend tự động loại bỏ khoảng trắng đầu/cuối của chuỗi nhập trước khi gửi.
+  - Frontend chỉ loại bỏ khoảng trắng đầu/cuối của tên đăng nhập/email; mật khẩu được gửi nguyên vẹn.
   - Khi thông tin đăng nhập không chính xác, backend trả về `401 Unauthorized`, Frontend hiển thị thông báo: `"Sai tên đăng nhập/email hoặc mật khẩu."`.
   - Sau khi đăng nhập thành công, Frontend cập nhật đối tượng người dùng vào `AuthContext`, lưu `user_profile` và `auth_header` vào `sessionStorage` (để hỗ trợ F5 tải lại trang mượt mà), sau đó dùng `router.replace` chuyển hướng theo tham số `redirect` (chỉ chấp nhận đường dẫn nội bộ hợp lệ bắt đầu bằng `/`, không chứa `//` hay `http:`).
 - **Response thành công (HTTP 200):**
@@ -376,7 +378,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 ### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
 - `POST /auth/forgot-password`: Nhận `{ "email": str }`; trả thông báo chung và gửi mã nếu tài khoản đã xác thực tồn tại.
 - `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`; xác thực mã và trả về `{ "message": str, "expires_in": int }`. Có tối đa 5 lần nhập sai.
-- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu phải có tối thiểu 8 ký tự chữ và số; mã OTP chỉ dùng được đến khi hết hạn hoặc đổi mật khẩu thành công.
+- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu có tối thiểu 8 ký tự, tối đa 72 byte UTF-8 và cho phép ký tự đặc biệt. Mật khẩu trùng mật khẩu hiện tại bị từ chối với `400 PASSWORD_REUSED`; trường hợp này giữ OTP để nhập lại mật khẩu khác. Đổi thành công vô hiệu OTP.
 
 ### 2.5. Đăng Xuất (Logout API)
 - **Hiện trạng:** HTTP Basic Auth là stateless nên phía backend chưa có endpoint đăng xuất. Frontend hiện tại chỉ xóa thông tin phiên ở client memory và `sessionStorage`.

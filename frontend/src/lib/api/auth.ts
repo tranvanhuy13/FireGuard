@@ -366,6 +366,9 @@ export const api = {
             if (userIndex === -1) {
               return reject(new ApiError("ACCOUNT_NOT_FOUND", 404));
             }
+            if (users[userIndex].password === data.newPassword) {
+              return reject(new ApiError("PASSWORD_REUSED", 400));
+            }
             users[userIndex].password = data.newPassword;
             localStorage.setItem('mockUsers', JSON.stringify(users));
 

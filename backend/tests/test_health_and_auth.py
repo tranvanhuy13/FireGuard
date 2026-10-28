@@ -159,20 +159,20 @@ async def test_forgot_password_generic_response():
 
 @pytest.mark.asyncio
 async def test_reset_password_validations():
-    """13. Kiểm tra validation khi đặt lại mật khẩu: ký tự đặc biệt và độ dài tối thiểu 8 ký tự"""
+    """13. Special characters reach OTP validation; short passwords are rejected."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # Mật khẩu chứa ký tự đặc biệt -> 400
+        # A special-character password is accepted by validation; this unknown account has no reset OTP.
         res_special = await client.post("/auth/reset-password", json={
-            "email": "vynguyen30082005@gmail.com",
+            "email": "unknown-reset-validation@gmail.com",
             "otp": "123456",
             "new_password": "Pass!@#$123"
         })
         assert res_special.status_code == 400
-        assert "special characters" in res_special.json().get("detail", "")
+        assert res_special.json().get("detail") == "Invalid or expired code"
 
         # Mật khẩu ngắn dưới 8 ký tự -> 400
         res_short = await client.post("/auth/reset-password", json={
-            "email": "vynguyen30082005@gmail.com",
+            "email": "unknown-reset-validation@gmail.com",
             "otp": "123456",
             "new_password": "Pass12"
         })

@@ -25,6 +25,9 @@ function VerifyOtpContent() {
   const [isExpired, setIsExpired] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [isLocked, setIsLocked] = useState(false);
+  const [resendWait, setResendWait] = useState(0);
+  const submittedRef = useRef<string | null>(null);
   const [isSuccess, setIsSuccess] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -62,7 +65,13 @@ function VerifyOtpContent() {
     return () => clearInterval(interval);
   }, [searchTarget]);
 
+  useEffect(() => {
+    const timer = setInterval(() => setResendWait(value => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   const handleResend = async () => {
+    if (isLoading || resendWait > 0) return;
     if (!target) {
       setError("Email not found. Please register again.");
       return;
@@ -71,6 +80,9 @@ function VerifyOtpContent() {
     setError("");
     try {
       await api.resendOtp({ email: target });
+      setIsLocked(false);
+      submittedRef.current = null;
+      setResendWait(60);
       const newExpiresAt = Date.now() + 120 * 1000;
       sessionStorage.setItem("otpExpiresAt", newExpiresAt.toString());
       setTimeLeft(120);
@@ -82,8 +94,7 @@ function VerifyOtpContent() {
       const match = String(msg).match(/Please wait (\d+)s/i);
       if (match) {
         const waitSec = parseInt(match[1], 10);
-        setTimeLeft(waitSec);
-        setIsExpired(false);
+        setResendWait(waitSec);
         setError(t.auth.errors.resendWait.replace('{seconds}', waitSec.toString()));
       } else {
         setError(msg || t.auth.errors.genericError);
@@ -96,6 +107,7 @@ function VerifyOtpContent() {
   const handleChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return;
 
+    submittedRef.current = null;
     const newOtp = [...otp];
     newOtp[index] = value.slice(-1);
     setOtp(newOtp);
@@ -115,6 +127,7 @@ function VerifyOtpContent() {
     e.preventDefault();
     const pastedData = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
     if (pastedData) {
+      submittedRef.current = null;
       const newOtp = [...otp];
       for (let i = 0; i < pastedData.length; i++) {
         newOtp[i] = pastedData[i];
@@ -127,6 +140,7 @@ function VerifyOtpContent() {
 
   const handleVerify = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (isLoading || isLocked || isExpired) return;
     const otpString = otp.join("");
     if (otpString.length !== 6) {
       setError("OTP must be 6 digits");
@@ -136,6 +150,7 @@ function VerifyOtpContent() {
     setIsLoading(true);
     setError("");
     
+    submittedRef.current = `${target}:${otpString}`;
     try {
       await api.verifyOtp({ email: target || "", otp: otpString });
       setIsSuccess(true);
@@ -144,7 +159,10 @@ function VerifyOtpContent() {
       }, 1500);
     } catch (err: any) {
       const msg = err.message || err.detail;
-      if (msg === "Invalid OTP" || msg === "invalidOtp") {
+      if (err.status === 429) {
+        setIsLocked(true);
+        setError(t.auth.errors.otpLocked);
+      } else if (msg === "Invalid OTP" || msg === "invalidOtp" || msg === "INVALID_OTP") {
         setError(t.auth.errors.invalidOtp);
       } else if (msg === "OTP has expired") {
         setIsExpired(true);
@@ -161,10 +179,10 @@ function VerifyOtpContent() {
 
   // Auto submit when 6 digits are entered
   useEffect(() => {
-    if (otp.join("").length === 6 && !isExpired && !isSuccess && !isLoading && target) {
+    if (otp.join("").length === 6 && !isExpired && !isLocked && !isSuccess && !isLoading && target && submittedRef.current !== `${target}:${otp.join("")}`) {
       handleVerify();
     }
-  }, [otp, isExpired, isSuccess, isLoading, target]);
+  }, [otp, isExpired, isLocked, isSuccess, isLoading, target]);
 
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
@@ -261,7 +279,7 @@ function VerifyOtpContent() {
             </motion.div>
           )}
 
-          {!isExpired ? (
+          {!isExpired && !isLocked ? (
             <div className="flex flex-col items-center gap-2">
               <div className="relative w-12 h-12">
                 <svg className="w-full h-full transform -rotate-90">
@@ -278,17 +296,17 @@ function VerifyOtpContent() {
             </div>
           ) : (
             <div className="text-sm text-red-600 font-medium">
-              {t.auth.codeExpired}
+              {isLocked ? t.auth.errors.otpLocked : t.auth.codeExpired}
             </div>
           )}
 
           <div>
-            {!isExpired ? (
+            {!isExpired && !isLocked ? (
               <Button type="submit" disabled={isLoading || otp.join("").length !== 6} className="w-full h-11 text-base font-semibold">
                 {isLoading ? t.auth.verifying : t.auth.verify}
               </Button>
             ) : (
-              <Button type="button" onClick={handleResend} variant="outline" disabled={isLoading} className="w-full h-11 text-base font-semibold">
+              <Button type="button" onClick={handleResend} variant="outline" disabled={isLoading || resendWait > 0} className="w-full h-11 text-base font-semibold">
                 {isLoading ? t.auth.verifying : t.auth.resendOtp}
               </Button>
             )}
