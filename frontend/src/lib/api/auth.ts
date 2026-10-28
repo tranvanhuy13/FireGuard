@@ -86,6 +86,9 @@ export const api = {
       return { user, token: basicHeader };
     } catch (err: any) {
       if (err instanceof ApiError) {
+        if (err.status === 429) {
+          throw new ApiError("loginRateLimited", 429, err.data);
+        }
         if (err.status === 401) {
           throw new ApiError("invalidCredentials", 401);
         }
@@ -365,6 +368,9 @@ export const api = {
             const userIndex = users.findIndex((user) => user.email.toLowerCase() === targetEmail);
             if (userIndex === -1) {
               return reject(new ApiError("ACCOUNT_NOT_FOUND", 404));
+            }
+            if (users[userIndex].password === data.newPassword) {
+              return reject(new ApiError("PASSWORD_REUSED", 400));
             }
             users[userIndex].password = data.newPassword;
             localStorage.setItem('mockUsers', JSON.stringify(users));

@@ -12,6 +12,8 @@ MODEL_OBJECT on startup if it is not on disk yet.
 import io
 import logging
 import os
+import re
+from datetime import datetime
 import threading
 import time
 
@@ -22,6 +24,14 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "snapshots")
 SYNC_INTERVAL_SECONDS = 60   # retry uploading snapshots that fell back to disk
 SNAPSHOT_PREFIX = "snapshots/"
+PERIODIC_RETENTION_DAYS = max(1, int(os.getenv("PERIODIC_SNAPSHOT_RETENTION_DAYS", "7")))
+RETENTION_INTERVAL_SECONDS = max(60, int(os.getenv("SNAPSHOT_CLEANUP_INTERVAL_SECONDS", "3600")))
+RETENTION_BATCH_SIZE = 500
+_PERIODIC_NAME = re.compile(r"periodic_(\d{8}_\d{6})_cam_\d+\.jpg")
+_maintenance_lock = threading.RLock()
+_stop = threading.Event()
+_worker = None
+_worker_lock = threading.Lock()
 MODEL_OBJECT = os.getenv("MODEL_OBJECT", "models/best.pt")
 
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "").strip()
@@ -67,6 +77,10 @@ class _MinioStore:
     def delete(self, key):
         self.client.remove_object(self.bucket, key)
 
+    def list_periodic(self):
+        for obj in self.client.list_objects(self.bucket, prefix=SNAPSHOT_PREFIX + "periodic_", recursive=True):
+            yield obj.object_name, obj.last_modified.timestamp(), obj.size
+
     def download(self, key, path):
         self.client.fget_object(self.bucket, key, path)
 
@@ -90,6 +104,10 @@ class _GcsStore:
 
     def delete(self, key):
         self.bucket.blob(key).delete()
+
+    def list_periodic(self):
+        for blob in self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX + "periodic_"):
+            yield blob.name, blob.updated.timestamp(), blob.size or 0
 
     def download(self, key, path):
         self.bucket.blob(key).download_to_filename(path)
@@ -192,6 +210,8 @@ def _sync_pending():
     """Upload snapshots left on disk (object storage was unreachable), then drop the local copy."""
     now = time.time()
     for name in os.listdir(SNAPSHOT_DIR):
+        if _stop.is_set():
+            break
         path = os.path.join(SNAPSHOT_DIR, name)
         # Fresh files may still be in use (e.g. attached to a notification being sent)
         if not name.endswith(".jpg") or now - os.path.getmtime(path) < SYNC_INTERVAL_SECONDS:
@@ -203,17 +223,97 @@ def _sync_pending():
         logger.info("[Storage] Synced pending snapshot %s", name)
 
 
-def start_sync():
-    """Background thread that retries pending uploads, e.g. after MinIO was down at boot."""
-    if not enabled():
-        return
+def _expired_periodic(name, modified, cutoff):
+    match = _PERIODIC_NAME.fullmatch(name)
+    if not match or modified >= cutoff:
+        return False
+    try:
+        captured = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S").timestamp()
+    except ValueError:
+        return False
+    return captured < cutoff
 
-    def loop():
-        while True:
+
+def cleanup_periodic(now=None):
+    """Delete only old periodic captures, in bounded batches on each backend."""
+    cutoff = (time.time() if now is None else now) - PERIODIC_RETENTION_DAYS * 86400
+    removed = size = 0
+    with _maintenance_lock:
+        with os.scandir(SNAPSHOT_DIR) as entries:
+            attempted = 0
+            for entry in entries:
+                if _stop.is_set() or attempted >= RETENTION_BATCH_SIZE:
+                    break
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    stat = entry.stat(follow_symlinks=False)
+                    if not _expired_periodic(entry.name, stat.st_mtime, cutoff):
+                        continue
+                    attempted += 1
+                    os.remove(entry.path)
+                    removed += 1
+                    size += stat.st_size
+                except OSError as exc:
+                    logger.warning("[Storage] Retention failed for %s: %s", entry.name, exc)
+        if enabled() and not _stop.is_set():
             try:
-                _sync_pending()
-            except Exception as e:
-                logger.warning("[Storage] Pending snapshot sync failed, retrying later: %s", e)
-            time.sleep(SYNC_INTERVAL_SECONDS)
+                store = _get_store()
+                attempted = 0
+                for key, modified, byte_count in store.list_periodic():
+                    if _stop.is_set() or attempted >= RETENTION_BATCH_SIZE:
+                        break
+                    name = key.removeprefix(SNAPSHOT_PREFIX)
+                    if not key.startswith(SNAPSHOT_PREFIX) or not _expired_periodic(name, modified, cutoff):
+                        continue
+                    attempted += 1
+                    try:
+                        store.delete(key)
+                        removed += 1
+                        size += byte_count
+                    except Exception as exc:
+                        logger.warning("[Storage] Retention failed for %s: %s", key, exc)
+            except Exception as exc:
+                logger.warning("[Storage] Object retention scan failed: %s", exc)
+    logger.info("[Storage] Periodic retention removed %d copies (%d bytes)", removed, size)
+    return removed, size
 
-    threading.Thread(target=loop, name="storage-sync", daemon=True).start()
+
+def start_sync():
+    """Start lifecycle-owned local/cloud maintenance, including local-only mode."""
+    global _worker
+    with _worker_lock:
+        if _worker is not None and _worker.is_alive():
+            return
+        _stop.clear()
+
+        def loop():
+            next_cleanup = 0
+            while not _stop.is_set():
+                if time.monotonic() >= next_cleanup:
+                    removed = 0
+                    try:
+                        removed, _ = cleanup_periodic()
+                    except Exception as exc:
+                        logger.warning("[Storage] Retention failed, retrying later: %s", exc)
+                    delay = SYNC_INTERVAL_SECONDS if removed >= RETENTION_BATCH_SIZE else RETENTION_INTERVAL_SECONDS
+                    next_cleanup = time.monotonic() + delay
+                if enabled() and not _stop.is_set():
+                    try:
+                        with _maintenance_lock:
+                            _sync_pending()
+                    except Exception as exc:
+                        logger.warning("[Storage] Pending sync failed, retrying later: %s", exc)
+                _stop.wait(SYNC_INTERVAL_SECONDS)
+
+        _worker = threading.Thread(target=loop, name="storage-maintenance", daemon=True)
+        _worker.start()
+
+
+def stop_sync():
+    with _worker_lock:
+        _stop.set()
+        if _worker is not None:
+            _worker.join(timeout=20)
+            if _worker.is_alive():
+                logger.warning("[Storage] Maintenance still waiting for object storage at shutdown")

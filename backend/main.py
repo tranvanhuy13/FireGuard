@@ -54,9 +54,13 @@ async def lifespan(app: FastAPI):
     global main_loop
     main_loop = asyncio.get_running_loop()
     camera_manager.alert_callback = broadcast_alert
-    yield
-    video_analyzer.shutdown()
-    camera_manager.shutdown()
+    storage.start_sync()
+    try:
+        yield
+    finally:
+        video_analyzer.shutdown()
+        camera_manager.shutdown()
+        storage.stop_sync()
 
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
@@ -72,6 +76,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After"],
 )
 
 database.init_db()
@@ -80,7 +85,6 @@ database.init_db()
 _model_path = Path(os.getenv("MODEL_PATH") or "best.pt")
 MODEL_PATH = str(_model_path if _model_path.is_absolute() else BACKEND_DIR / _model_path)
 storage.ensure_model(MODEL_PATH)
-storage.start_sync()
 detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras

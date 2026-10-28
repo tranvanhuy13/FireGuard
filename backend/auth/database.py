@@ -40,5 +40,10 @@ def init_db():
         id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL,
         username TEXT NOT NULL, role TEXT NOT NULL, action TEXT NOT NULL,
         target TEXT, detail TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS login_attempts (
+        ticket TEXT NOT NULL, scope TEXT NOT NULL, expires_at REAL NOT NULL,
+        PRIMARY KEY (ticket, scope))""")
+    conn.execute("CREATE INDEX IF NOT EXISTS login_attempts_scope ON login_attempts(scope, expires_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS login_attempts_expiry ON login_attempts(expires_at)")
     conn.commit()
     conn.close()
