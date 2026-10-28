@@ -408,3 +408,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
   - `GET, POST, PUT, DELETE /notifications/accounts`
   - `GET, POST, PUT, DELETE /notifications/groups`
   - `GET, POST, PUT, DELETE /notifications/rules`
+
+### Basic authentication throttling
+
+HTTP Basic failures share a SQLite budget across protected routes, including upload authentication before body parsing. The fifth failure for an account within 60 seconds returns `429` with `{"detail":"LOGIN_RATE_LIMITED"}` and a `Retry-After` seconds header. Username/email aliases share the account budget; a separate 50-failure IP budget covers changing identifiers. Concurrent authentication checks reserve capacity and successful checks release their own reservations. Signed media requests are unaffected. See [authorization](AUTHORIZATION.md) for worker/proxy setup and cooldown semantics.

@@ -139,6 +139,7 @@ export const vi = {
       phoneInvalid: "Số điện thoại Việt Nam không hợp lệ",
       termsRequired: "Bạn phải đồng ý với các điều khoản dịch vụ",
       invalidOtp: "Mã OTP không hợp lệ",
+      loginRateLimited: "Bạn đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau {seconds} giây.",
       invalidCredentials: "Sai tên đăng nhập/email hoặc mật khẩu.",
       invalidCredentialsUsername: "Sai tên đăng nhập hoặc mật khẩu.",
       emailExists: "Email hoặc tên đăng nhập này đã được đăng ký",

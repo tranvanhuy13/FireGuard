@@ -47,6 +47,16 @@ function LoginFormContent() {
   const loginSchema = getLoginSchema(t);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [retryUntil, setRetryUntil] = useState(0);
+  const [retrySeconds, setRetrySeconds] = useState(0);
+
+  useEffect(() => {
+    if (!retryUntil) return;
+    const tick = () => setRetrySeconds(Math.max(0, Math.ceil((retryUntil - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [retryUntil]);
   const [successMsg, setSuccessMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
@@ -93,6 +103,7 @@ function LoginFormContent() {
   }, [verifiedParam, setValue, t]);
 
   const onSubmit = async (data: LoginForm) => {
+    if (isLoading || Date.now() < retryUntil) return;
     try {
       setIsLoading(true);
       setError("");
@@ -110,7 +121,11 @@ function LoginFormContent() {
       const safeRedirect = getSafeRedirect(searchParams.get("redirect"));
       router.replace(safeRedirect);
     } catch (err: any) {
-      if (err.message === "accountBlocked") {
+      if (err.status === 429) {
+        const wait = Math.max(1, Math.ceil(Number(err.data?.retryAfter) || 60));
+        setRetrySeconds(wait);
+        setRetryUntil(Date.now() + wait * 1000);
+      } else if (err.message === "accountBlocked") {
         setError(t.auth.errors.accountBlocked);
       } else if (err.message === "accountNotVerified") {
         setError(t.auth.errors.accountNotVerified);
@@ -219,12 +234,13 @@ function LoginFormContent() {
             </div>
           </div>
 
+          {retrySeconds > 0 && <p role="status" className="mt-4 text-sm text-red-600 text-center">{t.auth.errors.loginRateLimited.replace("{seconds}", String(retrySeconds))}</p>}
           {error && <div className="text-red-600 text-sm text-center bg-red-50 p-2.5 rounded-lg border border-red-200 mt-4">{error}</div>}
 
           <div className="pt-2">
             <Button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || retrySeconds > 0}
               className="w-full h-11 text-base font-semibold"
             >
               {isLoading ? t.auth.signingIn : t.auth.signIn}

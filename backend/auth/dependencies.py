@@ -1,6 +1,7 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .utils import verify_password
+from .login_limiter import reserve, finish
 from users.models import User
 from .database import get_connection, init_db
 
@@ -42,8 +43,22 @@ def authenticate_user(db, identifier: str, password: str):
         return False
     return user
 
-def get_current_user(db = Depends(get_db), credentials: HTTPBasicCredentials = Depends(security)):
-    user = authenticate_user(db, credentials.username, credentials.password)
+def get_current_user(request: Request, db = Depends(get_db), credentials: HTTPBasicCredentials = Depends(security)):
+    user = get_user_by_identifier(db, credentials.username)
+    # Uvicorn applies its trusted-proxy policy to request.client. Never parse
+    # arbitrary forwarded headers here.
+    client_ip = request.client.host if request.client else "unknown"
+    ticket, scopes = reserve(db, credentials.username, user, client_ip)
+    try:
+        valid = bool(user and verify_password(credentials.password, user.hashed_password))
+    except ValueError:
+        valid = False
+    except Exception:
+        finish(db, ticket, scopes, True)
+        raise
+    finish(db, ticket, scopes, valid)
+    if not valid:
+        user = None
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

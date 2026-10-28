@@ -26,6 +26,9 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `DB_NAME` | Detection/settings/camera SQLite path; default backend `fire_guard.db` |
 | `AUTH_DB_PATH` | Account SQLite path; default `example.db` relative to working directory |
 | `SNAPSHOT_DIR` | Local snapshot directory; default `snapshots` relative to working directory |
+| `PERIODIC_SNAPSHOT_RETENTION_DAYS` | Periodic capture lifetime; default 7 days, minimum 1; set 30 for a month |
+| `SNAPSHOT_CLEANUP_INTERVAL_SECONDS` | Retention scan interval; default 3600 seconds, minimum 60 |
+| `FORWARDED_ALLOW_IPS` | Uvicorn trusted reverse-proxy addresses for client IP limits; configure for the deployed proxy |
 | `S3_ENDPOINT` | Select MinIO/S3-compatible storage |
 | `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SECURE` | MinIO/S3 configuration |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |
@@ -70,3 +73,9 @@ Mock behavior is controlled by `NEXT_PUBLIC_USE_MOCK`, with optional separate `N
 - [Deployment workflows](../../.github/workflows/): deployment automation definitions.
 
 Deployment files are implementation references, not evidence that a deployment has run. Some configuration entries may be historical; confirm that the consuming module actually reads a variable before relying on it.
+
+## Periodic snapshot retention
+
+Storage maintenance starts with the application lifespan and stops on shutdown, also in local-only mode. At startup and every cleanup interval it deletes at most 500 expired copies per storage backend. A file must match `periodic_YYYYMMDD_HHMMSS_cam_<numeric-id>.jpg` exactly, and both its capture timestamp and modification time must be older than the retention cutoff. Camera capture currently runs every 15 seconds (5,760 periodic images per camera per day). Retention uses local modification times and MinIO/GCS object modification metadata. `event_*`, `video_*`, nested keys, symlinks and unknown filenames are preserved.
+
+Deletion errors are logged and retried on a later scan; other candidates continue. Pending upload synchronization and cleanup are serialized within each worker. Cloud credentials need permission to list the `snapshots/periodic_` prefix and delete those objects. The maintenance log records deleted copies and bytes. Full deletion batches schedule another scan after 60 seconds to drain backlogs without waiting a full cleanup interval. This is an age policy, not a hard disk quota; size depends on camera count and JPEG sizes. Event evidence has no automatic retention policy in this change. Configure bucket lifecycle rules only for the periodic prefix if additional provider-side cleanup is needed.

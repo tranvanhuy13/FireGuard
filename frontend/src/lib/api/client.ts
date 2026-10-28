@@ -185,6 +185,9 @@ export async function apiClient<T>(
         }
       }
 
+      if (response.status === 429) {
+        errorData = { ...errorData, retryAfter: Number(response.headers.get("Retry-After")) || errorData?.retryAfter || 60 };
+      }
       throw new ApiError(errorMsg, response.status, errorData);
     }
 

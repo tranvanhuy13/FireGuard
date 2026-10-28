@@ -19,7 +19,7 @@ class AuthenticatedUploadRoute(APIRoute):
 
             def authenticate():
                 with closing(get_connection()) as db:
-                    return get_current_user(db=db, credentials=credentials)
+                    return get_current_user(request=request, db=db, credentials=credentials)
 
             request.state.upload_user = await run_in_threadpool(authenticate)
             return await handle(request)

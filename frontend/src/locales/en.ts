@@ -139,6 +139,7 @@ export const en = {
       phoneInvalid: "Invalid Vietnam phone number",
       termsRequired: "You must accept the terms and conditions",
       invalidOtp: "Invalid OTP code",
+      loginRateLimited: "Too many failed sign-in attempts. Try again in {seconds} seconds.",
       invalidCredentials: "Incorrect username/email or password.",
       invalidCredentialsUsername: "Incorrect username or password.",
       emailExists: "This email or username is already registered",

@@ -86,6 +86,9 @@ export const api = {
       return { user, token: basicHeader };
     } catch (err: any) {
       if (err instanceof ApiError) {
+        if (err.status === 429) {
+          throw new ApiError("loginRateLimited", 429, err.data);
+        }
         if (err.status === 401) {
           throw new ApiError("invalidCredentials", 401);
         }
