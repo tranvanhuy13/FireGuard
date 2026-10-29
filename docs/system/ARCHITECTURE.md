@@ -31,7 +31,9 @@ The canonical settings are `fire_threshold` and `smoke_threshold` (percent), `pe
 
 `WS /ws/video-analysis/{job_id}` carries image and matching detection/timestamp data. Metadata-only updates omit the image. Playback slows when inference cannot keep pace; the frontend displays buffering. Preview is silent and does not implement arbitrary seeking.
 
-Pause/resume operates on a job. Restart creates a new run that shares the retained source. Stop cancels active or queued work. Uploads are retained until their last referencing job is evicted or shutdown removes them. Jobs are in memory, with a maximum of 20 retained jobs and 24 evidence snapshots per video. Uploaded-video detections do not create camera alarm events or send notifications.
+Pause/resume operates on a job. Restart creates a new run that shares the retained source. Stop cancels active or queued work. Uploads are retained until their last referencing job is evicted or shutdown removes them. Jobs are in memory, with a maximum of 20 retained jobs and 24 evidence snapshots per video. Uploaded-video detections do not create camera alarm events. The first confirmed fire and smoke evidence in each job is placed in a separate bounded notification queue (40 items). One worker sends Zalo/Telegram independently of playback; pause/resume does not requeue, restart creates a new notification scope, and cancelled jobs skip unsent work. An HTTP request already in progress cannot be recalled.
+
+The job's `notifications` metadata records queued and per-channel outcomes. Snapshot attachments are pinned against maintenance until delivery finishes; jobs with pending notifications cannot be evicted. Evidence referenced by a successful notification is preserved after job eviction so S3 links do not immediately break. Such video evidence currently requires explicit/manual deletion; other video evidence retains its existing eviction cleanup. Notification work and deduplication are in memory and are not recovered across backend restarts.
 
 See [the detailed playback contract](../REALTIME_DETECTION.md) for state and payload fields.
 
@@ -39,12 +41,14 @@ See [the detailed playback contract](../REALTIME_DETECTION.md) for state and pay
 
 The detection database (`database.py`) holds cameras, settings, and events. Account data uses the separate `auth/database.py` database. `storage.py` selects MinIO/S3 when `S3_ENDPOINT` is set, otherwise GCS when `GCS_BUCKET` is set, otherwise local disk. Missing model files can be retrieved from configured object storage. Snapshot upload failures can fall back to disk for later synchronization.
 
-Zalo and Telegram delivery lives in `notification.py`. Account OTP email behavior lives in `auth/utils.py`; it is a separate flow from camera alarm notifications.
+Zalo and Telegram delivery lives in `notification.py`. Zalo sends warning text containing a direct expiring S3 image link after verifying the remote object; Telegram uploads the local image. Zalo links require a publicly reachable S3 API origin configured through `S3_PUBLIC_ENDPOINT`. Account OTP email behavior lives in `auth/utils.py`; it is a separate flow from camera alarm notifications.
+
+Both bots share the same warning body (detected class, confidence, time and source). Camera notifications include the camera name captured with the event; uploaded-video notifications identify the video filename, job and video timestamp instead of inventing a camera name. Telegram uses this body as the photo caption or text; Zalo appends the S3 image link. Adding camera context does not bypass camera notification cooldowns.
 
 ## Access control as implemented
 
 Operational HTTP routes require verified, unblocked accounts through HTTP Basic. Both `user` and `admin` may monitor cameras, add/edit/delete/toggle them, analyze video, read history/statistics, test notifications and change the shared alarm sound preference. System configuration and account management require `admin`.
 
-Camera feeds, snapshots and all WebSockets require signed, expiring media credentials. Connected feeds/sockets recheck authorization periodically. Notification workers use a short-lived credential scoped to a single snapshot for Zalo delivery. Roles and blocking state are stored in the account database; signup cannot assign admin privileges.
+Camera feeds, snapshots and all WebSockets require signed, expiring media credentials. Connected feeds/sockets recheck authorization periodically. Zalo's direct S3 links carry their own expiring S3 signature and do not use backend media credentials. Roles and blocking state are stored in the account database; signup cannot assign admin privileges.
 
 See [authentication and roles](../AUTHORIZATION.md) for the endpoint matrix, migration, first-admin provisioning, token lifecycle and feature boundaries.

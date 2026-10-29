@@ -31,8 +31,13 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `FORWARDED_ALLOW_IPS` | Uvicorn trusted reverse-proxy addresses for client IP limits; configure for the deployed proxy |
 | `S3_ENDPOINT` | Select MinIO/S3-compatible storage |
 | `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SECURE` | MinIO/S3 configuration |
+| `S3_PUBLIC_ENDPOINT` | Public S3 API origin, e.g. `https://s3.example.com`; no bucket/path; required for Zalo image links |
+| `S3_REGION` | Bucket region; public-link signing defaults to `us-east-1`; set to the actual region |
+| `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 image-link lifetime, default 86400 (24 hours), range 1–604800 |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |
 | `STREAM_TOKEN_SECRET` | Stable signing secret for compatibility tokens across restarts |
+| `ZALO_BOT_TOKEN`, `ZALO_CHAT_ID`, `ZALO_ENABLED` | Optional nonblank environment overrides for Zalo notification settings |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ENABLED` | Optional nonblank environment overrides for Telegram notification settings |
 | `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` | Account OTP email configuration |
 | `AUTH_DEV_MODE` | Local OTP logging behavior; see `auth/utils.py` |
 
@@ -73,6 +78,30 @@ Mock behavior is controlled by `NEXT_PUBLIC_USE_MOCK`, with optional separate `N
 - [Deployment workflows](../../.github/workflows/): deployment automation definitions.
 
 Deployment files are implementation references, not evidence that a deployment has run. Some configuration entries may be historical; confirm that the consuming module actually reads a variable before relying on it.
+
+## Zalo snapshot links
+
+### Bot credentials and video delivery
+
+Nonblank process environment / loaded `.env.local` / shared `.env` values override the corresponding SQLite notification setting. Blank or absent environment values fall back to SQLite. `ZALO_ENABLED` and `TELEGRAM_ENABLED` accept `true`, `1`, `yes`, or `on` (case insensitive); any other explicit value disables the channel. When neither environment nor SQLite specifies a flag, complete credentials enable that channel automatically. A saved `false` remains disabled: set the environment flag to `true` or enable the bot in admin settings. Compose forwards these six variables from its `--env-file`; a repository `.env` is not automatically copied into the backend container.
+
+Admin `/settings` returns masked effective bot settings and separate `notification_status` metadata with configuration completeness, enabled state, and the environment/database source of each field. Environment-owned inputs are read-only in the settings UI; change the environment and restart/recreate the backend to update them. `/test-notification` bypasses camera cooldown and returns per-channel outcomes and `ok`, `partial`, or `error`; a successful HTTP response alone is not proof of delivery.
+
+Telegram troubleshooting: credentials can be valid while SQLite still has `telegram_enabled=false`. Enable it in admin settings or explicitly set `TELEGRAM_ENABLED=true` in `backend/.env.local` for native startup. A Compose backend requires the flag in its external `--env-file` and container recreation instead. The UI distinguishes enabled, disabled and incomplete configuration; disabled test results explain which flag to change. Effective configuration takes effect after restarting a native backend.
+
+Delivery outcomes include sanitized HTTP/API error codes and descriptions for troubleshooting without exposing tokens, chat IDs or URLs. Telegram falls back from photo delivery to text for known media/caption rejections or unreadable attachments; credential, permission, rate-limit and ambiguous network failures retain their failure result rather than creating a second text request. Successful text fallback records `mode=text`, `fallback_reason` and the original `photo_error`. Photo captions over 1024 UTF-16 units are sent as text to preserve the warning. Local snapshot cleanup still waits for delivery completion.
+
+Video analysis sends one notification per confirmed class per job through a separate queue. Messages identify the uploaded video, job and video timestamp. Negative footage and detections below the configured threshold/persistence do not notify. Delivery checks both HTTP and bot API `ok`, uses connect/read timeouts, and retries transient failures at most three attempts with bounded waits. Failed channels do not block the other channel permanently or consume camera cooldown; ambiguous network failures can still result in provider-side duplicates. Stop suppresses queued requests and retries, but cannot retract a request already sent. Video notification state is in memory and is not durable across restarts.
+
+### Image links
+
+Zalo sends warning text with a direct presigned GET link to `S3_BUCKET/snapshots/<name>` using `sendMessage`. Telegram still uploads the local image using `sendPhoto`. Zalo no longer uses the database `public_base_url` setting or the backend snapshot-token route. Test notifications without a snapshot send text only.
+
+Configure the existing S3 credentials and `S3_PUBLIC_ENDPOINT` in the backend environment (`backend/.env.local` for native development, the external Compose environment file for local deployment), then restart/recreate the backend. The public endpoint must reach the same bucket as `S3_ENDPOINT`. Use the S3 API origin, not the MinIO Console, a Docker hostname, or an origin with a path prefix. A reverse proxy must preserve the signed host, path and query string; never replace the hostname after signing. Local Compose does not expose the S3 API publicly by itself: configure the public API ingress separately.
+
+Links open without a MinIO login until they expire; bucket anonymous access is not required. The backend checks object metadata through the internal endpoint before signing with the public endpoint. Set `S3_REGION` to the bucket's actual region to avoid public-endpoint discovery requests and invalid signatures. Missing configuration, failed uploads or unavailable storage produce a text warning without an image URL. Local notification copies are kept when remote existence cannot be confirmed, for later background synchronization. Do not log or share signed links outside the intended recipients.
+
+Temporary offline regressions verified SDK URL signing, delivery fallback, configuration precedence, retry/cooldown behavior, video notification deduplication/cancellation and attachment retention. Those temporary test files were removed at the user's request; existing project test suites remain.
 
 ## Periodic snapshot retention
 
