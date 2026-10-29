@@ -23,7 +23,7 @@ Use authenticated `GET /auth/stream-token` for a signed, one-hour media token. S
 
 Set the same private `STREAM_TOKEN_SECRET` on every backend worker to keep credentials valid across workers and restarts. Without it, each process uses a random secret. Never log or persist media URLs containing tokens in analytics. Proxy access logs should redact the `token` query parameter. The frontend keeps media tokens in memory and renews them before expiry. Logout clears the browser session; a copied media credential remains valid until expiry unless the password changes or the account is blocked.
 
-Notification workers may create a signed link for one Zalo snapshot, valid for five minutes. This credential cannot read another image, open camera streams or access APIs. Telegram continues uploading the image directly. Protected backend snapshot responses use `Cache-Control: no-store`. External object-storage URLs are governed by that storage provider's access policy.
+Zalo notifications include a direct presigned S3 GET link scoped to one snapshot, valid for 24 hours by default (`S3_SNAPSHOT_URL_TTL_SECONDS`). Anyone holding the link can read that image until expiration, subject to the storage provider's access policy and object availability. This S3 signature does not grant access to backend APIs or camera streams. The existing five-minute backend snapshot-token helper remains available for compatibility but is no longer used for Zalo delivery. Telegram continues uploading the image directly. Protected backend snapshot responses use `Cache-Control: no-store`.
 
 ## Account administration
 

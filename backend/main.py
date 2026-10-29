@@ -88,7 +88,7 @@ storage.ensure_model(MODEL_PATH)
 detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras
-video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
+video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting, notification.trigger_notifications)
 
 
 # Snapshots require user credentials or a short-lived link scoped to one notification image.
@@ -489,6 +489,8 @@ def get_settings(current_user=Depends(get_current_user)):
     if current_user.role != "admin":
         return {"settings": {"alarm_sound_enabled": database.get_setting("alarm_sound_enabled", "true")}}
     settings = database.get_all_settings()
+    bot_settings, bot_status = notification.configuration_status()
+    settings.update(bot_settings)
     effective = read_settings(database.get_setting)
     settings.update(fire_threshold=str(effective["fire"] * 100),
                     smoke_threshold=str(effective["smoke"] * 100),
@@ -498,7 +500,7 @@ def get_settings(current_user=Depends(get_current_user)):
     for key in masked_keys:
         if key in settings and settings[key]:
             settings[key] = "********"
-    return {"settings": settings}
+    return {"settings": settings, "notification_status": bot_status}
 
 
 @app.post("/settings", dependencies=[Depends(get_current_user)])
@@ -530,9 +532,15 @@ def save_setting(setting: SettingsModel, current_user=Depends(get_current_user))
 @app.post("/test-notification", dependencies=[Depends(get_current_user)])
 def test_notification(current_user=Depends(get_current_user)):
     """Trigger a test notification."""
-    notification.trigger_notifications("TEST EVENT", 0.99, None)
+    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True)
     log_action(current_user, "notification.test")
-    return {"status": "ok", "message": "Test notification triggered"}
+    sent = sum(result["status"] == "sent" for result in results.values())
+    failed = any(result["status"] in ("failed", "unconfigured") for result in results.values())
+    status = "partial" if sent and failed else "ok" if sent else "error"
+    return {"status": status, "channels": results,
+            "message": "Test notification sent" if status == "ok" else
+                       "Some channels failed" if status == "partial" else
+                       "No notification sent; check enabled channels and credentials"}
 
 
 # ---------------------------------------------------------------------------

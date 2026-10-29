@@ -21,6 +21,16 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     "zalo",
   );
   const [loading, setLoading] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<Record<string, {
+    configured: boolean; enabled: boolean; state?: string; source: Record<string, string>;
+  }>>({});
+  const botStateLabel = (channel: string) => {
+    const state = notificationStatus[channel];
+    if (!state) return "";
+    if (!state.configured) return language === "vi" ? "Chưa đủ token/chat ID" : "Missing token or chat ID";
+    if (!state.enabled) return language === "vi" ? "Đang tắt — không gửi cảnh báo" : "Disabled — alerts will not be sent";
+    return language === "vi" ? "Đang bật — đủ thông tin cấu hình" : "Enabled — credentials configured";
+  };
   const [message, setMessage] = useState<{
     text: string;
     type: "success" | "error";
@@ -56,6 +66,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       if (res.ok) {
         const json = await res.json();
         setSettings((prev) => ({ ...prev, ...json.settings }));
+        setNotificationStatus(json.notification_status || {});
       }
     } catch (error) {
       console.error("Failed to load settings", error);
@@ -76,6 +87,8 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     try {
       // Save all settings one by one
       for (const [key, value] of Object.entries(settings)) {
+        const channel = key.startsWith("zalo_") ? "zalo" : key.startsWith("telegram_") ? "telegram" : null;
+        if (channel && notificationStatus[channel]?.source[key.slice(channel.length + 1)] === "environment") continue;
         const res = await authFetch(`${API_URL}/settings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -99,11 +112,16 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         method: "POST",
       });
       const json = await res.json();
-      if (res.ok) {
-        setMessage({ text: t.settings.testSent, type: "success" });
+      const outcomes = Object.entries(json.channels || {}).map(([channel, result]: [string, any]) => {
+        const info = result.description || (result.fallback_reason
+          ? (language === "vi" ? "Đã gửi văn bản thay ảnh" : "Text sent instead of photo") : "");
+        return `${channel}: ${result.status}${result.error_code ? ` [${result.error_code}]` : ""}${info ? ` — ${info}` : ""}`;
+      }).join("; ");
+      if (res.ok && json.status === "ok") {
+        setMessage({ text: `${t.settings.testSent} ${outcomes}`, type: "success" });
       } else {
         setMessage({
-          text: "Test failed: " + (json.detail || json.message),
+          text: "Test failed: " + (json.detail || json.message) + (outcomes ? ` (${outcomes})` : ""),
           type: "error",
         });
       }
@@ -181,6 +199,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       type="checkbox"
                       id="zalo_enabled"
                       name="zalo_enabled"
+                      disabled={notificationStatus.zalo?.source.enabled === "environment"}
                       checked={settings.zalo_enabled === "true"}
                       onChange={handleChange}
                       className="w-4 h-4 rounded bg-gray-800 border-gray-600 text-sky-500 focus:ring-sky-500"
@@ -206,6 +225,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="password"
                       name="zalo_bot_token"
+                      disabled={notificationStatus.zalo?.source.bot_token === "environment"}
                       value={settings.zalo_bot_token}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-sky-500 outline-none"
@@ -220,29 +240,21 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="zalo_chat_id"
+                      disabled={notificationStatus.zalo?.source.chat_id === "environment"}
                       value={settings.zalo_chat_id}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-sky-500 outline-none"
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="text-xs text-gray-500 uppercase">
-                      Public Backend URL (optional, for snapshot images)
-                    </label>
-                    <input
-                      type="text"
-                      name="public_base_url"
-                      value={settings.public_base_url}
-                      onChange={handleChange}
-                      className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-sky-500 outline-none"
-                      placeholder="https://your-domain.com"
-                    />
-                    <p className="text-[10px] text-gray-500">
-                      Zalo can only send a photo from a public URL. Leave empty
-                      to receive text-only alerts.
-                    </p>
-                  </div>
+                  <p className="text-xs text-gray-500">
+                    {botStateLabel("zalo")}{". "}
+                    {notificationStatus.zalo && (language === "vi"
+                      ? `Cấu hình: ${notificationStatus.zalo.configured ? "đầy đủ" : "chưa đầy đủ"}. Trường bị khóa lấy từ môi trường; chỉnh .env rồi khởi động lại backend. `
+                      : `Credentials: ${notificationStatus.zalo.configured ? "configured" : "incomplete"}. Locked fields come from the environment; edit .env and restart the backend. `)}
+                    Zalo alerts include an expiring link to the event image in S3.
+                    If the image link is unavailable, the alert still arrives as text.
+                  </p>
                 </div>
               )}
 
@@ -253,6 +265,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                       type="checkbox"
                       id="telegram_enabled"
                       name="telegram_enabled"
+                      disabled={notificationStatus.telegram?.source.enabled === "environment"}
                       checked={settings.telegram_enabled === "true"}
                       onChange={handleChange}
                       className="w-4 h-4 rounded bg-gray-800 border-gray-600 text-blue-500 focus:ring-blue-500"
@@ -276,6 +289,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="telegram_bot_token"
+                      disabled={notificationStatus.telegram?.source.bot_token === "environment"}
                       value={settings.telegram_bot_token}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-blue-500 outline-none"
@@ -289,11 +303,18 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="telegram_chat_id"
+                      disabled={notificationStatus.telegram?.source.chat_id === "environment"}
                       value={settings.telegram_chat_id}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-blue-500 outline-none"
                     />
                   </div>
+                  {notificationStatus.telegram && <p className="text-xs text-gray-500">
+                    {botStateLabel("telegram")}{". "}
+                    {language === "vi"
+                      ? `Cấu hình: ${notificationStatus.telegram.configured ? "đầy đủ" : "chưa đầy đủ"}. Trường bị khóa lấy từ môi trường; chỉnh .env rồi khởi động lại backend.`
+                      : `Credentials: ${notificationStatus.telegram.configured ? "configured" : "incomplete"}. Locked fields come from the environment; edit .env and restart the backend.`}
+                  </p>}
                 </div>
               )}
 

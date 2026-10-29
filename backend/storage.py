@@ -13,7 +13,8 @@ import io
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 import threading
 import time
 
@@ -29,6 +30,8 @@ RETENTION_INTERVAL_SECONDS = max(60, int(os.getenv("SNAPSHOT_CLEANUP_INTERVAL_SE
 RETENTION_BATCH_SIZE = 500
 _PERIODIC_NAME = re.compile(r"periodic_(\d{8}_\d{6})_cam_\d+\.jpg")
 _maintenance_lock = threading.RLock()
+_snapshot_pins = {}
+_pin_lock = threading.RLock()
 _stop = threading.Event()
 _worker = None
 _worker_lock = threading.Lock()
@@ -54,6 +57,7 @@ class _MinioStore:
                             access_key=os.environ["S3_ACCESS_KEY"],
                             secret_key=os.environ["S3_SECRET_KEY"],
                             secure=os.getenv("S3_SECURE", "false").lower() == "true",
+                            region=os.getenv("S3_REGION") or None,
                             http_client=http)
         self.name = f"minio://{S3_ENDPOINT}/{self.bucket}"
 
@@ -84,6 +88,31 @@ class _MinioStore:
     def download(self, key, path):
         self.client.fget_object(self.bucket, key, path)
 
+    def stat(self, key):
+        return self.client.stat_object(self.bucket, key)
+
+    def snapshot_url(self, key):
+        from minio import Minio
+
+        # Sign with the external host itself; rewriting a signed URL breaks it.
+        endpoint = urlsplit(os.getenv("S3_PUBLIC_ENDPOINT", "").strip())
+        if (endpoint.scheme not in ("http", "https") or not endpoint.hostname
+                or endpoint.username or endpoint.password or endpoint.query
+                or endpoint.fragment or endpoint.path not in ("", "/")):
+            raise ValueError("S3_PUBLIC_ENDPOINT must be an http(s) S3 API origin without a path")
+        seconds = int(os.getenv("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        if not 1 <= seconds <= 604800:
+            raise ValueError("S3_SNAPSHOT_URL_TTL_SECONDS must be between 1 and 604800")
+        self.stat(key)  # A signed URL alone does not prove that upload succeeded.
+        signer = Minio(
+            endpoint.netloc,
+            access_key=os.environ["S3_ACCESS_KEY"],
+            secret_key=os.environ["S3_SECRET_KEY"],
+            secure=endpoint.scheme == "https",
+            region=os.getenv("S3_REGION") or "us-east-1",
+        )
+        return signer.presigned_get_object(self.bucket, key, expires=timedelta(seconds=seconds))
+
 
 class _GcsStore:
     def __init__(self):
@@ -112,6 +141,11 @@ class _GcsStore:
     def download(self, key, path):
         self.bucket.blob(key).download_to_filename(path)
 
+    def stat(self, key):
+        blob = self.bucket.blob(key)
+        blob.reload()
+        return blob
+
 
 _store = None
 
@@ -129,6 +163,23 @@ def _get_store():
 
 def local_path(name):
     return os.path.join(SNAPSHOT_DIR, os.path.basename(name))
+
+
+def pin_snapshot(name):
+    """Keep notification attachments out of maintenance/deletion until released."""
+    with _pin_lock:
+        name = os.path.basename(name)
+        _snapshot_pins[name] = _snapshot_pins.get(name, 0) + 1
+
+
+def unpin_snapshot(name):
+    with _pin_lock:
+        name = os.path.basename(name)
+        remaining = _snapshot_pins.get(name, 0) - 1
+        if remaining > 0:
+            _snapshot_pins[name] = remaining
+        else:
+            _snapshot_pins.pop(name, None)
 
 
 def _write_local(name, data):
@@ -176,6 +227,9 @@ def read_snapshot(name):
 
 
 def delete_snapshot(name):
+    with _pin_lock:
+        if _snapshot_pins.get(os.path.basename(name)):
+            return
     try:
         os.remove(local_path(name))
     except OSError:
@@ -191,9 +245,25 @@ def discard_local(path):
     """Remove a local copy once it is no longer needed (only when object storage holds the original)."""
     if path and enabled():
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            _get_store().stat(SNAPSHOT_PREFIX + os.path.basename(path))
+            with _pin_lock:
+                if _snapshot_pins.get(os.path.basename(path)):
+                    return
+                os.remove(path)
+        except Exception:
+            logger.warning("[Storage] Keeping local snapshot %s; remote copy not confirmed", os.path.basename(path))
+
+
+def snapshot_public_url(name):
+    """Return an externally reachable, expiring S3 link for an uploaded snapshot."""
+    if not S3_ENDPOINT:
+        return None
+    try:
+        return _get_store().snapshot_url(SNAPSHOT_PREFIX + os.path.basename(name))
+    except Exception:
+        # Do not log signed URLs or credentials returned by providers.
+        logger.warning("[Storage] S3 snapshot link unavailable for %s; check upload and public endpoint configuration", os.path.basename(name))
+        return None
 
 
 def ensure_model(path):
@@ -212,6 +282,8 @@ def _sync_pending():
     for name in os.listdir(SNAPSHOT_DIR):
         if _stop.is_set():
             break
+        if _snapshot_pins.get(name):
+            continue
         path = os.path.join(SNAPSHOT_DIR, name)
         # Fresh files may still be in use (e.g. attached to a notification being sent)
         if not name.endswith(".jpg") or now - os.path.getmtime(path) < SYNC_INTERVAL_SECONDS:
@@ -219,7 +291,10 @@ def _sync_pending():
         with open(path, "rb") as f:
             data = f.read()
         _get_store().put(SNAPSHOT_PREFIX + name, data, "image/jpeg")
-        os.remove(path)
+        with _pin_lock:
+            if _snapshot_pins.get(name):
+                continue
+            os.remove(path)
         logger.info("[Storage] Synced pending snapshot %s", name)
 
 
@@ -246,6 +321,8 @@ def cleanup_periodic(now=None):
                     break
                 try:
                     if not entry.is_file(follow_symlinks=False):
+                        continue
+                    if _snapshot_pins.get(entry.name):
                         continue
                     stat = entry.stat(follow_symlinks=False)
                     if not _expired_periodic(entry.name, stat.st_mtime, cutoff):
