@@ -42,6 +42,7 @@ from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
 from users.routes import router as users_router
+from notification_routes import router as notification_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 from detection_rules import read_settings
 
@@ -64,6 +65,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
+app.include_router(notification_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -379,6 +381,24 @@ class PlaybackControl(BaseModel):
     action: Literal["pause", "resume", "restart"]
 
 
+class RetryVideoNotification(BaseModel):
+    event_type: Literal["fire", "smoke"]
+    channel: Literal["zalo", "telegram"]
+
+
+@app.post("/video-analysis/{job_id}/notifications/retry", dependencies=[Depends(get_current_user)])
+def retry_video_notification(job_id: str, body: RetryVideoNotification,
+                             current_user=Depends(get_current_user)):
+    try:
+        job = video_analyzer.retry_notification(job_id, body.event_type, body.channel)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Analysis job not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    log_action(current_user, "video.notification.retry", f"job:{job_id}:{body.event_type}:{body.channel}")
+    return job
+
+
 @app.post("/video-analysis/{job_id}/playback", dependencies=[Depends(get_current_user)])
 def control_video_playback(job_id: str, control: PlaybackControl):
     try:
@@ -413,7 +433,7 @@ async def video_analysis_updates(websocket: WebSocket, job_id: str):
                 else:
                     frame_id = job["frame_id"]
                 await asyncio.wait_for(websocket.send_json(job), timeout=5)
-                if job["status"] in ("done", "error", "cancelled"):
+                if job["status"] in ("done", "error", "cancelled") and not job.get("notification_pending", 0):
                     await websocket.close()
                     return
             # Observe client disconnects even while a paused job has no updates.

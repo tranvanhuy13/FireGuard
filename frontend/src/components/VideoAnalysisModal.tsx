@@ -4,9 +4,12 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { getAuthHeader, mediaUrl } from "../lib/api/client";
 import { API_URL, WS_URL } from "../config";
+import { authFetch } from "../lib/api/authFetch";
+import { useLanguage } from "../context/LanguageContext";
 
 interface Detection { class: string; confidence: number; bbox: number[] }
 interface AnalysisEvent { time: number; class: string; confidence: number; snapshot: string }
+interface BotDelivery { status: string; attempts?: number; description?: string; next_attempt_at?: number; target_count?: number; sent_count?: number }
 interface Job {
   id: string; filename: string; status: "queued" | "processing" | "paused" | "done" | "error" | "cancelled";
   progress: number | null; duration: number | null; current_time: number; sample_fps: number;
@@ -14,6 +17,10 @@ interface Job {
   detections: Detection[]; confirmed: string[]; events: AnalysisEvent[];
   summary: Record<string, { samples: number; max_confidence: number; first_time: number }>;
   verdict: string | null; error: string | null;
+  notification_pending?: number;
+  notifications?: Record<string, Record<string, BotDelivery>>;
+  notification_workers?: Record<string, boolean>;
+  notifications_cancelled?: boolean;
 }
 const terminal = (status?: string) => ["done", "error", "cancelled"].includes(status ?? "");
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
@@ -21,6 +28,8 @@ const button = "px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 disabled:opac
 
 export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const { streamToken, refreshStreamToken } = useAuth();
+  const { language } = useLanguage();
+  const [notificationWatch, setNotificationWatch] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [sampleFps, setSampleFps] = useState("10");
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -101,7 +110,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
           setError("Playback unavailable. Check your session or upload the video again.");
           return;
         }
-        if (!terminal(jobRef.current?.status)) {
+        if (!terminal(jobRef.current?.status) || (jobRef.current?.notification_pending ?? 0) > 0) {
           setError("Playback disconnected. Reconnecting...");
           retry = setTimeout(connect, 1500);
         }
@@ -110,7 +119,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
     };
     connect();
     return () => { disposed = true; clearTimeout(retry); socket?.close(); };
-  }, [isOpen, jobId, streamToken, refreshStreamToken]);
+  }, [isOpen, jobId, streamToken, refreshStreamToken, notificationWatch]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -180,6 +189,35 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
     setJob(null); setFile(null); setError(null); setLightbox(null);
   };
 
+  const retryNotification = async (eventType: string, channel: string) => {
+    if (!jobId || controlling) return;
+    const generation = generationRef.current;
+    setControlling(true); setError(null);
+    try {
+      const response = await authFetch(`${API_URL}/video-analysis/${jobId}/notifications/retry`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_type: eventType, channel }),
+      });
+      const next = await response.json();
+      if (!response.ok) throw new Error(next.detail || "Notification retry failed");
+      if (!mountedRef.current || generation !== generationRef.current) return;
+      const merged = { ...next, frame: jobRef.current?.frame };
+      jobRef.current = merged; setJob(merged);
+      setNotificationWatch(value => value + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Notification retry failed");
+    } finally { setControlling(false); }
+  };
+
+  const deliveryLabel = (status: string) => {
+    const labels: Record<string, string> = language === "vi" ? {
+      queued: "Đang chờ", sending: "Đang gửi", retrying: "Đang chờ thử lại", sent: "Đã gửi",
+      failed: "Gửi thất bại", disabled: "Bot đang tắt", unconfigured: "Thiếu cấu hình", cancelled: "Đã hủy",
+    } : { queued: "Queued", sending: "Sending", retrying: "Waiting to retry", sent: "Sent",
+      failed: "Failed", disabled: "Disabled", unconfigured: "Not configured", cancelled: "Cancelled" };
+    return labels[status] || status;
+  };
+
   if (!isOpen) return null;
   const events = job?.events ?? [];
   const buffering = active && job?.status === "processing" && (job.buffering || waitingForFrame);
@@ -229,8 +267,27 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
             <div className="flex flex-wrap gap-2">
               {active && <button className={button} disabled={controlling} onClick={() => control(job.status === "paused" ? "resume" : "pause")}>{job.status === "paused" ? "Play" : "Pause"}</button>}
               <button className={button} disabled={controlling} onClick={() => control("restart")}>Restart</button>
-              {active && <button className={button} disabled={controlling} onClick={() => control("cancel")}>Stop</button>}
+              {(active || (job.notification_pending ?? 0) > 0) && <button className={button} disabled={controlling} onClick={() => control("cancel")}>Stop</button>}
             </div>
+            {Object.keys(job.notifications ?? {}).length > 0 && <section className="p-3 bg-white/5 rounded-lg text-sm space-y-2" aria-live="polite">
+              <h3>{language === "vi" ? "Thông báo Zalo / Telegram" : "Zalo / Telegram notifications"}</h3>
+              {Object.entries(job.notification_workers ?? {}).filter(([, alive]) => !alive).map(([channel]) =>
+                <p key={channel} className="text-red-400">{channel}: {language === "vi" ? "Bộ gửi đang dừng. Thử lại để khởi động lại bộ gửi." : "Delivery worker stopped. Retry to restart delivery."}</p>)}
+              {(job.notification_pending ?? 0) > 0 && <p className="text-amber-300">
+                {language === "vi" ? "Thông báo vẫn đang được xử lý, kể cả khi video đã kết thúc." : "Notifications are still processing, even if playback has finished."}
+              </p>}
+              {Object.entries(job.notifications ?? {}).map(([eventType, channels]) => <div key={eventType} className="space-y-1">
+                {Object.entries(channels).map(([channel, delivery]) => <div key={channel} className="flex flex-wrap items-center gap-2">
+                  <span>{eventType.toUpperCase()} · {channel}: {deliveryLabel(delivery.status)}</span>
+                  {delivery.target_count !== undefined && <span className="text-gray-400">({delivery.sent_count ?? 0}/{delivery.target_count} {language === "vi" ? "người nhận" : "recipients"})</span>}
+                  {!!delivery.attempts && <span className="text-gray-400">({language === "vi" ? "lần thử" : "attempt"} {delivery.attempts})</span>}
+                  {delivery.description && delivery.status !== "sent" && <span className="text-gray-400">— {delivery.description}</span>}
+                  {["failed", "disabled", "unconfigured"].includes(delivery.status) && !job.notifications_cancelled && job.status !== "cancelled" && <button className={button} disabled={controlling} onClick={() => retryNotification(eventType, channel)}>
+                    {language === "vi" ? "Thử lại kênh này" : "Retry this channel"}
+                  </button>}
+                </div>)}
+              </div>)}
+            </section>}
             {!!job.detections?.length && <p className="text-sm text-amber-300">{Array.from(new Set(job.detections.map(d => d.class))).map(name => {
               const confidence = Math.max(...job.detections.filter(d => d.class === name).map(d => d.confidence));
               return `${name}: ${(confidence * 100).toFixed(0)}%${confirmed.includes(name) ? "" : " (confirming…)"}`;

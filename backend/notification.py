@@ -1,5 +1,6 @@
 """Bot delivery shared by independent camera and uploaded-video events."""
 import logging
+import hashlib
 import os
 import re
 import threading
@@ -8,6 +9,7 @@ from urllib.parse import quote
 
 import requests
 from database import get_setting
+import database
 
 logger = logging.getLogger(__name__)
 last_notification = {}
@@ -29,11 +31,17 @@ def setting(key):
 def channel_config(channel):
     token = setting(f"{channel}_bot_token")
     chat_id = setting(f"{channel}_chat_id")
+    saved = []
+    if getattr(database, "DB_NAME", None) is not None:
+        from notification_targets import list_targets
+        saved = list_targets(channel=channel)
+    targets = [item for item in saved if item["active"]] if saved else (
+        [{"id": "default", "chatId": chat_id}] if chat_id else [])
     flag = setting(f"{channel}_enabled").lower()
     # Explicit false is authoritative; otherwise credentials enable a new channel.
-    enabled = flag in ("true", "1", "yes", "on") if flag else bool(token and chat_id)
-    return {"token": token, "chat_id": chat_id, "enabled": enabled,
-            "configured": bool(token and chat_id)}
+    enabled = flag in ("true", "1", "yes", "on") if flag else bool(token and targets)
+    return {"token": token, "chat_id": targets[0]["chatId"] if targets else "", "enabled": enabled,
+            "targets": targets, "saved_targets": bool(saved), "configured": bool(token and targets)}
 
 
 def configuration_status():
@@ -52,6 +60,9 @@ def configuration_status():
             "source": {suffix: "environment" if (os.getenv(f"{channel}_{suffix}".upper()) or "").strip()
                        else "database" for suffix in ("bot_token", "chat_id", "enabled")},
         }
+        if config["saved_targets"]:
+            status[channel]["source"]["chat_id"] = "recipients"
+        status[channel]["target_count"] = len(config["targets"])
     return settings, status
 
 
@@ -63,14 +74,17 @@ def _safe_description(value):
             secret = setting(f"{channel}_{suffix}")
             if secret:
                 value = value.replace(secret, "[redacted]").replace(quote(secret, safe=""), "[redacted]")
+        for target in channel_config(channel)["targets"]:
+            value = value.replace(target["chatId"], "[redacted]")
     value = re.sub(r"https?://\S+", "[redacted URL]", value)
     value = re.sub(r"\b\d{5,}:[A-Za-z0-9_-]+\b", "[redacted token]", value)
     return " ".join(value.split())[:300]
 
 
-def _post(url, *, cancelled=None, details=None, **kwargs):
+def _post(url, *, cancelled=None, details=None, request_attempts=3, **kwargs):
     """Bounded retries; never log token-bearing URLs or provider response bodies."""
-    for attempt in range(3):
+    request_attempts = max(1, min(3, int(request_attempts)))
+    for attempt in range(request_attempts):
         if details is not None:
             details.clear()
         if cancelled is not None and cancelled.is_set():
@@ -108,14 +122,18 @@ def _post(url, *, cancelled=None, details=None, **kwargs):
                 except (TypeError, ValueError):
                     pass
                 if not 0 <= delay <= 10:
+                    if details is not None:
+                        details["retry_after"] = delay if delay >= 0 and delay < float("inf") else 30
                     return False, error
+                if details is not None:
+                    details["retry_after"] = delay
         except requests.RequestException as exc:
             retry, error = True, "network_error"
             if details is not None:
                 details.update(reason="timeout" if isinstance(exc, requests.Timeout) else "network_error",
                                description="Bot API request timed out" if isinstance(exc, requests.Timeout)
                                else "Unable to connect to the bot API")
-        if not retry or attempt == 2:
+        if not retry or attempt == request_attempts - 1:
             return False, error
         if cancelled is not None:
             if cancelled.wait(delay):
@@ -127,15 +145,19 @@ def _post(url, *, cancelled=None, details=None, **kwargs):
     return False, "delivery_failed"
 
 
-def _zalo_call(token, method, payload, cancelled=None, details=None):
-    return _post(f"{ZALO_API_BASE}/bot{token}/{method}", json=payload, cancelled=cancelled, details=details)
+def _zalo_call(token, method, payload, cancelled=None, details=None, request_attempts=3):
+    return _post(f"{ZALO_API_BASE}/bot{token}/{method}", json=payload, cancelled=cancelled,
+                 details=details, request_attempts=request_attempts)
 
 
-def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None):
+def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None):
     """Send warning text and an expiring direct S3 image link."""
     try:
         config = channel_config("zalo")
-        if not config["configured"]:
+        destination = chat_id or config["chat_id"]
+        if not config["token"] or not destination:
+            if details is not None:
+                details.update(reason="unconfigured", description="Missing Zalo token or destination")
             return False
         if snapshot_path:
             from storage import snapshot_public_url
@@ -143,7 +165,8 @@ def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None):
             message += (f"\n\nẢnh sự kiện (liên kết có thời hạn):\n{photo_url}" if photo_url else
                         "\n\nẢnh S3 chưa khả dụng. Vui lòng kiểm tra ảnh trên dashboard.")
         ok, error = _zalo_call(config["token"], "sendMessage",
-                               {"chat_id": config["chat_id"], "text": message}, cancelled=cancelled, details=details)
+                               {"chat_id": destination, "text": message}, cancelled=cancelled,
+                               details=details, request_attempts=request_attempts)
         if not ok:
             logger.warning("Zalo delivery failed: %s", error)
         return ok
@@ -152,12 +175,13 @@ def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None):
         return False
 
 
-def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None):
+def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None):
     """Upload a local photo when available; otherwise deliver warning text."""
     details = {} if details is None else details
     try:
         config = channel_config("telegram")
-        if not config["configured"]:
+        destination = chat_id or config["chat_id"]
+        if not config["token"] or not destination:
             if details is not None:
                 details.update(reason="unconfigured", description="Missing Telegram token or chat ID")
             return False
@@ -172,8 +196,9 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None):
                 else:
                     with open(snapshot_path, "rb") as image:
                         ok, error = _post(base + "/sendPhoto", cancelled=cancelled, details=photo_error,
+                                          request_attempts=request_attempts,
                                           files={"photo": image},
-                                          data={"chat_id": config["chat_id"], "caption": message})
+                                          data={"chat_id": destination, "caption": message})
                     if ok:
                         if details is not None:
                             details.update(mode="photo")
@@ -194,13 +219,15 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None):
             except OSError:
                 photo_error.update(reason="snapshot_unreadable", description="Unable to read the snapshot file")
             ok, error = _post(base + "/sendMessage", cancelled=cancelled, details=details,
-                              data={"chat_id": config["chat_id"], "text": message})
+                              request_attempts=request_attempts,
+                              data={"chat_id": destination, "text": message})
             if details is not None:
                 details.update(mode="text", fallback_reason=photo_error.get("reason", "media_rejected"),
                                photo_error=photo_error)
         else:
             ok, error = _post(base + "/sendMessage", cancelled=cancelled, details=details,
-                              data={"chat_id": config["chat_id"], "text": message})
+                              request_attempts=request_attempts,
+                              data={"chat_id": destination, "text": message})
             if details is not None:
                 details["mode"] = "text"
         if not ok:
@@ -215,7 +242,8 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None):
 
 
 def trigger_notifications(event_type, confidence, snapshot_path=None, *, context=None,
-                          cancelled=None, bypass_cooldown=False, camera_name=None):
+                          cancelled=None, bypass_cooldown=False, camera_name=None,
+                          channels=None, request_attempts=3, recipient_results=None):
     """Return per-channel outcomes; video deduplication is owned by its job queue."""
     body = (f"WARNING!\n\nThe system detected {event_type} with {confidence * 100:.1f}% confidence."
             f"\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -228,11 +256,14 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
     body += "\n\nPlease check the dashboard immediately."
     results = {}
     for channel in CHANNELS:
+        if channels is not None and channel not in channels:
+            continue
         config = channel_config(channel)
         if not config["enabled"] or not config["configured"]:
             results[channel] = {"status": "unconfigured" if not config["configured"] else "disabled",
                                 "description": "Channel is disabled; enable it in Settings or set " + channel.upper() + "_ENABLED=true"
-                                if config["configured"] else "Missing bot token or chat ID"}
+                                if config["configured"] else "No active recipients in Notification Accounts/Groups"
+                                if config["saved_targets"] and not config["targets"] else "Missing bot token or chat ID"}
             continue
         if cancelled is not None and cancelled.is_set():
             results[channel] = {"status": "cancelled"}
@@ -247,12 +278,26 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
                 _in_flight.add(key)
         try:
             sender = send_zalo if channel == "zalo" else send_telegram
-            details = {}
-            ok = sender(body, snapshot_path, cancelled=cancelled, details=details)
-            results[channel] = {"status": "sent" if ok else
-                                "cancelled" if cancelled is not None and cancelled.is_set() else "failed"}
-            results[channel].update(details)
-            if ok and use_cooldown:
+            delivered = {}
+            for target in config["targets"]:
+                key_id = target["id"] + ":" + hashlib.sha256(target["chatId"].encode()).hexdigest()[:16]
+                previous = (recipient_results or {}).get(key_id, {})
+                transient = previous.get("reason") in ("timeout", "network_error", "rate_limited") or previous.get("http_status", 0) >= 500
+                if previous.get("status") == "sent" or (previous.get("status") == "failed" and not transient):
+                    delivered[key_id] = previous
+                    continue
+                details = {}
+                ok = sender(body, snapshot_path, cancelled=cancelled, details=details,
+                            request_attempts=request_attempts, chat_id=target["chatId"])
+                delivered[key_id] = {"status": "sent" if ok else
+                                     "cancelled" if cancelled is not None and cancelled.is_set() else "failed", **details}
+            failures = [item for item in delivered.values() if item["status"] != "sent"]
+            failures.sort(key=lambda item: not (item.get("reason") in ("timeout", "network_error", "rate_limited") or item.get("http_status", 0) >= 500))
+            summary = dict(failures[0]) if failures else dict(next(iter(delivered.values())))
+            summary.update(recipients=delivered, target_count=len(delivered),
+                           sent_count=sum(item["status"] == "sent" for item in delivered.values()))
+            results[channel] = summary
+            if not failures and use_cooldown:
                 with _delivery_lock:
                     last_notification[key] = time.monotonic()
         except Exception:
