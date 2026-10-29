@@ -226,6 +226,15 @@ def read_snapshot(name):
     return None
 
 
+def restore_snapshot(name):
+    """Restore an attachment from storage for a manually retried notification."""
+    path = local_path(name)
+    if os.path.isfile(path):
+        return path
+    data = read_snapshot(name)
+    return _write_local(name, data) if data is not None else None
+
+
 def delete_snapshot(name):
     with _pin_lock:
         if _snapshot_pins.get(os.path.basename(name)):

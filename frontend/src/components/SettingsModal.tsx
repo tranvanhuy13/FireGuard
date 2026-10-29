@@ -88,7 +88,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
       // Save all settings one by one
       for (const [key, value] of Object.entries(settings)) {
         const channel = key.startsWith("zalo_") ? "zalo" : key.startsWith("telegram_") ? "telegram" : null;
-        if (channel && notificationStatus[channel]?.source[key.slice(channel.length + 1)] === "environment") continue;
+        if (channel && ["environment", "recipients"].includes(notificationStatus[channel]?.source[key.slice(channel.length + 1)])) continue;
         const res = await authFetch(`${API_URL}/settings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -240,7 +240,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="zalo_chat_id"
-                      disabled={notificationStatus.zalo?.source.chat_id === "environment"}
+                      disabled={["environment", "recipients"].includes(notificationStatus.zalo?.source.chat_id)}
                       value={settings.zalo_chat_id}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-sky-500 outline-none"
@@ -249,6 +249,9 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
                   <p className="text-xs text-gray-500">
                     {botStateLabel("zalo")}{". "}
+                    {notificationStatus.zalo?.source.chat_id === "recipients" && (language === "vi"
+                      ? "Chat ID được quản lý tại Notification Accounts/Groups. "
+                      : "Chat IDs are managed under Notification Accounts/Groups. ")}
                     {notificationStatus.zalo && (language === "vi"
                       ? `Cấu hình: ${notificationStatus.zalo.configured ? "đầy đủ" : "chưa đầy đủ"}. Trường bị khóa lấy từ môi trường; chỉnh .env rồi khởi động lại backend. `
                       : `Credentials: ${notificationStatus.zalo.configured ? "configured" : "incomplete"}. Locked fields come from the environment; edit .env and restart the backend. `)}
@@ -303,7 +306,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="telegram_chat_id"
-                      disabled={notificationStatus.telegram?.source.chat_id === "environment"}
+                      disabled={["environment", "recipients"].includes(notificationStatus.telegram?.source.chat_id)}
                       value={settings.telegram_chat_id}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-blue-500 outline-none"
@@ -311,6 +314,9 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                   </div>
                   {notificationStatus.telegram && <p className="text-xs text-gray-500">
                     {botStateLabel("telegram")}{". "}
+                    {notificationStatus.telegram.source.chat_id === "recipients" && (language === "vi"
+                      ? "Chat ID được quản lý tại Notification Accounts/Groups. "
+                      : "Chat IDs are managed under Notification Accounts/Groups. ")}
                     {language === "vi"
                       ? `Cấu hình: ${notificationStatus.telegram.configured ? "đầy đủ" : "chưa đầy đủ"}. Trường bị khóa lấy từ môi trường; chỉnh .env rồi khởi động lại backend.`
                       : `Credentials: ${notificationStatus.telegram.configured ? "configured" : "incomplete"}. Locked fields come from the environment; edit .env and restart the backend.`}

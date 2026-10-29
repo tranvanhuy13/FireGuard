@@ -588,6 +588,11 @@ export const setupMockService = () => {
       if (/^\/cameras(?:\/|$)/.test(parsedUrl.pathname)) {
         return originalFetch(input, init);
       }
+      // Notification destinations must be persisted where the real bots read them.
+      if (/^\/notifications\/(accounts|groups)(?:\/|$)/.test(parsedUrl.pathname)
+          || /^\/(settings|test-notification)$/.test(parsedUrl.pathname)) {
+        return originalFetch(input, init);
+      }
       const data = getMockData();
 
       if (url.includes('/history')) {

@@ -86,3 +86,8 @@ A page existing in the frontend does not imply the backend implements every matc
 `backend/best.pt` is the default model. Other weights may exist locally; their classes must be inspected before use. Although `*.pt` is ignored, already tracked weights remain tracked.
 
 Databases (`*.db`), `.env`/`.env.local`, snapshots, temporary uploads, virtual environments, `node_modules/`, build outputs, logs, and browser-test artifacts are runtime/developer data rather than architectural source modules. Do not infer tracked status from their presence on disk; use `git status` and `git ls-files`. Temporary video uploads are managed by `VideoAnalyzer`.
+
+### Notification destination management
+
+- [notification_targets.py](../../backend/notification_targets.py): SQLite destination persistence used by UI and bot delivery.
+- [notification_routes.py](../../backend/notification_routes.py): admin-only account/group CRUD and explicit recipient test delivery.
