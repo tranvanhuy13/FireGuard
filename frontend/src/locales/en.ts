@@ -262,6 +262,15 @@ export const en = {
     days30: "Last 30 Days Activity"
   },
   dashboard: {
+    networkOnline: "Internet connected",
+    networkOfflineShort: "Internet offline",
+    networkOffline: "Internet connection lost. Reconnecting when the network returns.",
+    loadingHistory: "Loading alert history. The server may take a moment to respond.",
+    accessError: "Session or permission error. Sign in again or check your access.",
+    historyUnavailable: "Alert history is temporarily unavailable. Showing previously received alerts.",
+    camerasUnavailable: "Camera status could not be refreshed. Showing the last available data.",
+    reconnectingLive: "Connecting to live alerts. Dashboard data remains available.",
+    lastUpdated: "Alerts last updated",
     cameras: 'Cameras',
     history: 'History',
     profile: 'Profile',

@@ -159,7 +159,7 @@ export default function DashboardLayout({
             )}
 
             <div className={`px-2 py-1 rounded-full text-xs font-medium ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {isOnline ? 'Online' : 'Offline'}
+              {isOnline ? t.dashboard.networkOnline : t.dashboard.networkOfflineShort}
             </div>
 
             <div className="h-8 w-px bg-gray-200 mx-2" />
