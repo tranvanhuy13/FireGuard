@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import mysql
 from sqlalchemy.schema import CreateTable
 
-from db.config import settings
+from db.config import settings, resolve_ca_path
 from db.engine import Connection, bind
 from db.schema import metadata
 from scripts.migrate_sqlite_to_mysql import import_data, read_source, OPERATIONAL
@@ -83,6 +83,41 @@ class PersistenceTests(unittest.TestCase):
         with self.engine.connect() as conn:
             row = conn.execute(sa.select(metadata.tables["users"])).mappings().one()
             self.assertEqual((row["id"], row["hashed_password"], row["role"]), (17, "preserved", "user"))
+
+    def test_render_uses_mounted_ca_for_local_template_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            secret_dir = Path(directory) / "secrets"
+            secret_dir.mkdir()
+            mounted = secret_dir / "aiven-ca.pem"
+            mounted.touch()
+            with patch("db.config.RENDER_SECRETS_DIR", secret_dir), \
+                 patch("db.config.BACKEND_DIR", Path(directory) / "app"):
+                for configured in ("certs/aiven-ca.pem", "backend/certs/aiven-ca.pem", "C:\\certs\\aiven-ca.pem", ""):
+                    with self.subTest(configured=configured), \
+                         patch.dict(os.environ, {"RENDER": "true", "MYSQL_SSL_CA": configured}, clear=True):
+                        self.assertEqual(resolve_ca_path(), mounted)
+
+    def test_render_preserves_custom_ca_and_reports_missing_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            custom = Path(directory) / "custom.pem"
+            custom.touch()
+            with patch("db.config.RENDER_SECRETS_DIR", Path(directory) / "missing"), \
+                 patch("db.config.BACKEND_DIR", Path(directory) / "app"), \
+                 patch.dict(os.environ, {"RENDER": "true", "MYSQL_SSL_CA": str(custom)}, clear=True):
+                self.assertEqual(resolve_ca_path(), custom)
+                os.environ["MYSQL_SSL_CA"] = "certs/aiven-ca.pem"
+                with self.assertRaisesRegex(RuntimeError, "Secret File named aiven-ca.pem"):
+                    resolve_ca_path()
+
+    def test_local_missing_ca_does_not_fall_back_to_render_secret(self):
+        with tempfile.TemporaryDirectory() as directory:
+            mounted = Path(directory) / "aiven-ca.pem"
+            mounted.touch()
+            with patch("db.config.RENDER_SECRETS_DIR", Path(directory)), \
+                 patch("db.config.BACKEND_DIR", Path(directory) / "app"), \
+                 patch.dict(os.environ, {"MYSQL_SSL_CA": "certs/aiven-ca.pem"}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "relative paths resolve against backend"):
+                    resolve_ca_path()
 
     def test_failed_import_rolls_back_earlier_tables(self):
         data = {"settings": [{"key": "key", "value": "value"}],

@@ -6,20 +6,43 @@ from dotenv import load_dotenv
 from sqlalchemy.engine import URL
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+RENDER_SECRETS_DIR = Path("/etc/secrets")
+
+
+def resolve_ca_path():
+    """Keep local CA paths, and support Render's runtime secret-file mount."""
+    configured = os.getenv("MYSQL_SSL_CA", "").strip()
+    on_render = os.getenv("RENDER", "").lower() == "true"
+    if not configured and not on_render:
+        raise RuntimeError("Missing MySQL configuration: MYSQL_SSL_CA")
+    ca = Path(configured).expanduser() if configured else RENDER_SECRETS_DIR / "aiven-ca.pem"
+    if not ca.is_absolute():
+        ca = BACKEND_DIR / ca
+    if ca.is_file():
+        return ca
+    # A local template path does not exist inside Render's Docker container.
+    # Only the standard certificate filename is eligible for this relocation.
+    if on_render and configured.replace("\\", "/").split("/")[-1] == "aiven-ca.pem":
+        mounted = RENDER_SECRETS_DIR / "aiven-ca.pem"
+        if mounted.is_file():
+            return mounted
+    hint = (
+        "On Render, add a Secret File named aiven-ca.pem containing the Aiven CA certificate "
+        "and set MYSQL_SSL_CA=/etc/secrets/aiven-ca.pem, then redeploy."
+        if on_render else
+        "Set MYSQL_SSL_CA to your downloaded CA PEM file; relative paths resolve against backend/."
+    )
+    raise RuntimeError("MYSQL_SSL_CA must point to an existing CA certificate file. " + hint)
 
 
 def settings():
     load_dotenv(BACKEND_DIR / ".env.local")
     load_dotenv(BACKEND_DIR / ".env")
-    required = ("MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD", "MYSQL_SSL_CA")
+    required = ("MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD")
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         raise RuntimeError("Missing MySQL configuration: " + ", ".join(missing))
-    ca = Path(os.environ["MYSQL_SSL_CA"]).expanduser()
-    if not ca.is_absolute():
-        ca = BACKEND_DIR / ca
-    if not ca.is_file():
-        raise RuntimeError("MYSQL_SSL_CA must point to an existing CA certificate file")
+    ca = resolve_ca_path()
     port = int(os.environ["MYSQL_PORT"])
     if not 1 <= port <= 65535:
         raise ValueError("MYSQL_PORT must be between 1 and 65535")

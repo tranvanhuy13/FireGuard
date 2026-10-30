@@ -25,7 +25,7 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `MODEL_OBJECT` | Object-store key for a missing model; default `models/best.pt` |
 | `MYSQL_HOST`, `MYSQL_PORT` | Required Aiven MySQL endpoint and service port |
 | `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` | Required database and credentials |
-| `MYSQL_SSL_CA` | Required CA PEM file; relative paths resolve against backend; certificate and hostname verified |
+| `MYSQL_SSL_CA` | CA PEM file; relative paths resolve against backend. Render can discover `/etc/secrets/aiven-ca.pem`; certificate and hostname verified |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | Connections per process: defaults 5 plus 5 overflow |
 | `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Pool wait/connection age in seconds: defaults 10/300 |
 | `SNAPSHOT_DIR` | Local snapshot directory; default `snapshots` relative to working directory |

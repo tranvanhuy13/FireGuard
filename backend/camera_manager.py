@@ -579,12 +579,9 @@ class CameraManager:
             except Exception as e:
                 print(f"Error in alert callback: {e}")
 
-        event_camera_name = cam.name
-
         def notify():
             try:
-                notification.trigger_notifications(cls_name, conf, filepath,
-                                                   camera_name=event_camera_name)
+                notification.trigger_notifications(cls_name, conf, filepath)
             finally:
                 storage.discard_local(filepath)
 
