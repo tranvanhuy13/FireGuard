@@ -531,6 +531,12 @@ export const en = {
       rowsPerPage: "Rows/page",
       all: "All",
       noData: "No results found",
+      errors: {
+        unauthorized: "Session expired or not logged in.",
+        forbidden: "You do not have permission to view the audit log (Admin role required).",
+        networkError: "Could not connect to the server. Please try again later.",
+        retry: "Retry"
+      },
       
       cols: {
         time: "Time",
@@ -557,7 +563,21 @@ export const en = {
         ACK_ALERT: "Acknowledge Alert",
         FALSE_ALARM: "Mark False Alarm",
         VIDEO_ANALYSIS: "Video Analysis",
-        TEST_NOTIFICATION: "Test Notification"
+        TEST_NOTIFICATION: "Test Notification",
+        "camera.add": "Add Camera",
+        "camera.delete": "Delete Camera",
+        "camera.update": "Edit Camera",
+        "camera.toggle": "Toggle Camera",
+        "video.analyze": "Video Analysis",
+        "video.notification.retry": "Retry Video Notification",
+        "setting.update": "Update Setting",
+        "notification.test": "Test Notification",
+        "alert.status": "Update Alert Status",
+        "notification.recipient.save": "Save Notification Recipient",
+        "notification.recipient.delete": "Delete Notification Recipient",
+        "notification.recipient.test": "Test Notification Recipient",
+        "user.update": "Update User",
+        "user.role_change": "Change User Role"
       },
       
       results: {
