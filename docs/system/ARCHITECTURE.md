@@ -2,6 +2,18 @@
 
 ## Services and startup
 
+The dashboard tracks alert-history HTTP, camera HTTP and alert WebSocket states
+independently. Requests time out after 30 seconds, retry transient failures up to
+five times with 2–30 second backoff, and honor HTTP Retry-After. Authentication
+and other permanent 4xx errors do not automatically loop. Request generations
+and abort cleanup reject stale results after retry, unmount or navigation.
+Transient failures show a nonblocking localized notice while retaining data;
+reconnecting the stream refreshes history without replacing newer live alerts.
+Camera requests run serially and are shared with the dashboard camera grid;
+standalone grids also use serial polling. Hidden tabs defer polling and returning
+online or visible refreshes data. Stream-token refresh restarts only its socket.
+The header's Internet indicator reflects browser connectivity, not backend health.
+
 The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images use MJPEG streams, while detection status, alerts, and analyzed video state use WebSockets. The backend owns camera capture, the YOLO model, MySQL persistence, and notification delivery.
 
 `backend/main.py` loads configuration before importing services that read environment variables. Importing the application checks the migrated MySQL schema, ensures model availability, loads YOLO, and constructs the camera/video managers. It is not a side-effect-free library import. The FastAPI lifespan installs the alert callback and shuts down managers.

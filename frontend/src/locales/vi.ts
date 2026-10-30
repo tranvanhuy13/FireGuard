@@ -262,6 +262,15 @@ export const vi = {
     days30: "Hoạt động 30 ngày qua"
   },
   dashboard: {
+    networkOnline: "Có Internet",
+    networkOfflineShort: "Mất Internet",
+    networkOffline: "Mất kết nối Internet. Hệ thống sẽ kết nối lại khi có mạng.",
+    loadingHistory: "Đang tải lịch sử cảnh báo. Máy chủ có thể cần thêm thời gian phản hồi.",
+    accessError: "Phiên đăng nhập hoặc quyền truy cập không hợp lệ. Vui lòng đăng nhập lại hoặc kiểm tra quyền.",
+    historyUnavailable: "Tạm thời chưa tải được lịch sử. Các cảnh báo đã nhận vẫn được giữ lại.",
+    camerasUnavailable: "Chưa cập nhật được trạng thái camera. Đang hiển thị dữ liệu gần nhất.",
+    reconnectingLive: "Đang kết nối cảnh báo trực tiếp. Bạn vẫn có thể sử dụng bảng điều khiển.",
+    lastUpdated: "Cập nhật cảnh báo gần nhất",
     cameras: 'Camera',
     history: 'Lịch sử',
     profile: 'Hồ sơ',

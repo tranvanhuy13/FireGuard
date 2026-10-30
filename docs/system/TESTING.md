@@ -50,6 +50,20 @@ Replace the lint target with files affected by the change. `npm run lint` runs t
 
 ## Browser tests
 
+Dashboard transport regressions run offline from `frontend/` with
+`npm run test:connection`. They use virtual timers and fake HTTP/WebSocket
+transports to cover delayed responses, timeout/retry, stale results, unmount,
+HTTP 401/403/429/5xx, serial polling, hidden/offline recovery and alert merging.
+
+`tests/dashboard_connection.spec.ts` checks the actual dashboard with intercepted
+API/WebSocket traffic. Start a separate frontend with
+`NEXT_PUBLIC_API_URL=http://127.0.0.1:18080`,
+`NEXT_PUBLIC_WS_URL=ws://127.0.0.1:18080` and all `NEXT_PUBLIC_USE_MOCK*` flags false.
+The dummy API origin must match the test interception; do not point this test at
+a production backend. Set `BASE_URL` to that frontend and run
+`npx playwright test tests/dashboard_connection.spec.ts --project=chromium`.
+Optionally set `PLAYWRIGHT_CHANNEL=chrome` to use installed Chrome.
+
 `npm test` runs Playwright using `frontend/playwright.config.ts`. It targets Chromium and the `BASE_URL` environment variable, defaulting to `http://localhost:3000`. The configuration does not start the application automatically: start the required frontend/backend services first and prepare the account/data fixtures needed by the selected tests.
 
 Existing specs cover authentication, redirects, role gates and API security expectations. Read each spec before running it; older expectations can differ from current backend access rules. Confirm actual responses and intended policy before changing code or weakening a test.

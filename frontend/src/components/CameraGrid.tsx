@@ -1,7 +1,9 @@
 /* eslint-disable */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { startPolling } from "../lib/dashboardConnection";
+import { authFetch } from "../lib/api/authFetch";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
 import { isMockData } from "../lib/api/client";
@@ -14,10 +16,10 @@ interface Camera {
   name: string;
   source: string;
   is_active: boolean;
-  status: "connected" | "disconnected" | "connecting";
+  status: string;
 }
 
-const CameraGrid = () => {
+const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefresh?: () => void }) => {
   const detections = useCameraDetections();
   const { t } = useLanguage();
   const { user, can, streamToken, refreshStreamToken } = useAuth();
@@ -29,6 +31,7 @@ const CameraGrid = () => {
   const [layoutMode, setLayoutMode] = useState<"auto" | "1" | "4">("auto");
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
   const [toggling, setToggling] = useState<Record<number, boolean>>({});
+  const polling = useRef<ReturnType<typeof startPolling> | null>(null);
 
   const toggleFullscreen = (camId: number) => {
     const el = document.getElementById(`cam-container-${camId}`);
@@ -43,24 +46,32 @@ const CameraGrid = () => {
   const canToggle = !!user;
   const canAnalyze = user?.role === "admin" || user?.role === "user";
 
-  const fetchCameras = async () => {
-    try {
-      const res = await fetch(`${API_URL}/cameras`);
-      if (!res.ok) throw new Error("Backend responded with error");
-      const data = await res.json();
-      setCameras(data.cameras);
-      setLoading(false);
-    } catch (error) {
-      console.error("[Frontend Camera] Failed to fetch camera statuses", error);
-      setLoading(true);
-    }
-  };
+  const fetchCameras = () => { if (onRefresh) onRefresh(); else polling.current?.retry(); };
 
   useEffect(() => {
-    fetchCameras();
-    const interval = setInterval(fetchCameras, 3000);
-    return () => clearInterval(interval);
-  }, []);
+    if (cameraData !== undefined) { setCameras(cameraData); setLoading(false); }
+  }, [cameraData]);
+
+  useEffect(() => {
+    if (onRefresh) return;
+    const controller = startPolling<{ cameras: Camera[] }>({
+      url: `${API_URL}/cameras`, interval: 3000, request: authFetch,
+      onState: state => { if (state !== "loading") setLoading(false); },
+      onData: data => {
+        if (!Array.isArray(data.cameras)) throw new Error("Invalid cameras response");
+        setCameras(data.cameras); setLoading(false);
+      },
+    });
+    polling.current = controller;
+    const recover = () => { if (!document.hidden) controller.retry(); };
+    window.addEventListener("online", recover);
+    document.addEventListener("visibilitychange", recover);
+    return () => {
+      controller.dispose(); polling.current = null;
+      window.removeEventListener("online", recover);
+      document.removeEventListener("visibilitychange", recover);
+    };
+  }, [onRefresh]);
 
   const handleAddCamera = async () => {
     if (!newCamSource || !canManage) return;
