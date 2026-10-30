@@ -92,7 +92,7 @@ export default function HistoryPage() {
 
   const filteredAlerts = useMemo(() => {
     return alerts.filter(a => {
-      const matchSearch = a.id.toLowerCase().includes(search.toLowerCase()) || a.camera_id.toString().includes(search);
+      const matchSearch = String(a.id).toLowerCase().includes(search.toLowerCase()) || String(a.camera_id).includes(search);
       const matchType = typeFilter === 'all' || a.type === typeFilter;
       const matchStatus = statusFilter === 'all' || a.status === statusFilter;
       return matchSearch && matchType && matchStatus;
