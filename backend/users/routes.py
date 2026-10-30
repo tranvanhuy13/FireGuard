@@ -33,7 +33,7 @@ class UserUpdate(BaseModel):
 @router.put("/{user_id}")
 def update_user(user_id: int, update: UserUpdate, admin=Depends(require_admin), db=Depends(get_db)):
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_serialized()
         actor = db.execute("SELECT * FROM users WHERE id=?", (admin.id,)).fetchone()
         if actor is None or actor["role"] != "admin":
             raise HTTPException(status_code=403, detail="Admin permission required")

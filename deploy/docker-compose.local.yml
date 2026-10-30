@@ -1,7 +1,7 @@
 # Local stack: MinIO + backend + frontend + Caddy, built from this checkout.
 #   docker compose -f deploy/docker-compose.local.yml --env-file ~/.fireguard/local.env up -d --build
 # The self-hosted GitHub Actions runner runs the same command (.github/workflows/local-cd.yml).
-# Ports are bound to 127.0.0.1 by default: the backend has no authentication of its own.
+# Ports are bound to 127.0.0.1 by default. Use a separate development MySQL database.
 name: fireguard
 
 services:
@@ -45,6 +45,16 @@ services:
     restart: unless-stopped
     environment:
       S3_ENDPOINT: minio:9000
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:?set MYSQL_PORT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_SSL_CA: /run/secrets/aiven-ca.pem
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-10}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       S3_BUCKET: ${S3_BUCKET:-fireguard}
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
@@ -66,6 +76,12 @@ services:
       STREAM_TOKEN_SECRET: ${STREAM_TOKEN_SECRET:-}
     volumes:
       - backend_data:/data
+      - type: bind
+        source: ${MYSQL_SSL_CA_HOST_PATH:?set absolute CA path on host}
+        target: /run/secrets/aiven-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       minio-init:
         condition: service_completed_successfully

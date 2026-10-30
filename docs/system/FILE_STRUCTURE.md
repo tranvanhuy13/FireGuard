@@ -91,3 +91,12 @@ Databases (`*.db`), `.env`/`.env.local`, snapshots, temporary uploads, virtual e
 
 - [notification_targets.py](../../backend/notification_targets.py): SQLite destination persistence used by UI and bot delivery.
 - [notification_routes.py](../../backend/notification_routes.py): admin-only account/group CRUD and explicit recipient test delivery.
+
+## MySQL persistence
+
+- `backend/db/`: shared configuration, pooled connection adapter and SQLAlchemy schema.
+- `backend/alembic.ini`, `backend/migrations/`: versioned MySQL schema and transaction lock rows.
+- `backend/scripts/migrate_sqlite_to_mysql.py`: read-only legacy SQLite import; dry run by default.
+- `backend/scripts/seed_mysql.py`: optional idempotent defaults for new databases.
+- `backend/tests/test_mysql_persistence.py`, `test_mysql_concurrency.py`: offline and opt-in MySQL checks.
+- [Aiven migration runbook](../MYSQL_AIVEN_MIGRATION.md).

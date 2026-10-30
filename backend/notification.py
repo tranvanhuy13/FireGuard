@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 import requests
 from database import get_setting
-import database
+from notification_targets import list_targets
 
 logger = logging.getLogger(__name__)
 last_notification = {}
@@ -31,10 +31,7 @@ def setting(key):
 def channel_config(channel):
     token = setting(f"{channel}_bot_token")
     chat_id = setting(f"{channel}_chat_id")
-    saved = []
-    if getattr(database, "DB_NAME", None) is not None:
-        from notification_targets import list_targets
-        saved = list_targets(channel=channel)
+    saved = list_targets(channel=channel)
     targets = [item for item in saved if item["active"]] if saved else (
         [{"id": "default", "chatId": chat_id}] if chat_id else [])
     flag = setting(f"{channel}_enabled").lower()

@@ -182,13 +182,12 @@ async def test_reset_password_validations():
 @pytest.mark.asyncio
 async def test_full_reset_password_and_login_flow():
     """14. Kiểm tra toàn trình: Verify Reset OTP -> Đổi mật khẩu mới -> Đăng nhập bằng mật khẩu mới thành công"""
-    import sqlite3
+    from db.engine import get_connection
     from auth.utils import otp_expiry
 
     # Giả lập mã OTP hợp lệ trong DB cho tài khoản vyvy
     expiry_time = otp_expiry()
-    db_path = os.path.join(BACKEND_DIR, "example.db")
-    conn = sqlite3.connect(db_path)
+    conn = get_connection()
     conn.execute(
         "UPDATE users SET otp = '888888', otp_expires_at = ?, otp_attempts = 0 WHERE username = 'vyvy'",
         (expiry_time,)

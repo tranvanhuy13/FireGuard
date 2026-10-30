@@ -1,25 +1,14 @@
 """Persistent notification destinations shared by the UI and bot delivery."""
-import sqlite3
 import uuid
 from contextlib import contextmanager
 
-import database
+from db.engine import get_connection
 
 
 @contextmanager
 def connection():
-    conn = sqlite3.connect(database.DB_NAME, timeout=10)
-    try:
-        conn.row_factory = sqlite3.Row
-        conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
-        conn.execute("""CREATE TABLE IF NOT EXISTS notification_targets (
-            id TEXT PRIMARY KEY, kind TEXT NOT NULL, channel TEXT NOT NULL,
-            friendly_name TEXT NOT NULL, chat_id TEXT NOT NULL, active INTEGER NOT NULL,
-            UNIQUE(channel, chat_id))""")
-        with conn:
-            yield conn
-    finally:
-        conn.close()
+    with get_connection() as conn:
+        yield conn
 
 
 def public(row):
@@ -36,27 +25,32 @@ def list_targets(kind=None, channel=None):
     with connection() as conn:
         rows = conn.execute("SELECT * FROM notification_targets" +
                             (" WHERE " + " AND ".join(conditions) if conditions else "") +
-                            " ORDER BY rowid", args).fetchall()
+                            " ORDER BY sequence", args).fetchall()
         return [public(row) for row in rows]
 
 
 def save_target(kind, body, target_id=None):
     with connection() as conn:
+        conn.begin_serialized("notifications")
         if target_id and not conn.execute("SELECT 1 FROM notification_targets WHERE id=? AND kind=?",
                                           (target_id, kind)).fetchone():
             raise KeyError(target_id)
         target_id = target_id or uuid.uuid4().hex
-        if not conn.execute("SELECT 1 FROM notification_targets WHERE id=?", (target_id,)).fetchone():
-            if conn.execute("SELECT COUNT(*) FROM notification_targets WHERE channel=?", (body.channel,)).fetchone()[0] >= 20:
-                raise ValueError("A channel supports at most 20 saved recipients")
-        conn.execute("""INSERT INTO notification_targets(id,kind,channel,friendly_name,chat_id,active)
-            VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET channel=excluded.channel,
-            friendly_name=excluded.friendly_name,chat_id=excluded.chat_id,active=excluded.active""",
-                     (target_id, kind, body.channel, body.friendlyName, body.chatId, int(body.active)))
+        if conn.execute("SELECT COUNT(*) FROM notification_targets WHERE channel=? AND id<>?",
+                        (body.channel, target_id)).fetchone()[0] >= 20:
+            raise ValueError("A channel supports at most 20 saved recipients")
+        # Updating explicitly prevents a chat-ID collision from overwriting a
+        # different recipient, as a MySQL multi-unique-key upsert could do.
+        if conn.execute("SELECT 1 FROM notification_targets WHERE id=?", (target_id,)).fetchone():
+            conn.execute("UPDATE notification_targets SET channel=?, friendly_name=?, chat_id=?, active=? WHERE id=?",
+                         (body.channel, body.friendlyName, body.chatId, int(body.active), target_id))
+        else:
+            conn.execute("INSERT INTO notification_targets(id,kind,channel,friendly_name,chat_id,active) VALUES (?,?,?,?,?,?)",
+                         (target_id, kind, body.channel, body.friendlyName, body.chatId, int(body.active)))
         # Turning a recipient on also turns on its channel's persisted switch.
         # A process/environment *_ENABLED override still has higher priority.
         if body.active:
-            conn.execute("INSERT OR REPLACE INTO settings(key,value) VALUES (?, 'true')",
+            conn.execute("INSERT INTO settings(`key`,value) VALUES (?, 'true') ON DUPLICATE KEY UPDATE value='true'",
                          (body.channel + "_enabled",))
         return public(conn.execute("SELECT * FROM notification_targets WHERE id=?", (target_id,)).fetchone())
 

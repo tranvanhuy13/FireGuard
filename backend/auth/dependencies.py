@@ -3,9 +3,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .utils import verify_password
 from .login_limiter import reserve, finish
 from users.models import User
-from .database import get_connection, init_db
-
-init_db()
+from .database import get_connection
 
 security = HTTPBasic()
 

@@ -89,6 +89,7 @@ jobs:
             sudo mv /tmp/docker-compose.yml /tmp/Caddyfile .
             sudo sed -i "s/^TAG=.*/TAG=${{ github.sha }}/" .env
             sudo docker compose pull --quiet
+            sudo docker compose run --rm --no-deps backend python -m alembic upgrade head
             sudo docker compose up -d --remove-orphans
             sudo docker image prune -f
             sudo docker compose ps
@@ -99,7 +100,7 @@ jobs:
           gcloud compute ssh ${{ vars.VM_NAME }} $SSH_ARGS --command '
             for i in $(seq 1 30); do
               sudo docker compose -f /opt/fireguard/docker-compose.yml exec -T backend \
-                python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8000/\")" && exit 0
+                python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health/ready\")" && exit 0
               sleep 5
             done
             sudo docker compose -f /opt/fireguard/docker-compose.yml logs --tail 50 backend
