@@ -359,21 +359,44 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.1. Phân Quyền & Vai Trò Người Dùng (RBAC Role Field)
 - **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"user"` (không giả lập quyền cao).
+
 - **Cần Backend bổ sung:**
   - Cột `role` (`"admin"` | `"user"`) trong database `users` (vai trò `operator`/`viewer` cũ đã được gộp và đổi tên thành `user`; nếu backend trả về `viewer`, `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `user`).
   - Trả về trường `role` trong response của `GET /auth/login` và `GET /users/me`.
 
 ### 2.2. Quản Lý Danh Sách Người Dùng (Users Management)
 - **Hiện trạng:** Chưa có API quản lý người dùng.
+
 - **Cần Backend bổ sung:**
   - `GET /users`: Danh sách tất cả người dùng (hỗ trợ phân trang, tìm kiếm).
   - `PUT /users/{id}`: Thay đổi vai trò `role` của người dùng.
   - `PUT /users/{id}/status`: Khóa hoặc kích hoạt lại người dùng (`is_active: 0/1`).
 
 ### 2.3. Nhật Ký Thao Tác Hệ Thống (Audit Logs)
-- **Hiện trạng:** Chưa có lưu vết thao tác (ai bật tắt camera, ai đổi cấu hình, thời gian, IP).
-- **Cần Backend bổ sung:**
-  - `GET /audit-logs`: Danh sách nhật ký thao tác hệ thống (thời gian, user, action, target, IP, result).
+- **Endpoint:** `GET /audit-log?limit=200&offset=0`
+- **Quyền:** Chỉ Quản trị viên (`admin`).
+- **Hiện trạng:** Backend đã cung cấp endpoint trả về danh sách lịch sử thao tác hệ thống dạng JSON:
+  ```json
+  {
+    "logs": [
+      {
+        "id": 1,
+        "timestamp": "2026-10-29T08:50:00+00:00",
+        "username": "admin",
+        "role": "admin",
+        "action": "camera.toggle",
+        "target": "camera:1",
+        "detail": "on"
+      }
+    ]
+  }
+  ```
+- **Xử lý phía Frontend:**
+  - Ánh xạ trường: `username` -> `user`, `detail` -> `details`, `id` (số) -> chuỗi.
+  - Các trường mở rộng phía client chưa có trong DB (`result`, `ip`, `userAgent`): hiển thị `"-"`, ẩn bộ lọc kết quả khi chạy ở chế độ thực tế (`!isMockData`) để phản ánh trung thực dữ liệu backend.
+
+
+
 
 ### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
 - `POST /auth/forgot-password`: Nhận `{ "email": str }`; trả thông báo chung và gửi mã nếu tài khoản đã xác thực tồn tại.
@@ -387,6 +410,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.6. Đăng Nhập Mạng Xã Hội (Google / Facebook OAuth 2.0)
 - **Hiện trạng:** Chưa có tích hợp OAuth 2.0 với Google và Facebook.
+
 - **Cần Backend bổ sung:**
   - `GET /auth/google`, `GET /auth/google/callback`
   - `GET /auth/facebook`, `GET /auth/facebook/callback`
@@ -394,6 +418,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.7. Xác Nhận / Báo Động Sai Cảnh Báo (Alert Review Status)
 - **Hiện trạng:** Bảng `events` trong cơ sở dữ liệu backend chưa có trường `status` và `handler`. Cảnh báo chỉ được lưu cố định.
+
 - **Cần Backend bổ sung:**
   - `PUT /alerts/{id}`: Nhận `{ "status": "confirmed" | "false_alarm", "handler": str }` để cập nhật trạng thái xử lý sự cố.
 
@@ -404,6 +429,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.9. Quản Lý Kênh Nhận Tin Cá Nhân (Telegram / Zalo Notification Channels)
 - **Hiện trạng:** Backend chỉ lưu token bot trong database và chỉ có `/test-notification`. Chưa có bảng lưu từng tài khoản cá nhân, nhóm hay quy tắc gửi cảnh báo theo camera.
+
 - **Cần Backend bổ sung:**
   - `GET, POST, PUT, DELETE /notifications/accounts`
   - `GET, POST, PUT, DELETE /notifications/groups`

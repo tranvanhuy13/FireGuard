@@ -531,6 +531,12 @@ export const vi = {
       rowsPerPage: "Dòng/trang",
       all: "Tất cả",
       noData: "Không tìm thấy kết quả nào",
+      errors: {
+        unauthorized: "Phiên đăng nhập đã hết hạn hoặc bạn chưa đăng nhập.",
+        forbidden: "Bạn không có quyền xem nhật ký hệ thống (yêu cầu quyền quản trị viên).",
+        networkError: "Không thể kết nối đến máy chủ. Vui lòng thử lại sau.",
+        retry: "Thử lại"
+      },
       
       cols: {
         time: "Thời gian",
@@ -557,7 +563,21 @@ export const vi = {
         ACK_ALERT: "Xác nhận cảnh báo",
         FALSE_ALARM: "Đánh dấu báo động sai",
         VIDEO_ANALYSIS: "Phân tích video",
-        TEST_NOTIFICATION: "Gửi thông báo thử"
+        TEST_NOTIFICATION: "Gửi thông báo thử",
+        "camera.add": "Thêm camera",
+        "camera.delete": "Xóa camera",
+        "camera.update": "Sửa camera",
+        "camera.toggle": "Bật/tắt camera",
+        "video.analyze": "Phân tích video",
+        "video.notification.retry": "Gửi lại thông báo video",
+        "setting.update": "Đổi cài đặt",
+        "notification.test": "Gửi thông báo thử",
+        "alert.status": "Cập nhật cảnh báo",
+        "notification.recipient.save": "Lưu người nhận thông báo",
+        "notification.recipient.delete": "Xóa người nhận thông báo",
+        "notification.recipient.test": "Thử người nhận thông báo",
+        "user.update": "Cập nhật người dùng",
+        "user.role_change": "Đổi vai trò người dùng"
       },
       
       results: {
