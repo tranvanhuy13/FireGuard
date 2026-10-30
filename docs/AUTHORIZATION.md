@@ -66,3 +66,19 @@ Workers must share `AUTH_DB_PATH` for a shared budget. Client addresses come fro
 ## MySQL persistence update
 
 The backend now requires MYSQL_* configuration and an explicit `python -m alembic upgrade head` before startup. Account and operational tables share MySQL; DB_NAME/AUTH_DB_PATH and older SQLite setup instructions above are historical. Auth CLI commands use the same MySQL settings and transaction locks. See [the migration runbook](MYSQL_AIVEN_MIGRATION.md) for CA setup, import, testing and rollback.
+
+## Admin profile and audit history
+
+`GET /auth/login` returns the persisted `role` alongside id, username, email and
+activation status. The frontend uses that role to show administrator navigation;
+an account's name alone does not grant access. Sign out and sign back in after a
+backend update or role change to refresh the browser's saved profile.
+
+`GET /users/me` requires a string email in its response schema. Administrators
+provisioned directly in the database must have an email assigned before using
+the profile/session restoration flow.
+
+`GET /audit-log?limit=200&offset=0` returns `{"logs": [...]}` from MySQL, newest
+first. Only verified, unblocked admins can access it; ordinary users receive 403
+and missing credentials receive 401. Limit is clamped to 1–500 and offset to 0+.
+The real audit-log screen consumes this endpoint; its mock API is separate.

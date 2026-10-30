@@ -9,6 +9,7 @@ From `backend/`, run the offline suites:
 ```powershell
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_lifecycle.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_realtime_detection.py
+.\venv\Scripts\python.exe -m unittest discover -s tests -p test_admin_profile.py
 ```
 
 These suites isolate hardware/storage dependencies. Camera checks cover enable/disable, shared webcam leases, confirmation/cooldowns and stale state. Real-time checks cover settings, model scheduling, playback, cancellation, source retention and API handler contracts, including upload rejection before body reads and pause/resume slot handoff between videos. API handlers are exercised in-process with fake sockets; this is not a full network/browser test.
@@ -20,6 +21,11 @@ Use syntax compilation when appropriate:
 ```
 
 Compilation does not load the application or verify runtime model accuracy.
+
+`test_admin_profile.py` extracts the actual login/audit route definitions without
+importing main. It checks admin/user login roles, profile email validation, audit
+pagination, anonymous/user rejection and connection cleanup with a fake repository.
+It does not connect to MySQL, load model weights, or start cameras.
 
 ## Backend integration tests and side effects
 

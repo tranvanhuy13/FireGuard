@@ -20,6 +20,8 @@ LOGIN      Only the account helpers keep their own credential check, because
              GET /auth/stream-token   (HTTP Basic -> returns a stream token)
              GET /users/me            (see users/routes.py)
 
+ADMIN      GET /audit-log requires a verified, unblocked administrator.
+
 NOTE       /video_feed and /ws/alerts still accept an optional ?token=... so the
            existing frontend keeps working, but the token is no longer required.
 """
@@ -58,7 +60,8 @@ logger = logging.getLogger(__name__)
 import database
 import notification
 import storage
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, require_admin
+from auth.database import get_connection as get_auth_connection
 from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
@@ -213,6 +216,7 @@ def login(current_user=Depends(get_current_user)):
         "username": current_user.username,
         "email": current_user.email,
         "is_active": current_user.is_active,
+        "role": current_user.role,
     }
 
 
@@ -554,6 +558,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+@app.get("/audit-log", dependencies=[Depends(require_admin)])
+def get_audit_log(limit: int = 200, offset: int = 0):
+    """Return persisted audit history to administrators only."""
+    conn = get_auth_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+            (max(1, min(limit, 500)), max(0, offset)),
+        ).fetchall()
+        return {"logs": [dict(row) for row in rows]}
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":
