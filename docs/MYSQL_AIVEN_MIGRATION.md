@@ -125,6 +125,20 @@ runtime file available to both migration and API processes. Separate DDL migrati
 and DML application credentials where supported; workflows currently use the
 configured service account for the migration command.
 
+### Render CA file setup
+
+In the backend service's Environment settings, add a Secret File named exactly
+`aiven-ca.pem` and paste the full downloaded Aiven CA certificate, including its
+BEGIN/END CERTIFICATE lines. Set `MYSQL_SSL_CA=/etc/secrets/aiven-ca.pem` and
+save/redeploy the service. Setting an environment variable alone does not create
+the certificate file; local `backend/certs/` is excluded from Git and Docker.
+
+When `RENDER=true`, the backend also discovers that mounted file if MYSQL_SSL_CA
+is unset or still points at a missing local path ending in `aiven-ca.pem`.
+An existing configured file takes precedence. Certificate and hostname verification
+remain enabled; a missing mount fails with Render-specific setup instructions.
+See [Render's Docker secret-file documentation](https://render.com/docs/docker-secrets).
+
 ## Transactions and verification
 
 The `transaction_locks` rows are created by the migration. Auth reservations, OTP

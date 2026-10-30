@@ -1,8 +1,35 @@
-"""FireGuard API: authenticated operations with admin-only management."""
+"""
+main.py - AI Fire Detection System API (NO login required)
+
+Expected project layout:
+
+    main.py
+    detection.py, camera_manager.py, video_analyzer.py, notification.py, database.py
+    storage.py   (model download + snapshot storage: disk / MinIO / GCS)
+    auth/   (database.py, dependencies.py, models.py, routes.py, schemas.py, utils.py)
+    users/  (models.py, routes.py, schemas.py)
+
+Access rules
+------------
+PUBLIC     Every endpoint: cameras, video feeds, video analysis, alerts, stats,
+           history, settings, notifications, WebSocket, snapshots.
+
+LOGIN      Only the account helpers keep their own credential check, because
+           they are *about* the logged-in user:
+             GET /auth/login          (HTTP Basic -> returns the user profile)
+             GET /auth/stream-token   (HTTP Basic -> returns a stream token)
+             GET /users/me            (see users/routes.py)
+
+NOTE       /video_feed and /ws/alerts still accept an optional ?token=... so the
+           existing frontend keeps working, but the token is no longer required.
+"""
 import asyncio
+import hashlib
+import hmac
 import logging
 import math
 import os
+import secrets
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -12,7 +39,7 @@ from typing import Literal
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException, Query,
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Query,
                      Request, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
@@ -29,23 +56,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import database
-from db.engine import dispose_engine
 import notification
 import storage
-from auth.dependencies import get_current_user, require_admin
-from auth.upload import AuthenticatedUploadRoute, get_upload_user
-from auth.audit import log_action
-from auth.database import get_connection as get_auth_connection
-from auth.stream_tokens import (create_stream_token, STREAM_TOKEN_TTL_SECONDS,
-                                require_stream_user, require_snapshot_user,
-                                authorize_websocket, stream_is_authorized)
+from auth.dependencies import get_current_user
 from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
 from users.routes import router as users_router
-from notification_routes import router as notification_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 from detection_rules import read_settings
+
+# ---------------------------------------------------------------------------
+# Stream tokens (kept only so the frontend's /auth/stream-token call still works)
+# ---------------------------------------------------------------------------
+STREAM_TOKEN_TTL_SECONDS = 60 * 60
+# Set STREAM_TOKEN_SECRET in .env so tokens survive a server restart.
+STREAM_TOKEN_SECRET = os.getenv("STREAM_TOKEN_SECRET") or secrets.token_hex(32)
+
+
+def _sign(payload: str) -> str:
+    return hmac.new(STREAM_TOKEN_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def create_stream_token(username: str) -> str:
+    payload = f"{username}:{int(time.time()) + STREAM_TOKEN_TTL_SECONDS}"
+    return f"{payload}:{_sign(payload)}"
+
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -56,20 +92,20 @@ async def lifespan(app: FastAPI):
     global main_loop
     main_loop = asyncio.get_running_loop()
     camera_manager.alert_callback = broadcast_alert
-    storage.start_sync()
     try:
         yield
     finally:
         try:
             video_analyzer.shutdown()
-            camera_manager.shutdown()
-            storage.stop_sync()
         finally:
-            dispose_engine()
+            try:
+                camera_manager.shutdown()
+            finally:
+                from db.engine import dispose_engine
+                dispose_engine()
 
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
-app.include_router(notification_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -82,7 +118,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Retry-After"],
 )
 
 database.init_db()
@@ -101,21 +136,22 @@ def database_readiness():
 _model_path = Path(os.getenv("MODEL_PATH") or "best.pt")
 MODEL_PATH = str(_model_path if _model_path.is_absolute() else BACKEND_DIR / _model_path)
 storage.ensure_model(MODEL_PATH)
+storage.start_sync()
 detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras
-video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting, notification.trigger_notifications)
+video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
 
 
-# Snapshots require user credentials or a short-lived link scoped to one notification image.
+# Snapshots are public (Zalo needs to download them by URL).
 # They may live in MinIO / GCS instead of on disk, so they are served by a route.
-@app.get("/snapshots/{name}", dependencies=[Depends(require_snapshot_user)])
+@app.get("/snapshots/{name}")
 def get_snapshot(name: str):
     data = storage.read_snapshot(name)
     if data is None:
         raise HTTPException(status_code=404, detail="Snapshot not found")
     return Response(data, media_type="image/jpeg",
-                    headers={"Cache-Control": "no-store"})
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 # Authentication / account routes (signup + OTP + /users/me)
@@ -177,14 +213,13 @@ def login(current_user=Depends(get_current_user)):
         "username": current_user.username,
         "email": current_user.email,
         "is_active": current_user.is_active,
-        "role": current_user.role,
     }
 
 
 @app.get("/auth/stream-token")
 def get_stream_token(current_user=Depends(get_current_user)):
-    """Token for <img> video streams and the alerts WebSocket (required for media)."""
-    return {"token": create_stream_token(current_user),
+    """Token for <img> video streams and the alerts WebSocket (now optional)."""
+    return {"token": create_stream_token(current_user.username),
             "expires_in": STREAM_TOKEN_TTL_SECONDS}
 
 
@@ -199,17 +234,11 @@ async def generate_camera_stream(camera_id: int, request: Request):
     Push every new frame as soon as the capture thread publishes it (~30 FPS).
     No fixed sleep, no re-sending of old frames, JPEG encoded once per frame.
     """
-    token = request.query_params.get("token")
-    checked_at = 0.0
     frames_sent = 0
     last_id = -1
     logger.info("[Stream %s] Client connected", camera_id)
     try:
         while True:
-            if time.monotonic() - checked_at >= 1:
-                if not await asyncio.to_thread(stream_is_authorized, token):
-                    break
-                checked_at = time.monotonic()
             if await request.is_disconnected():
                 break
 
@@ -237,9 +266,9 @@ async def generate_camera_stream(camera_id: int, request: Request):
         logger.info("[Stream %s] Client disconnected after %s frames", camera_id, frames_sent)
 
 
-@app.get("/video_feed", dependencies=[Depends(require_stream_user)])
+@app.get("/video_feed")
 async def video_feed_default(request: Request, token: Optional[str] = Query(None)):
-    """Default video feed for backwards compatibility (VideoFeed.tsx). A signed stream token is required."""
+    """Default video feed for backwards compatibility (VideoFeed.tsx). `token` is ignored."""
     first_cam = next(iter(camera_manager.cameras.keys()), 1)
     logger.info("[Stream %s] Default stream requested", first_cam)
     return StreamingResponse(generate_camera_stream(first_cam, request),
@@ -247,9 +276,9 @@ async def video_feed_default(request: Request, token: Optional[str] = Query(None
                              headers=STREAM_HEADERS)
 
 
-@app.get("/video_feed/{camera_id}", dependencies=[Depends(require_stream_user)])
+@app.get("/video_feed/{camera_id}")
 async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str] = Query(None)):
-    """Endpoint for grid view (CameraGrid.tsx). A signed stream token is required."""
+    """Endpoint for grid view (CameraGrid.tsx). `token` is ignored."""
     logger.info("[Stream %s] Camera stream requested", camera_id)
     return StreamingResponse(generate_camera_stream(camera_id, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
@@ -265,7 +294,7 @@ class CameraModel(BaseModel):
     is_active: bool = False
 
 
-@app.get("/cameras", dependencies=[Depends(get_current_user)])
+@app.get("/cameras")
 def get_cameras():
     """Get list of cameras with real-time status details."""
     cameras = []
@@ -280,36 +309,32 @@ def get_cameras():
     return {"cameras": cameras}
 
 
-@app.post("/cameras", dependencies=[Depends(get_current_user)])
-def add_new_camera(cam: CameraModel, current_user=Depends(get_current_user)):
+@app.post("/cameras")
+def add_new_camera(cam: CameraModel):
     """Add a new camera."""
     new_id = camera_manager.add_camera("0", cam.name, cam.is_active)
-    log_action(current_user, "camera.add", f"camera:{new_id}", cam.name)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
-@app.delete("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def delete_camera(camera_id: int, current_user=Depends(get_current_user)):
+@app.delete("/cameras/{camera_id}")
+def delete_camera(camera_id: int):
     """Remove a camera."""
     if camera_manager.remove_camera(camera_id):
-        log_action(current_user, "camera.delete", f"camera:{camera_id}")
         return {"status": "ok", "message": "Camera removed"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
-@app.put("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def update_camera(camera_id: int, cam: CameraModel, current_user=Depends(get_current_user)):
+@app.put("/cameras/{camera_id}")
+def update_camera(camera_id: int, cam: CameraModel):
     if camera_manager.update_camera(camera_id, cam.name, cam.is_active):
-        log_action(current_user, "camera.update", f"camera:{camera_id}")
         return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
-@app.post("/cameras/{camera_id}/toggle", dependencies=[Depends(get_current_user)])
-def toggle_camera(camera_id: int, active: bool, current_user=Depends(get_current_user)):
+@app.post("/cameras/{camera_id}/toggle")
+def toggle_camera(camera_id: int, active: bool):
     """Enable or disable a camera."""
     if camera_manager.toggle_camera(camera_id, active):
-        log_action(current_user, "camera.toggle", f"camera:{camera_id}", "on" if active else "off")
         return {"status": "ok", "message": f"Camera {'enabled' if active else 'disabled'}"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
@@ -317,11 +342,8 @@ def toggle_camera(camera_id: int, active: bool, current_user=Depends(get_current
 # ---------------------------------------------------------------------------
 # Video upload analysis (requires: pip install python-multipart)
 # ---------------------------------------------------------------------------
-upload_router = APIRouter(route_class=AuthenticatedUploadRoute)
-
-
-@upload_router.post("/video-analysis")
-def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5), current_user=Depends(get_upload_user)):
+@app.post("/video-analysis")
+def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5)):
     """Upload a video; it is analysed in the background with the live-camera model."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
@@ -353,29 +375,20 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
 
     try:
         job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
-    except Exception as error:
-        try:
-            os.remove(tmp_path)
-        except FileNotFoundError:
-            pass
-        if isinstance(error, ValueError):
-            raise HTTPException(status_code=429, detail=str(error)) from error
-        raise
-    log_action(current_user, "video.analyze", f"job:{job_id}")
+    except ValueError as error:
+        os.remove(tmp_path)
+        raise HTTPException(status_code=429, detail=str(error)) from error
     logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
     return {"job_id": job_id}
 
 
-app.include_router(upload_router)
-
-
-@app.get("/video-analysis", dependencies=[Depends(get_current_user)])
+@app.get("/video-analysis")
 def list_video_analyses():
     """Recent video analysis jobs (newest first)."""
     return {"jobs": video_analyzer.list()}
 
 
-@app.get("/video-analysis/{job_id}", dependencies=[Depends(get_current_user)])
+@app.get("/video-analysis/{job_id}")
 def get_video_analysis(job_id: str):
     """Progress and result of one video analysis job."""
     job = video_analyzer.get(job_id)
@@ -384,7 +397,7 @@ def get_video_analysis(job_id: str):
     return job
 
 
-@app.post("/video-analysis/{job_id}/cancel", dependencies=[Depends(get_current_user)])
+@app.post("/video-analysis/{job_id}/cancel")
 def cancel_video_analysis(job_id: str):
     if video_analyzer.cancel(job_id):
         return {"status": "ok", "message": "Cancelling"}
@@ -395,25 +408,7 @@ class PlaybackControl(BaseModel):
     action: Literal["pause", "resume", "restart"]
 
 
-class RetryVideoNotification(BaseModel):
-    event_type: Literal["fire", "smoke"]
-    channel: Literal["zalo", "telegram"]
-
-
-@app.post("/video-analysis/{job_id}/notifications/retry", dependencies=[Depends(get_current_user)])
-def retry_video_notification(job_id: str, body: RetryVideoNotification,
-                             current_user=Depends(get_current_user)):
-    try:
-        job = video_analyzer.retry_notification(job_id, body.event_type, body.channel)
-    except KeyError as error:
-        raise HTTPException(status_code=404, detail="Analysis job not found") from error
-    except ValueError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    log_action(current_user, "video.notification.retry", f"job:{job_id}:{body.event_type}:{body.channel}")
-    return job
-
-
-@app.post("/video-analysis/{job_id}/playback", dependencies=[Depends(get_current_user)])
+@app.post("/video-analysis/{job_id}/playback")
 def control_video_playback(job_id: str, control: PlaybackControl):
     try:
         return {"job_id": video_analyzer.playback(job_id, control.action)}
@@ -425,17 +420,10 @@ def control_video_playback(job_id: str, control: PlaybackControl):
 
 @app.websocket("/ws/video-analysis/{job_id}")
 async def video_analysis_updates(websocket: WebSocket, job_id: str):
-    if not await authorize_websocket(websocket):
-        return
     await websocket.accept()
-    checked_at = time.monotonic()
     revision, frame_id = -1, -1
     try:
         while True:
-            if time.monotonic() - checked_at >= 1:
-                if not await authorize_websocket(websocket):
-                    return
-                checked_at = time.monotonic()
             job = video_analyzer.get(job_id, include_frame=True)
             if job is None:
                 await websocket.close(code=1008, reason="Analysis job not found")
@@ -447,7 +435,7 @@ async def video_analysis_updates(websocket: WebSocket, job_id: str):
                 else:
                     frame_id = job["frame_id"]
                 await asyncio.wait_for(websocket.send_json(job), timeout=5)
-                if job["status"] in ("done", "error", "cancelled") and not job.get("notification_pending", 0):
+                if job["status"] in ("done", "error", "cancelled"):
                     await websocket.close()
                     return
             # Observe client disconnects even while a paused job has no updates.
@@ -461,16 +449,9 @@ async def video_analysis_updates(websocket: WebSocket, job_id: str):
 
 @app.websocket("/ws/detections")
 async def camera_detection_updates(websocket: WebSocket):
-    if not await authorize_websocket(websocket):
-        return
     await websocket.accept()
-    checked_at = time.monotonic()
     try:
         while True:
-            if time.monotonic() - checked_at >= 1:
-                if not await authorize_websocket(websocket):
-                    return
-                checked_at = time.monotonic()
             await asyncio.wait_for(websocket.send_json({"cameras": camera_manager.detection_states()}), timeout=5)
             await asyncio.sleep(0.1)
     except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
@@ -480,7 +461,7 @@ async def camera_detection_updates(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # Alerts, stats, history
 # ---------------------------------------------------------------------------
-@app.get("/alerts", dependencies=[Depends(get_current_user)])
+@app.get("/alerts")
 def get_alerts():
     events = database.get_recent_events(limit=50)
     formatted_alerts = []
@@ -491,19 +472,17 @@ def get_alerts():
             "type": event["type"],
             "confidence": event["confidence"],
             "snapshot": event["snapshot_path"],
-            "status": event.get("status", "new"),
-            "handled_by": event.get("handled_by"),
         })
     return {"alerts": formatted_alerts}
 
 
-@app.get("/stats", dependencies=[Depends(get_current_user)])
+@app.get("/stats")
 def get_stats():
     """Get daily event statistics."""
     return {"stats": database.get_daily_stats()}
 
 
-@app.get("/history", dependencies=[Depends(get_current_user)])
+@app.get("/history")
 def get_history(limit: int = 50, offset: int = 0):
     """Get historical events with pagination."""
     return {"events": database.get_all_events(limit, offset)}
@@ -517,14 +496,10 @@ class SettingsModel(BaseModel):
     value: str
 
 
-@app.get("/settings", dependencies=[Depends(get_current_user)])
-def get_settings(current_user=Depends(get_current_user)):
-    """Admins read masked configuration; users read the shared sound preference."""
-    if current_user.role != "admin":
-        return {"settings": {"alarm_sound_enabled": database.get_setting("alarm_sound_enabled", "true")}}
+@app.get("/settings")
+def get_settings():
+    """Get all settings (masking secrets)."""
     settings = database.get_all_settings()
-    bot_settings, bot_status = notification.configuration_status()
-    settings.update(bot_settings)
     effective = read_settings(database.get_setting)
     settings.update(fire_threshold=str(effective["fire"] * 100),
                     smoke_threshold=str(effective["smoke"] * 100),
@@ -534,14 +509,12 @@ def get_settings(current_user=Depends(get_current_user)):
     for key in masked_keys:
         if key in settings and settings[key]:
             settings[key] = "********"
-    return {"settings": settings, "notification_status": bot_status}
+    return {"settings": settings}
 
 
-@app.post("/settings", dependencies=[Depends(get_current_user)])
-def save_setting(setting: SettingsModel, current_user=Depends(get_current_user)):
-    """Only admins configure services/AI; both roles may toggle alarm sound."""
-    if current_user.role != "admin" and setting.key != "alarm_sound_enabled":
-        raise HTTPException(status_code=403, detail="Admin permission required")
+@app.post("/settings")
+def save_setting(setting: SettingsModel):
+    """Save a setting."""
     if setting.value == "********":      # never save the masked placeholder back
         return {"status": "skipped", "message": "Masked value ignored"}
     bounds = {"fire_threshold": (0, 100), "smoke_threshold": (0, 100),
@@ -559,69 +532,28 @@ def save_setting(setting: SettingsModel, current_user=Depends(get_current_user))
         except ValueError as error:
             raise HTTPException(status_code=400, detail=f"Invalid value for {setting.key}") from error
     database.set_setting(setting.key, setting.value)
-    log_action(current_user, "setting.update", setting.key)
     return {"status": "ok", "message": "Setting saved"}
 
 
-@app.post("/test-notification", dependencies=[Depends(get_current_user)])
-def test_notification(current_user=Depends(get_current_user)):
+@app.post("/test-notification")
+def test_notification():
     """Trigger a test notification."""
-    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True)
-    log_action(current_user, "notification.test")
-    sent = sum(result["status"] == "sent" for result in results.values())
-    failed = any(result["status"] in ("failed", "unconfigured") for result in results.values())
-    status = "partial" if sent and failed else "ok" if sent else "error"
-    return {"status": status, "channels": results,
-            "message": "Test notification sent" if status == "ok" else
-                       "Some channels failed" if status == "partial" else
-                       "No notification sent; check enabled channels and credentials"}
+    notification.trigger_notifications("TEST EVENT", 0.99, None)
+    return {"status": "ok", "message": "Test notification triggered"}
 
 
 # ---------------------------------------------------------------------------
-# WebSocket (signed stream token required)
+# WebSocket (no login; ?token=... is accepted but ignored)
 # ---------------------------------------------------------------------------
 @app.websocket("/ws/alerts")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    if not await authorize_websocket(websocket):
-        return
     """Real-time alert push."""
     await manager.connect(websocket)
     try:
         while True:
-            if not await authorize_websocket(websocket):
-                break
-            try:
-                await asyncio.wait_for(websocket.receive_text(), timeout=1)
-            except asyncio.TimeoutError:
-                pass
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
-    finally:
         manager.disconnect(websocket)
-
-
-class AlertStatusModel(BaseModel):
-    status: Literal["confirmed", "false_alarm"]
-
-
-@app.patch("/alerts/{event_id}/status")
-@app.put("/alerts/{event_id}")
-def set_alert_status(event_id: int, body: AlertStatusModel, current_user=Depends(get_current_user)):
-    if not database.update_event_status(event_id, body.status, current_user.username):
-        raise HTTPException(status_code=404, detail="Alert not found")
-    log_action(current_user, "alert.status", f"alert:{event_id}", body.status)
-    return {"status": "ok"}
-
-
-@app.get("/audit-log", dependencies=[Depends(require_admin)])
-def get_audit_log(limit: int = 200, offset: int = 0):
-    conn = get_auth_connection()
-    try:
-        rows = conn.execute("SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
-                            (max(1, min(limit, 500)), max(0, offset))).fetchall()
-        return {"logs": [dict(row) for row in rows]}
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":
