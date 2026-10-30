@@ -2,9 +2,9 @@
 
 ## Services and startup
 
-The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images use MJPEG streams, while detection status, alerts, and analyzed video state use WebSockets. The backend owns camera capture, the YOLO model, SQLite persistence, and notification delivery.
+The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images use MJPEG streams, while detection status, alerts, and analyzed video state use WebSockets. The backend owns camera capture, the YOLO model, MySQL persistence, and notification delivery.
 
-`backend/main.py` loads configuration before importing services that read environment variables. Importing the application initializes the databases, ensures model availability, loads YOLO, and constructs the camera/video managers. It is not a side-effect-free library import. The FastAPI lifespan installs the alert callback and shuts down managers.
+`backend/main.py` loads configuration before importing services that read environment variables. Importing the application checks the migrated MySQL schema, ensures model availability, loads YOLO, and constructs the camera/video managers. It is not a side-effect-free library import. The FastAPI lifespan installs the alert callback and shuts down managers.
 
 ## Camera processing
 
@@ -39,7 +39,7 @@ See [the detailed playback contract](../REALTIME_DETECTION.md) for state and pay
 
 ## Persistence and external services
 
-The detection database (`database.py`) holds cameras, settings, and events. Account data uses the separate `auth/database.py` database. `storage.py` selects MinIO/S3 when `S3_ENDPOINT` is set, otherwise GCS when `GCS_BUCKET` is set, otherwise local disk. Missing model files can be retrieved from configured object storage. Snapshot upload failures can fall back to disk for later synchronization.
+The repositories (`database.py` and `auth/database.py`) share one Aiven MySQL database through `db/engine.py`. Schema changes are explicit Alembic migrations, never runtime DDL. Camera/settings/events and account tables remain separate modules. See [MySQL migration](../MYSQL_AIVEN_MIGRATION.md). `storage.py` selects MinIO/S3 when `S3_ENDPOINT` is set, otherwise GCS when `GCS_BUCKET` is set, otherwise local disk. Missing model files can be retrieved from configured object storage. Snapshot upload failures can fall back to disk for later synchronization.
 
 Zalo and Telegram delivery lives in `notification.py`. Zalo sends warning text containing a direct expiring S3 image link after verifying the remote object; Telegram uploads the local image. Zalo links require a publicly reachable S3 API origin configured through `S3_PUBLIC_ENDPOINT`. Account OTP email behavior lives in `auth/utils.py`; it is a separate flow from camera alarm notifications.
 
@@ -55,6 +55,6 @@ See [authentication and roles](../AUTHORIZATION.md) for the endpoint matrix, mig
 
 ## Notification recipients
 
-Notification Accounts/Groups use admin-only backend APIs and the SQLite `notification_targets` table. Bot tokens continue to come from environment/settings. Active persisted recipients are authoritative for a channel; when a channel has saved rows but all are disabled, it sends to nobody. When no rows exist, the legacy environment/settings chat ID remains a fallback. An active recipient save enables the persisted channel flag; explicit environment enabled flags remain authoritative. Camera/video alerts send to each active destination. Per-recipient results let video retries skip successful deliveries, including after manual retry; editing a destination changes its delivery identity.
+Notification Accounts/Groups use admin-only backend APIs and the MySQL `notification_targets` table. Bot tokens continue to come from environment/settings. Active persisted recipients are authoritative for a channel; when a channel has saved rows but all are disabled, it sends to nobody. When no rows exist, the legacy environment/settings chat ID remains a fallback. An active recipient save enables the persisted channel flag; explicit environment enabled flags remain authoritative. Camera/video alerts send to each active destination. Per-recipient results let video retries skip successful deliveries, including after manual retry; editing a destination changes its delivery identity.
 
 The recipients page always uses the real API, even when other dashboard data is mocked. The Import action explicitly copies user-created browser recipients, preserving active flags and excluding seeded demo entries. It does not send messages. The Test button invokes real single-recipient delivery only on an explicit click. Configuration uses the existing backend Settings editor; mock rules do not control actual alerts.

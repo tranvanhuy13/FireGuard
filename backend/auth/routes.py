@@ -1,5 +1,6 @@
 import logging
 from contextlib import contextmanager
+from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, HTTPException
 from .dependencies import get_db, get_user, get_user_by_email
 import secrets
@@ -34,7 +35,7 @@ def validate_password(password):
 @contextmanager
 def otp_transaction(db):
     # Serialize read/check/update so concurrent guesses cannot lose increments.
-    db.execute("BEGIN IMMEDIATE")
+    db.begin_serialized()
     try:
         yield
     except HTTPException:
@@ -99,11 +100,15 @@ def signup(user: UserCreate, db = Depends(get_db)):
 
     hashed_password = get_password_hash(user.password)
     # is_active = 0 until the OTP is verified
-    cursor = db.execute(
-        "INSERT INTO users (username, email, hashed_password, is_active, role) VALUES (?, ?, ?, 0, 'user')",
-        (user.username, email, hashed_password),
-    )
-    db.commit()
+    try:
+        cursor = db.execute(
+            "INSERT INTO users (username, email, hashed_password, is_active, role) VALUES (?, ?, ?, 0, 'user')",
+            (user.username, email, hashed_password),
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Username or email already registered") from exc
     send_new_otp(db, cursor.lastrowid, email)
     return User(id=cursor.lastrowid, username=user.username, email=email,
                 hashed_password=hashed_password, role="user")

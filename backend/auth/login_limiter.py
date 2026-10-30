@@ -1,4 +1,4 @@
-"""Shared SQLite failure budget; reservations also bound concurrent guesses."""
+"""Shared MySQL failure budget; reservations also bound concurrent guesses."""
 import hashlib
 import math
 import time
@@ -24,7 +24,7 @@ def reserve(db, identifier, user, client_ip):
     account = f"user:{user.id}" if user else "unknown:" + hashlib.sha256(normalized.encode()).hexdigest()
     scopes = [(account, ACCOUNT_LIMIT), ("ip:" + client_ip, IP_LIMIT)]
     ticket = uuid.uuid4().hex
-    db.execute("BEGIN IMMEDIATE")
+    db.begin_serialized()
     try:
         db.execute("DELETE FROM login_attempts WHERE expires_at <= ?", (now,))
         for scope, limit in scopes:

@@ -15,6 +15,8 @@ These guides describe the current repository and the practices used to maintain 
 
 The root [AGENTS.md](../../AGENTS.md) is the discoverable entry point for coding agents.
 
+- [MySQL/Aiven migration](../MYSQL_AIVEN_MIGRATION.md): configuration, schema, legacy import, deployment and verification.
+
 ## Existing references
 
 - [Real-time detection and playback API](../REALTIME_DETECTION.md)

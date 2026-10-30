@@ -26,6 +26,8 @@ yarn-error.log*
 backend/fire_guard.db
 backend/snapshots/
 *.sqlite3
+backend/certs/
+*.pem
 
 # Runtime artifacts
 backend/runtime*.log

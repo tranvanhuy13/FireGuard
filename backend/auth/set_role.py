@@ -17,7 +17,7 @@ def main():
     init_db()
     db = get_connection()
     try:
-        db.execute("BEGIN IMMEDIATE")
+        db.begin_serialized()
         target = db.execute("SELECT * FROM users WHERE username = ?", (args.username,)).fetchone()
         if not target or not target["is_active"] or target["is_blocked"]:
             parser.error("An existing verified, unblocked account is required")

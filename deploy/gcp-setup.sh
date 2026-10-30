@@ -148,6 +148,7 @@ AUTH_DEV_MODE=false
 STREAM_TOKEN_SECRET=$(openssl rand -hex 32)
 EOF
   echo "Wrote /opt/fireguard/.env on $VM_NAME (site: https://$domain)"
+  echo "Before deployment, add MYSQL_* and MYSQL_SSL_CA_HOST_PATH from deploy/env.example and provision the Aiven CA on the VM."
 }
 
 step_outputs() {

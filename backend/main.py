@@ -29,6 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 import database
+from db.engine import dispose_engine
 import notification
 import storage
 from auth.dependencies import get_current_user, require_admin
@@ -59,9 +60,12 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        video_analyzer.shutdown()
-        camera_manager.shutdown()
-        storage.stop_sync()
+        try:
+            video_analyzer.shutdown()
+            camera_manager.shutdown()
+            storage.stop_sync()
+        finally:
+            dispose_engine()
 
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
@@ -82,6 +86,16 @@ app.add_middleware(
 )
 
 database.init_db()
+
+
+@app.get("/health/ready")
+def database_readiness():
+    try:
+        database.init_db()
+    except Exception:
+        logger.warning("Database readiness check failed")
+        raise HTTPException(status_code=503, detail="Database unavailable") from None
+    return {"status": "ready", "database": "mysql"}
 
 # The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
 _model_path = Path(os.getenv("MODEL_PATH") or "best.pt")

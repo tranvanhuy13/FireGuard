@@ -1,6 +1,6 @@
 """Admin-managed destinations. Test actions send only when explicitly requested."""
 import re
-import sqlite3
+from sqlalchemy.exc import IntegrityError
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -42,7 +42,7 @@ def persist(kind, body, target_id, current_user):
         result = targets.save_target(kind, body, target_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Recipient not found") from exc
-    except sqlite3.IntegrityError as exc:
+    except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="This channel/chat ID is already saved") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

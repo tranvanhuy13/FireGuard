@@ -23,9 +23,11 @@ Compilation does not load the application or verify runtime model accuracy.
 
 ## Backend integration tests and side effects
 
-`tests/test_all_apis.py` and `tests/test_health_and_auth.py` import `main`, which initializes databases, loads the model and starts background managers. API tests can modify camera records, settings and other application state.
+`tests/test_all_apis.py` and `tests/test_health_and_auth.py` import `main`, which checks the MySQL schema, loads the model and starts background managers. API tests can modify camera records, settings and other application state.
 
-The pytest autouse fixture in `tests/conftest.py` explicitly modifies `backend/example.db`, including creating/resetting its test account. Setting `AUTH_DB_PATH` alone does not redirect this fixture. Inspect and isolate that fixture and use disposable data before a broad pytest run. The offline `unittest` commands above avoid the pytest fixture.
+Pytest collection requires `FIREGUARD_TEST_MYSQL=1` and `MYSQL_DATABASE` ending in `_test`, before importing modules that start the application. The autouse fixture now resets its test user through the shared MySQL connection; it never writes `example.db`. Use a disposable database, disabled notification channels and configured model/storage. Offline `unittest` suites avoid this fixture.
+
+For database-only checks and real MySQL concurrency tests without importing main, see [MySQL verification](../MYSQL_AIVEN_MIGRATION.md#transactions-and-verification).
 
 Some test packages are not listed in production `requirements.txt`; ensure pytest/async support and HTTP client dependencies exist in the chosen test environment. Do not run integration tests against real users, enabled notification channels or valuable local databases merely to check a small edit.
 

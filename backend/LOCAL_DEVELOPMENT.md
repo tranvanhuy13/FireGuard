@@ -22,3 +22,7 @@ Relative model paths are resolved against the backend directory. Start normally 
 ```
 
 Restart the backend after changing configuration. If your current shell still contains an old `MODEL_PATH`, clear it once with `Remove-Item Env:MODEL_PATH -ErrorAction SilentlyContinue` in PowerShell or `set MODEL_PATH=` in Command Prompt. This allows `.env.local` to supply the value.
+
+## MySQL persistence update
+
+The backend now requires MYSQL_* configuration and an explicit `python -m alembic upgrade head` before startup. Account and operational tables share MySQL; DB_NAME/AUTH_DB_PATH and older SQLite setup instructions above are historical. Auth CLI commands use the same MySQL settings and transaction locks. See [the migration runbook](../docs/MYSQL_AIVEN_MIGRATION.md) for CA setup, import, testing and rollback.

@@ -20,7 +20,8 @@ import database
 def reset_notification_cooldown():
     """Reset global cooldown timestamp trước mỗi bài test để các bài test độc lập nhau"""
     notification.last_notification.clear()
-    yield
+    with patch("notification.list_targets", return_value=[]):
+        yield
     notification.last_notification.clear()
 
 

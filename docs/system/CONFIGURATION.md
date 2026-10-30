@@ -15,7 +15,7 @@ For local development, copy the template once from `backend/`:
 Copy-Item .env.local.example .env.local
 ```
 
-It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend directory; explicit absolute paths remain absolute. The private local file is ignored by Git and excluded from backend Docker builds. Restart after changing configuration. If an old shell `MODEL_PATH` is still set, clear it once in PowerShell with `Remove-Item Env:MODEL_PATH -ErrorAction SilentlyContinue` or in Command Prompt with `set MODEL_PATH=`.
+It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend directory; explicit absolute paths remain absolute. Configure MYSQL_* and run `python -m alembic upgrade head` before starting the backend; see [MySQL/Aiven migration](../MYSQL_AIVEN_MIGRATION.md). The private local file is ignored by Git and excluded from backend Docker builds. Restart after changing configuration. If an old shell `MODEL_PATH` is still set, clear it once in PowerShell with `Remove-Item Env:MODEL_PATH -ErrorAction SilentlyContinue` or in Command Prompt with `set MODEL_PATH=`.
 
 ## Backend variables
 
@@ -23,8 +23,11 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | --- | --- |
 | `MODEL_PATH` | YOLO weights; defaults to `best.pt` in the backend directory |
 | `MODEL_OBJECT` | Object-store key for a missing model; default `models/best.pt` |
-| `DB_NAME` | Detection/settings/camera SQLite path; default backend `fire_guard.db` |
-| `AUTH_DB_PATH` | Account SQLite path; default `example.db` relative to working directory |
+| `MYSQL_HOST`, `MYSQL_PORT` | Required Aiven MySQL endpoint and service port |
+| `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD` | Required database and credentials |
+| `MYSQL_SSL_CA` | Required CA PEM file; relative paths resolve against backend; certificate and hostname verified |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW` | Connections per process: defaults 5 plus 5 overflow |
+| `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Pool wait/connection age in seconds: defaults 10/300 |
 | `SNAPSHOT_DIR` | Local snapshot directory; default `snapshots` relative to working directory |
 | `PERIODIC_SNAPSHOT_RETENTION_DAYS` | Periodic capture lifetime; default 7 days, minimum 1; set 30 for a month |
 | `SNAPSHOT_CLEANUP_INTERVAL_SECONDS` | Retention scan interval; default 3600 seconds, minimum 60 |
@@ -51,7 +54,7 @@ Run from `backend/` using the project's virtual environment:
 .\venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
-For a new environment, create the virtual environment and install `requirements.txt` first. Keep the working directory at `backend/` so default account, snapshot and upload paths are predictable. Ensure a model with both required classes is available; startup loads the model and may activate configured cameras.
+For a new environment, create the virtual environment and install `requirements.txt` first. Keep the working directory at `backend/` so snapshot and upload paths are predictable. Ensure a model with both required classes is available; startup loads the model and may activate configured cameras.
 
 From `frontend/`, install dependencies when needed and start the development server:
 
@@ -83,11 +86,11 @@ Deployment files are implementation references, not evidence that a deployment h
 
 ### Bot credentials and video delivery
 
-Nonblank process environment / loaded `.env.local` / shared `.env` values override the corresponding SQLite notification setting. Blank or absent environment values fall back to SQLite. `ZALO_ENABLED` and `TELEGRAM_ENABLED` accept `true`, `1`, `yes`, or `on` (case insensitive); any other explicit value disables the channel. When neither environment nor SQLite specifies a flag, complete credentials enable that channel automatically. A saved `false` remains disabled: set the environment flag to `true` or enable the bot in admin settings. Compose forwards these six variables from its `--env-file`; a repository `.env` is not automatically copied into the backend container.
+Nonblank process environment / loaded `.env.local` / shared `.env` values override the corresponding MySQL notification setting. Blank or absent environment values fall back to MySQL. `ZALO_ENABLED` and `TELEGRAM_ENABLED` accept `true`, `1`, `yes`, or `on` (case insensitive); any other explicit value disables the channel. When neither environment nor MySQL specifies a flag, complete credentials enable that channel automatically. A saved `false` remains disabled: set the environment flag to `true` or enable the bot in admin settings. Compose forwards these six variables from its `--env-file`; a repository `.env` is not automatically copied into the backend container.
 
 Admin `/settings` returns masked effective bot settings and separate `notification_status` metadata with configuration completeness, enabled state, and the environment/database source of each field. Environment-owned inputs are read-only in the settings UI; change the environment and restart/recreate the backend to update them. `/test-notification` bypasses camera cooldown and returns per-channel outcomes and `ok`, `partial`, or `error`; a successful HTTP response alone is not proof of delivery.
 
-Telegram troubleshooting: credentials can be valid while SQLite still has `telegram_enabled=false`. Enable it in admin settings or explicitly set `TELEGRAM_ENABLED=true` in `backend/.env.local` for native startup. A Compose backend requires the flag in its external `--env-file` and container recreation instead. The UI distinguishes enabled, disabled and incomplete configuration; disabled test results explain which flag to change. Effective configuration takes effect after restarting a native backend.
+Telegram troubleshooting: credentials can be valid while MySQL still has `telegram_enabled=false`. Enable it in admin settings or explicitly set `TELEGRAM_ENABLED=true` in `backend/.env.local` for native startup. A Compose backend requires the flag in its external `--env-file` and container recreation instead. The UI distinguishes enabled, disabled and incomplete configuration; disabled test results explain which flag to change. Effective configuration takes effect after restarting a native backend.
 
 Delivery outcomes include sanitized HTTP/API error codes and descriptions for troubleshooting without exposing tokens, chat IDs or URLs. Telegram falls back from photo delivery to text for known media/caption rejections or unreadable attachments; credential, permission, rate-limit and ambiguous network failures retain their failure result rather than creating a second text request. Successful text fallback records `mode=text`, `fallback_reason` and the original `photo_error`. Photo captions over 1024 UTF-16 units are sent as text to preserve the warning. Local snapshot cleanup still waits for delivery completion.
 
@@ -122,3 +125,7 @@ Admins can create, edit, toggle and delete real destinations at `/notifications/
 The previous Notification Groups page used browser-only mock data, so entering a chat ID there did not configure backend delivery. Use Import my existing browser recipients to copy user-created entries to the backend; seeded samples are excluded. Entries already saved are skipped. The Test button now makes a real single-recipient API request and reports its actual result; it never simulates success. The recipients page and backend settings bypass the dashboard mock interceptor. Destination management and testing require admin authorization. The legacy mock rules editor is hidden because those rules are not applied by the backend.
 
 Per-recipient delivery results are keyed by opaque destination identity and contain sanitized outcomes, not raw chat IDs. Video automatic/manual retries preserve successful recipient results and retry only unfinished destinations. A destination edit produces a new identity, ensuring alerts are delivered to the new chat. Settings chat ID fields become read-only when destinations are managed by Accounts/Groups.
+
+## MySQL deployment
+
+Both Compose files require MYSQL_* and MYSQL_SSL_CA_HOST_PATH (an existing absolute CA path on the Docker host). The CA is mounted read-only at /run/secrets/aiven-ca.pem. DB_NAME and AUTH_DB_PATH are no longer consumed. See [MySQL/Aiven migration](../MYSQL_AIVEN_MIGRATION.md) for migration, import, TLS and cutover commands. Keep /data for snapshots and models.

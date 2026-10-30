@@ -9,3 +9,5 @@ uploads_tmp/
 .env.local
 *.env
 *.log
+certs/
+*.pem
