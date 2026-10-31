@@ -10,6 +10,7 @@ From `backend/`, run the offline suites:
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_lifecycle.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_realtime_detection.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_admin_profile.py
+.\venv\Scripts\python.exe -m unittest discover -s tests -p test_notification_permissions.py
 ```
 
 These suites isolate hardware/storage dependencies. Camera checks cover enable/disable, shared webcam leases, confirmation/cooldowns and stale state. Real-time checks cover settings, model scheduling, playback, cancellation, source retention and API handler contracts, including upload rejection before body reads and pause/resume slot handoff between videos. API handlers are exercised in-process with fake sockets; this is not a full network/browser test.
@@ -77,3 +78,20 @@ Measure inference FPS and capture-to-display latency on the target hardware. Sep
 ## Documentation checks
 
 For Markdown-only changes, verify relative links, referenced source paths, code-fence balance and `git diff --check`. Do not start cameras, modify databases or send notifications to validate prose.
+
+## Notification permissions regression checks
+
+`test_notification_permissions.py` mounts the real notification router using the
+main module's registration AST without importing main. It stubs database lookups,
+audit writes and bot delivery while exercising actual verified/blocked-account
+checks, user GET/POST, admin management, validation/conflicts, settings permissions
+and the global test-delivery route. It never changes Aiven data or sends messages.
+
+`frontend/tests/notification_permissions.spec.ts` covers user Add/save/reload for
+both channels, hidden admin controls, retained admin controls and API error states.
+Run `npx playwright test tests/notification_permissions.spec.ts --project=chromium`
+against a local frontend with real-API/mock-auth flags disabled. The spec intercepts
+all auth/notification/settings API requests; do not run against a production site.
+Set BASE_URL for the local frontend; PLAYWRIGHT_CHANNEL=chrome optionally uses
+installed Chrome. Browser persistence is simulated; production DB persistence is
+covered separately by the MySQL suite on an empty disposable *_test database.

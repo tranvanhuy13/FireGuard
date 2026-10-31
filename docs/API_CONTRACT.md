@@ -427,13 +427,30 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 - **Cần Backend bổ sung (khuyến nghị):**
   - `PUT /settings`: Nhận một JSON object chứa nhiều cấu hình cùng lúc để giảm số lượng request HTTP.
 
-### 2.9. Quản Lý Kênh Nhận Tin Cá Nhân (Telegram / Zalo Notification Channels)
-- **Hiện trạng:** Backend chỉ lưu token bot trong database và chỉ có `/test-notification`. Chưa có bảng lưu từng tài khoản cá nhân, nhóm hay quy tắc gửi cảnh báo theo camera.
+### 2.9. Shared Zalo / Telegram notification recipients
 
-- **Cần Backend bổ sung:**
-  - `GET, POST, PUT, DELETE /notifications/accounts`
-  - `GET, POST, PUT, DELETE /notifications/groups`
-  - `GET, POST, PUT, DELETE /notifications/rules`
+These endpoints are registered in the backend and persist to MySQL.
+
+| Endpoint | Verified user | Admin |
+| --- | --- | --- |
+| `GET /notifications/{kind}` | Yes | Yes |
+| `POST /notifications/{kind}` | Yes | Yes |
+| `PUT /notifications/{kind}/{id}` | No | Yes |
+| `DELETE /notifications/{kind}/{id}` | No | Yes |
+| `POST /notifications/{kind}/{id}/test` | No | Yes |
+
+`kind` is `accounts` or `groups`. Create/update body:
+`{"channel":"telegram","friendlyName":"Team","chatId":"-123456","active":true}`.
+Channels are `zalo` or `telegram`; recipient lists are shared across users.
+Creation returns 201 with the saved recipient. Listing returns
+`{"accounts":[...]}` or `{"groups":[...]}`. Invalid input returns 422; duplicate
+channel/chat ID or the 20-per-channel capacity limit returns 409. Missing/invalid
+credentials return 401, blocked/unverified users or insufficient roles return 403.
+Saving never sends a test message. Rules APIs remain unimplemented.
+
+`GET /settings` requires authentication and returns only the alarm sound preference
+for regular users. `POST /settings` permits users to change only that preference;
+bot/system configuration requires admin. `POST /test-notification` requires admin.
 
 ### Basic authentication throttling
 

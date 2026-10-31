@@ -12,15 +12,18 @@ Expected project layout:
 Access rules
 ------------
 PUBLIC     Every endpoint: cameras, video feeds, video analysis, alerts, stats,
-           history, settings, notifications, WebSocket, snapshots.
+           history, WebSocket, snapshots.
 
 LOGIN      Only the account helpers keep their own credential check, because
            they are *about* the logged-in user:
              GET /auth/login          (HTTP Basic -> returns the user profile)
              GET /auth/stream-token   (HTTP Basic -> returns a stream token)
              GET /users/me            (see users/routes.py)
+             GET/POST /notifications/accounts and /notifications/groups
+             GET/POST /settings       (users: alarm sound only)
 
 ADMIN      GET /audit-log requires a verified, unblocked administrator.
+           Editing/deleting/testing recipients and other settings require admin.
 
 NOTE       /video_feed and /ws/alerts still accept an optional ?token=... so the
            existing frontend keeps working, but the token is no longer required.
@@ -66,6 +69,7 @@ from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
 from users.routes import router as users_router
+from notification_routes import router as notification_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 from detection_rules import read_settings
 
@@ -160,6 +164,7 @@ def get_snapshot(name: str):
 # Authentication / account routes (signup + OTP + /users/me)
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(users_router, prefix="/users", tags=["users"])
+app.include_router(notification_router)
 
 
 # ---------------------------------------------------------------------------
@@ -501,8 +506,10 @@ class SettingsModel(BaseModel):
 
 
 @app.get("/settings")
-def get_settings():
+def get_settings(current_user=Depends(get_current_user)):
     """Get all settings (masking secrets)."""
+    if current_user.role != "admin":
+        return {"settings": {"alarm_sound_enabled": database.get_setting("alarm_sound_enabled", "true")}}
     settings = database.get_all_settings()
     effective = read_settings(database.get_setting)
     settings.update(fire_threshold=str(effective["fire"] * 100),
@@ -517,8 +524,10 @@ def get_settings():
 
 
 @app.post("/settings")
-def save_setting(setting: SettingsModel):
+def save_setting(setting: SettingsModel, current_user=Depends(get_current_user)):
     """Save a setting."""
+    if current_user.role != "admin" and setting.key != "alarm_sound_enabled":
+        raise HTTPException(status_code=403, detail="Admin permission required")
     if setting.value == "********":      # never save the masked placeholder back
         return {"status": "skipped", "message": "Masked value ignored"}
     bounds = {"fire_threshold": (0, 100), "smoke_threshold": (0, 100),
@@ -539,7 +548,7 @@ def save_setting(setting: SettingsModel):
     return {"status": "ok", "message": "Setting saved"}
 
 
-@app.post("/test-notification")
+@app.post("/test-notification", dependencies=[Depends(require_admin)])
 def test_notification():
     """Trigger a test notification."""
     notification.trigger_notifications("TEST EVENT", 0.99, None)

@@ -1,7 +1,7 @@
 /* eslint-disable */
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/Button';
 import { useLanguage } from '@/context/LanguageContext';
@@ -55,17 +55,17 @@ const AccountCard = ({ item, isGroup, n, hasRole, onToggle, onEdit, onDelete, on
       </div>
       <div className="flex items-center gap-3 self-end sm:self-auto">
         {hasRole(['admin']) && (
-          <button onClick={() => onToggle(item)} className={`w-11 h-6 rounded-full relative transition-colors ${item.active ? 'bg-sky-500' : 'bg-slate-300'}`}>
+          <button aria-label={n.active} aria-pressed={item.active} onClick={() => onToggle(item)} className={`w-11 h-6 rounded-full relative transition-colors ${item.active ? 'bg-sky-500' : 'bg-slate-300'}`}>
             <motion.div className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm" animate={{ left: item.active ? '24px' : '4px' }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
           </button>
         )}
-        <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['admin'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
+        {hasRole(['admin']) && <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['admin'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
           {testState === 'loading' ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" /> : testState === 'success' ? <CheckCircle2 className="w-4 h-4 text-white" /> : testState === 'error' ? <AlertCircle className="w-4 h-4 text-white" /> : n.test}
-        </Button>
+        </Button>}
         {hasRole(['admin']) && (
           <>
-            <button onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-sky-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
-            <button onClick={() => onDelete(item)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+            <button aria-label={n.edit} onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-sky-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
+            <button aria-label={n.delete} onClick={() => onDelete(item)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
           </>
         )}
       </div>
@@ -106,7 +106,7 @@ const ModalWrapper = ({ isOpen, onClose, title, children }: { isOpen: boolean, o
   <AnimatePresence>
     {isOpen && (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 flex items-center justify-center p-4" onClick={onClose}>
-        <motion.div initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }} onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden z-50 flex flex-col max-h-[90vh]">
+        <motion.div role="dialog" aria-label={title} aria-modal="true" initial={{ opacity: 0, scale: 0.95, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 10 }} onClick={e => e.stopPropagation()} className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden z-50 flex flex-col max-h-[90vh]">
           <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
             <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
             <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"><X className="w-5 h-5"/></button>
@@ -126,21 +126,25 @@ export default function NotificationsPage() {
   const [pageMessage, setPageMessage] = useState('');
   const [showSettings, setShowSettings] = useState(false);
   const [importing, setImporting] = useState(false);
-  const recipientFetch = async (path: string, init: RequestInit = {}) => {
+  const [loadingRecipients, setLoadingRecipients] = useState(true);
+  const recipientFetch = useCallback(async (path: string, init: RequestInit = {}) => {
     try {
       const res = await authFetch(`${API_URL}${path}`, {
         ...init, headers: { 'Content-Type': 'application/json', ...init.headers },
       });
+      if (init.signal?.aborted) return res;
       if (!res.ok) {
         const body = await res.clone().json().catch(() => ({}));
-        setPageError(typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? body.detail.map((item: any) => item.msg).join('; ') : `Request failed (${res.status})`);
+        if (init.signal?.aborted) return res;
+        const statusMessage = res.status === 401 ? n.requestUnauthorized : res.status === 403 ? n.requestForbidden : res.status === 404 ? n.requestMissing : null;
+        setPageError(statusMessage || (typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? body.detail.map((item: any) => item.msg).join('; ') : `Request failed (${res.status})`));
       }
       return res;
     } catch {
-      setPageError(language === 'vi' ? 'Không kết nối được backend.' : 'Could not reach the backend.');
+      if (!init.signal?.aborted) setPageError(n.requestNetwork);
       return new Response('{}', { status: 503 });
     }
-  };
+  }, [n]);
 
   const { user, hasRole } = useAuth();
   
@@ -175,22 +179,37 @@ export default function NotificationsPage() {
 
   const [showGuide, setShowGuide] = useState(false);
 
-  const canManage = user?.role === 'admin';
+  const canViewRecipients = hasRole(['user', 'admin']);
+  const canAddRecipients = canViewRecipients;
+  const canManageRecipients = hasRole(['admin']);
   useEffect(() => {
-    if (!canManage) return;
+    setAccounts([]); setGroups([]);
+    if (!canViewRecipients) { setLoadingRecipients(false); return; }
     let disposed = false;
+    const controller = new AbortController();
+    setLoadingRecipients(true); setPageError('');
     void (async () => {
-      const [accountsResponse, groupsResponse] = await Promise.all([
-        recipientFetch('/notifications/accounts'), recipientFetch('/notifications/groups'),
-      ]);
-      if (disposed) return;
-      if (accountsResponse.ok) setAccounts((await accountsResponse.json()).accounts || []);
-      if (groupsResponse.ok) setGroups((await groupsResponse.json()).groups || []);
+      try {
+        const [accountsResponse, groupsResponse] = await Promise.all([
+          recipientFetch('/notifications/accounts', { signal: controller.signal }),
+          recipientFetch('/notifications/groups', { signal: controller.signal }),
+        ]);
+        const accountData = accountsResponse.ok ? await accountsResponse.json() : null;
+        const groupData = groupsResponse.ok ? await groupsResponse.json() : null;
+        if (disposed) return;
+        if (accountData) setAccounts(accountData.accounts || []);
+        if (groupData) setGroups(groupData.groups || []);
+      } catch {
+        if (!disposed) setPageError(n.requestNetwork);
+      } finally {
+        if (!disposed) setLoadingRecipients(false);
+      }
     })();
-    return () => { disposed = true; };
-  }, [canManage]);
+    return () => { disposed = true; controller.abort(); };
+  }, [canViewRecipients, user?.id, recipientFetch, n]);
 
   const importBrowserRecipients = async () => {
+    if (!canAddRecipients || loadingRecipients) return;
     setImporting(true); setPageError(''); setPageMessage('');
     const previous = getMockData()?.notifications;
     const seeds = new Set(['acc1', 'acc2', 'acc3', 'grp1', 'grp2']);
@@ -217,6 +236,7 @@ export default function NotificationsPage() {
   };
 
   const testRecipient = async (item: Account, isGroup: boolean) => {
+    if (!canManageRecipients) return false;
     setPageError(''); setPageMessage('');
     const response = await recipientFetch(`/notifications/${isGroup ? 'groups' : 'accounts'}/${item.id}/test`, { method: 'POST' });
     if (!response.ok) return false;
@@ -236,11 +256,12 @@ export default function NotificationsPage() {
   const maskToken = (token: string) => { if (token.length <= 8) return token; return token.substring(0, 4) + '*'.repeat(token.length - 8) + token.substring(token.length - 4); };
 
   const validateChatId = (id: string, isGroup: boolean) => {
-    if (channel === 'telegram') return isGroup ? /^-?\d{5,20}$/.test(id) : /^-?\d{5,20}$/.test(id);
+    if (channel === 'telegram') return /^-?\d{5,20}$|^@[A-Za-z0-9_]{5,64}$/.test(id);
     return id.length > 5;
   };
 
   const handleSaveAccount = async (isGroup: boolean) => {
+    if (!canAddRecipients || ((editingAccount || editingGroup) && !canManageRecipients)) return;
     if (!friendlyName || !chatId) { setFormError(n.error); return; }
     if (!validateChatId(chatId, isGroup)) { setFormError(n.chatIdPattern); return; }
     
@@ -301,13 +322,15 @@ export default function NotificationsPage() {
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)]">
-      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+      <SettingsModal isOpen={showSettings && canManageRecipients} onClose={() => setShowSettings(false)} />
+      {loadingRecipients && <p role="status" className="mb-4 text-slate-500">{n.loadingRecipients}</p>}
       {pageError && <p role="alert" className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">{pageError}</p>}
       {pageMessage && <p role="status" className="mb-4 p-3 bg-emerald-50 text-emerald-700 rounded-lg">{pageMessage}</p>}
-      {canManage && <div className="mb-4 p-3 bg-sky-50 text-sky-800 rounded-lg text-sm space-y-2">
+      {canAddRecipients && <div className="mb-4 p-3 bg-sky-50 text-sky-800 rounded-lg text-sm space-y-2">
         <p>{language === 'vi' ? 'Người nhận ở đây được lưu vào backend và dùng cho cảnh báo thật. Nút bên dưới giúp nhập thêm các mục trước đây chỉ lưu trong trình duyệt.'
           : 'Recipients here are saved to the backend and used for real alerts. Use the button below to import any other entries saved only in this browser.'}</p>
-        <Button disabled={importing} onClick={importBrowserRecipients}>{language === 'vi' ? 'Lưu người nhận đã nhập trong trình duyệt' : 'Import my existing browser recipients'}</Button>
+        <p>{n.sharedRecipientsNotice}</p>
+        <Button disabled={importing || loadingRecipients} onClick={importBrowserRecipients}>{language === 'vi' ? 'Lưu người nhận đã nhập trong trình duyệt' : 'Import my existing browser recipients'}</Button>
       </div>}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-slate-900">{n.title}</h1>
@@ -325,11 +348,11 @@ export default function NotificationsPage() {
       <div className="flex-1 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.15 }} className="p-6 md:p-8">
-            {!canManage ? (
+            {!canViewRecipients ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center text-amber-800">
                 <Bell className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-                <h2 className="text-lg font-bold mb-1">{language === 'vi' ? 'Cần quyền quản trị viên' : 'Administrator access required'}</h2>
-                <p className="text-sm text-amber-700">{language === 'vi' ? 'Đăng nhập quản trị viên để cấu hình người nhận thông báo.' : 'Sign in as an administrator to manage notification recipients.'}</p>
+                <h2 className="text-lg font-bold mb-1">{n.requestUnauthorized}</h2>
+                <p className="text-sm text-amber-700">{n.requestUnauthorized}</p>
               </div>
             ) : (
               <>
@@ -337,8 +360,8 @@ export default function NotificationsPage() {
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                   <div><h2 className="text-xl font-bold text-slate-800">{n.accountsTitle}</h2><p className="text-slate-500 mt-1">{n.accountsDesc}</p></div>
-                  {hasRole(['admin']) && (
-                    <Button onClick={() => { resetForm(); setShowAccountModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.addAccount}</Button>
+                  {canAddRecipients && (
+                    <Button disabled={loadingRecipients} onClick={() => { resetForm(); setShowAccountModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.addAccount}</Button>
                   )}
                 </div>
                 {accounts.length === 0 ? <EmptyState message={n.noAccounts} /> : <div className="grid gap-4">{accounts.map(acc => <AccountCard key={acc.id} item={acc} isGroup={false} n={n} hasRole={hasRole} onToggle={async (item: any) => {
@@ -352,8 +375,8 @@ export default function NotificationsPage() {
               <div>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
                   <div><h2 className="text-xl font-bold text-slate-800">{n.groupsTitle}</h2><p className="text-slate-500 mt-1">{n.groupsDesc}</p></div>
-                  {hasRole(['admin']) && (
-                    <Button onClick={() => { resetForm(); setShowGroupModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.createGroup}</Button>
+                  {canAddRecipients && (
+                    <Button disabled={loadingRecipients} onClick={() => { resetForm(); setShowGroupModal(true); }} className="bg-sky-600 hover:bg-sky-700 text-white rounded-xl shadow-sm px-5 py-2.5 flex items-center gap-2"><Plus className="w-4 h-4" /> {n.createGroup}</Button>
                   )}
                 </div>
                 {groups.length === 0 ? <EmptyState message={n.noGroups} /> : <div className="grid gap-4">{groups.map(group => <AccountCard key={group.id} item={group} isGroup={true} n={n} hasRole={hasRole} onToggle={async (item: any) => {
@@ -378,7 +401,7 @@ export default function NotificationsPage() {
               </div>
             )}
 
-            {activeTab === 'config' && <div className="space-y-4">
+            {activeTab === 'config' && canManageRecipients && <div className="space-y-4">
               <p>{language === 'vi' ? 'Token và trạng thái bot được đọc từ cấu hình backend. Bạn có thể giữ token trong .env và quản lý chat ID tại Accounts/Groups.'
                 : 'Bot credentials and enabled flags come from the backend. Keep tokens in .env and manage chat IDs under Accounts/Groups.'}</p>
               <Button onClick={() => setShowSettings(true)}>{language === 'vi' ? 'Mở cấu hình bot' : 'Open bot settings'}</Button>

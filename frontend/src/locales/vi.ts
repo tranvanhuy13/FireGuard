@@ -315,6 +315,12 @@ export const vi = {
     clickToView: "Nhấp vào một sự kiện để xem.",
   },
   notifications: {
+    requestUnauthorized: "Vui lòng đăng nhập lại để truy cập người nhận thông báo.",
+    requestForbidden: "Tài khoản của bạn không có quyền thực hiện thao tác này.",
+    requestMissing: "Không tìm thấy API thông báo hoặc người nhận. Vui lòng kiểm tra bản deploy backend.",
+    requestNetwork: "Không kết nối được backend. Vui lòng thử lại.",
+    loadingRecipients: "Đang tải người nhận thông báo…",
+    sharedRecipientsNotice: "Danh sách người nhận được dùng chung. Chat ID đang bật mà bạn thêm sẽ nhận cảnh báo hệ thống. Quản trị viên quản lý người nhận đã có và cấu hình bot.",
     title: "Cài đặt Thông báo",
     subtitle: "Quản lý nơi và cách bạn nhận cảnh báo.",
     tabAccounts: "Tài khoản nhận tin",
