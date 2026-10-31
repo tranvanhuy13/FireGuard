@@ -315,6 +315,12 @@ export const en = {
     clickToView: "Click on an event to view.",
   },
     notifications: {
+    requestUnauthorized: "Please sign in again to access notification recipients.",
+    requestForbidden: "Your account does not have permission for this action.",
+    requestMissing: "The notification API or recipient was not found. Check the backend deployment.",
+    requestNetwork: "Could not reach the backend. Please try again.",
+    loadingRecipients: "Loading notification recipients…",
+    sharedRecipientsNotice: "Recipients are shared across this system. Active destinations you add receive system alerts. Administrators manage existing recipients and bot settings.",
     title: "Notification Settings",
     subtitle: "Manage where and how you receive alerts.",
     tabAccounts: "Recipient Accounts",

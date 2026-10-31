@@ -1,4 +1,4 @@
-"""Admin-managed destinations. Test actions send only when explicitly requested."""
+"""Shared destinations: users may view/add; admins manage and test delivery."""
 import re
 from sqlalchemy.exc import IntegrityError
 from typing import Literal
@@ -6,12 +6,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from auth.dependencies import require_admin
+from auth.dependencies import get_current_user, require_admin
 from auth.audit import log_action
 import notification
 import notification_targets as targets
 
-router = APIRouter(prefix="/notifications", dependencies=[Depends(require_admin)])
+router = APIRouter(prefix="/notifications", dependencies=[Depends(get_current_user)])
 Kind = Literal["accounts", "groups"]
 
 
@@ -51,7 +51,7 @@ def persist(kind, body, target_id, current_user):
 
 
 @router.post("/{kind}", status_code=201)
-def create_recipient(kind: Kind, body: TargetBody, current_user=Depends(require_admin)):
+def create_recipient(kind: Kind, body: TargetBody, current_user=Depends(get_current_user)):
     return persist(kind, body, None, current_user)
 
 
