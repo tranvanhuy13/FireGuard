@@ -378,7 +378,18 @@ export default function ResetPasswordPage() {
           );
           return;
         }
-        if (err.status >= 500) {
+        if (err.message === "PASSWORD_REUSED") {
+          setPasswordError(t.auth.errors.passwordReused);
+        } else if (err.message === "PASSWORD_TOO_LONG") {
+          setPasswordError(t.auth.errors.passwordTooLong);
+        } else if (err.message === "PASSWORD_INVALID") {
+          setPasswordError(t.auth.errors.passwordInvalid);
+        } else if (err.status === 429) {
+          setVerifiedOtp(null);
+          setPhase(1);
+          setOtp(["", "", "", "", "", ""]);
+          setOtpError(t.auth.errors.otpLocked);
+        } else if (err.status >= 500) {
           setPasswordError(t.auth.forgotFlow.errors.server);
         } else {
           setPasswordError(err.message || t.auth.forgotFlow.errors.network);

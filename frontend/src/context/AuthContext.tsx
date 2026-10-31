@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
 import { User, authApi } from "../lib/api/auth";
+import { ApiError, clearAuthSession } from "../lib/api/client";
 
 interface AuthContextType {
   user: User | null;
@@ -49,33 +50,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const refreshStreamTokenRef = useRef<() => Promise<string | null>>(async () => null);
+  const pendingRefreshRef = useRef<Promise<string | null> | null>(null);
+  const sessionGenerationRef = useRef(0);
 
   const refreshStreamToken = useCallback(async (): Promise<string | null> => {
-    try {
-      const data = await authApi.getStreamToken();
-      setStreamToken(data.token);
+    if (pendingRefreshRef.current) return pendingRefreshRef.current;
+    if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+    const generation = sessionGenerationRef.current;
+    const pending = (async () => {
+      try {
+        const data = await authApi.getStreamToken();
+        if (generation !== sessionGenerationRef.current) return null;
+        setStreamToken(data.token);
 
-      if (tokenRefreshTimerRef.current) {
-        clearTimeout(tokenRefreshTimerRef.current);
+        if (tokenRefreshTimerRef.current) {
+          clearTimeout(tokenRefreshTimerRef.current);
+        }
+
+        // Schedule refresh 60 seconds before expiration (never logged or saved to localStorage)
+        const ttlSec = Math.max(30, (data.expires_in || 3600) - 60);
+        tokenRefreshTimerRef.current = setTimeout(() => {
+          refreshStreamTokenRef.current();
+        }, ttlSec * 1000);
+
+        return data.token;
+      } catch (error) {
+        if (generation !== sessionGenerationRef.current) return null;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+          setStreamToken(null);
+          setUser(null);
+          clearAuthSession();
+        } else {
+          tokenRefreshTimerRef.current = setTimeout(() => {
+            void refreshStreamTokenRef.current();
+          }, 15000);
+        }
+        return null;
       }
-
-      // Schedule refresh 60 seconds before expiration (never logged or saved to localStorage)
-      const ttlSec = Math.max(30, (data.expires_in || 3600) - 60);
-      tokenRefreshTimerRef.current = setTimeout(() => {
-        refreshStreamTokenRef.current();
-      }, ttlSec * 1000);
-
-      return data.token;
-    } catch {
-      return null;
-    }
-  }, []);
+    })();
+    pendingRefreshRef.current = pending;
+    try { return await pending; }
+    finally { if (pendingRefreshRef.current === pending) pendingRefreshRef.current = null; }
+  }, [setUser]);
 
   useEffect(() => {
     refreshStreamTokenRef.current = refreshStreamToken;
   }, [refreshStreamToken, setUser]);
 
   const login = useCallback(async (newUser: User) => {
+    sessionGenerationRef.current += 1;
+    pendingRefreshRef.current = null;
     setUser(newUser);
     if (typeof window !== "undefined") {
       sessionStorage.setItem("user_profile", JSON.stringify(newUser));
@@ -132,7 +157,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
     if (user.role === 'admin') return true;
     if (user.role === 'user') {
-      const adminOnly = ['manage_users', 'manage_settings', 'add_camera', 'edit_camera', 'delete_camera', 'audit_log'];
+      const adminOnly = ['manage_users', 'manage_settings', 'audit_log'];
       return !adminOnly.includes(permission);
     }
 
@@ -140,6 +165,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    sessionGenerationRef.current += 1;
+    pendingRefreshRef.current = null;
     if (tokenRefreshTimerRef.current) {
       clearTimeout(tokenRefreshTimerRef.current);
     }

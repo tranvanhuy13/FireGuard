@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "playwright test",
+    "test:connection": "node --test tests/dashboard_connection.unit.cjs",
     "test:ui": "playwright test --ui",
     "test:report": "playwright show-report"
   },

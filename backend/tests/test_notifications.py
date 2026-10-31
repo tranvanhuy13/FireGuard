@@ -20,7 +20,8 @@ import database
 def reset_notification_cooldown():
     """Reset global cooldown timestamp trước mỗi bài test để các bài test độc lập nhau"""
     notification.last_notification.clear()
-    yield
+    with patch("notification.list_targets", return_value=[]):
+        yield
     notification.last_notification.clear()
 
 
@@ -36,7 +37,7 @@ def test_telegram_send_text_success():
     }
     with patch("notification.get_setting", side_effect=lambda k: mock_settings.get(k)):
         with patch("notification.requests.post") as mock_post:
-            mock_post.return_value = Mock(status_code=200, text='{"ok": true}')
+            mock_post.return_value = Mock(status_code=200, json=lambda: {"ok": True})
             
             result = notification.send_telegram("🔥 CẢNH BÁO CHÁY TẠI KHU VỰC 1!")
             
@@ -62,7 +63,7 @@ def test_telegram_send_photo_success():
     try:
         with patch("notification.get_setting", side_effect=lambda k: mock_settings.get(k)):
             with patch("notification.requests.post") as mock_post:
-                mock_post.return_value = Mock(status_code=200, text='{"ok": true}')
+                mock_post.return_value = Mock(status_code=200, json=lambda: {"ok": True})
                 
                 result = notification.send_telegram("🔥 PHÁT HIỆN LỬA 95%", snapshot_path=tmp_path)
                 
@@ -129,61 +130,28 @@ def test_zalo_send_text_success():
             assert "PHÁT HIỆN KHÓI" in payload["text"]
 
 
-def test_zalo_send_photo_with_public_url():
-    """Kiểm thử gửi ảnh qua Zalo Bot khi có cấu hình public_base_url"""
-    mock_settings = {
-        "zalo_bot_token": "zalo_secret_token_123",
-        "zalo_chat_id": "zalo_chat_group_888",
-        "public_base_url": "https://fireguard-demo.com"
-    }
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
-        tmp_file.write(b"fake jpeg content")
-        tmp_path = tmp_file.name
-
-    try:
-        with patch("notification.get_setting", side_effect=lambda k: mock_settings.get(k)):
-            with patch("notification.requests.post") as mock_post:
-                mock_post.return_value = Mock(status_code=200, json=lambda: {"ok": True})
-                
-                result = notification.send_zalo("Cảnh báo có ảnh", snapshot_path=tmp_path)
-                assert result is True
-                call_url = mock_post.call_args[0][0]
-                assert "sendPhoto" in call_url
-                payload = mock_post.call_args[1]["json"]
-                assert "https://fireguard-demo.com/snapshots/" in payload["photo"]
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+def test_zalo_sends_s3_link_in_text():
+    settings = {"zalo_bot_token": "zalo_token", "zalo_chat_id": "zalo_chat"}
+    link = "https://s3.example.com/fireguard/snapshots/event.jpg?signature=test"
+    with patch("notification.get_setting", side_effect=lambda k: settings.get(k)), \
+         patch("storage.snapshot_public_url", return_value=link), \
+         patch("notification._zalo_call", return_value=(True, "")) as call:
+        assert notification.send_zalo("Fire alert", snapshot_path="event.jpg") is True
+    call.assert_called_once()
+    assert call.call_args.args[1] == "sendMessage"
+    assert link in call.call_args.args[2]["text"]
+    assert "photo" not in call.call_args.args[2]
 
 
-def test_zalo_fallback_to_text_when_sendphoto_fails():
-    """Kiểm thử Zalo tự động fallback về tin nhắn văn bản khi gửi ảnh sendPhoto thất bại"""
-    mock_settings = {
-        "zalo_bot_token": "zalo_token",
-        "zalo_chat_id": "zalo_chat",
-        "public_base_url": "https://unreachable-url.com"
-    }
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_file:
-        tmp_file.write(b"data")
-        tmp_path = tmp_file.name
-
-    try:
-        with patch("notification.get_setting", side_effect=lambda k: mock_settings.get(k)):
-            with patch("notification.requests.post") as mock_post:
-                # Lần 1 (sendPhoto) trả về lỗi; Lần 2 (sendMessage) trả về thành công
-                res_photo_fail = Mock(status_code=400, json=lambda: {"ok": False, "description": "Cannot download image"})
-                res_text_ok = Mock(status_code=200, json=lambda: {"ok": True})
-                mock_post.side_effect = [res_photo_fail, res_text_ok]
-
-                result = notification.send_zalo("Cảnh báo khẩn cấp", snapshot_path=tmp_path)
-                
-                assert result is True
-                assert mock_post.call_count == 2
-                assert "sendPhoto" in mock_post.call_args_list[0][0][0]
-                assert "sendMessage" in mock_post.call_args_list[1][0][0]
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+def test_zalo_keeps_text_when_s3_link_unavailable():
+    settings = {"zalo_bot_token": "zalo_token", "zalo_chat_id": "zalo_chat"}
+    with patch("notification.get_setting", side_effect=lambda k: settings.get(k)), \
+         patch("storage.snapshot_public_url", return_value=None), \
+         patch("notification._zalo_call", return_value=(True, "")) as call:
+        assert notification.send_zalo("Fire alert", snapshot_path="event.jpg") is True
+    call.assert_called_once()
+    assert call.call_args.args[1] == "sendMessage"
+    assert "Fire alert" in call.call_args.args[2]["text"]
 
 
 def test_zalo_skipped_when_credentials_missing():
@@ -242,13 +210,13 @@ def test_trigger_notifications_respects_cooldown():
 async def test_api_trigger_test_notification():
     """Kiểm thử API POST /test-notification gọi trigger_notifications thành công"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        with patch("notification.trigger_notifications") as mock_trigger:
+        with patch("notification.trigger_notifications", return_value={"zalo": {"status": "sent"}, "telegram": {"status": "sent"}}) as mock_trigger:
             res = await client.post("/test-notification")
             assert res.status_code == 200
             data = res.json()
             assert data["status"] == "ok"
-            assert data["message"] == "Test notification triggered"
-            mock_trigger.assert_called_once_with("TEST EVENT", 0.99, None)
+            assert data["message"] == "Test notification sent"
+            mock_trigger.assert_called_once_with("TEST EVENT", 0.99, None, bypass_cooldown=True)
 
 
 @pytest.mark.asyncio

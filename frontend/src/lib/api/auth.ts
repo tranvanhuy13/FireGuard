@@ -61,7 +61,7 @@ export const api = {
     const basicHeader = "Basic " + (typeof window !== 'undefined' ? btoa(unescape(encodeURIComponent(rawCreds))) : Buffer.from(rawCreds).toString('base64'));
 
     try {
-      const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean }>("/auth/login", {
+      const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean; role: "admin" | "user" }>("/auth/login", {
         method: "GET",
         headers: {
           Authorization: basicHeader,
@@ -75,7 +75,7 @@ export const api = {
         username: res.username,
         fullName: res.username,
         email: res.email,
-        role: "user", // Real backend defaults to user
+        role: res.role === "admin" ? "admin" : "user",
         is_active: res.is_active,
       };
 
@@ -86,10 +86,16 @@ export const api = {
       return { user, token: basicHeader };
     } catch (err: any) {
       if (err instanceof ApiError) {
+        if (err.status === 429) {
+          throw new ApiError("loginRateLimited", 429, err.data);
+        }
         if (err.status === 401) {
           throw new ApiError("invalidCredentials", 401);
         }
-        if (err.status === 403 || err.message === "Account not verified") {
+        if (err.message === "Account blocked") {
+          throw new ApiError("accountBlocked", 403);
+        }
+        if (err.message === "Account not verified") {
           throw new ApiError("accountNotVerified", 403, { email: credentials.identifier });
         }
       }
@@ -362,6 +368,9 @@ export const api = {
             const userIndex = users.findIndex((user) => user.email.toLowerCase() === targetEmail);
             if (userIndex === -1) {
               return reject(new ApiError("ACCOUNT_NOT_FOUND", 404));
+            }
+            if (users[userIndex].password === data.newPassword) {
+              return reject(new ApiError("PASSWORD_REUSED", 400));
             }
             users[userIndex].password = data.newPassword;
             localStorage.setItem('mockUsers', JSON.stringify(users));

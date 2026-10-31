@@ -33,6 +33,7 @@ jobs:
 
       - name: Start stack
         run: |
+          $COMPOSE run --rm --no-deps backend python -m alembic upgrade head
           $COMPOSE up -d --remove-orphans
           $COMPOSE ps
 
@@ -41,7 +42,7 @@ jobs:
           PORT=$(grep -E '^HTTP_PORT=' "$HOME/.fireguard/local.env" | cut -d= -f2)
           PORT=${PORT:-8080}
           for i in $(seq 1 60); do
-            if curl -fsS "http://127.0.0.1:$PORT/api/" && curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then
+            if curl -fsS "http://127.0.0.1:$PORT/api/health/ready" && curl -fsS -o /dev/null "http://127.0.0.1:$PORT/"; then
               echo; echo "Deployed ${{ github.sha }} -> http://127.0.0.1:$PORT"; exit 0
             fi
             sleep 3

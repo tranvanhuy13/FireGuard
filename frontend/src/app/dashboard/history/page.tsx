@@ -1,5 +1,6 @@
 /* eslint-disable */
 "use client";
+import { mediaUrl } from "@/lib/api/client";
 import { Download } from 'lucide-react';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -12,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function HistoryPage() {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, streamToken } = useAuth();
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -91,7 +92,7 @@ export default function HistoryPage() {
 
   const filteredAlerts = useMemo(() => {
     return alerts.filter(a => {
-      const matchSearch = a.id.toLowerCase().includes(search.toLowerCase()) || a.camera_id.toString().includes(search);
+      const matchSearch = String(a.id).toLowerCase().includes(search.toLowerCase()) || String(a.camera_id).includes(search);
       const matchType = typeFilter === 'all' || a.type === typeFilter;
       const matchStatus = statusFilter === 'all' || a.status === statusFilter;
       return matchSearch && matchType && matchStatus;
@@ -185,7 +186,7 @@ export default function HistoryPage() {
             <motion.div initial={{y:50, opacity:0}} animate={{y:0, opacity:1}} exit={{y:50, opacity:0}} className="bg-white rounded-lg p-6 max-w-lg w-full shadow-xl">
               <h2 className="text-xl font-bold mb-4">{t.pages.history.detailsModal}</h2>
               <div className="space-y-4">
-                <img src={selectedAlert.snapshot || '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 rounded-md" />
+                <img src={selectedAlert.snapshot ? mediaUrl(selectedAlert.snapshot, streamToken) : '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 rounded-md" />
                 <div className="grid grid-cols-2 gap-4">
                   <div><span className="text-gray-500 block text-sm">{t.pages.history.time}</span> {new Date(selectedAlert.timestamp).toLocaleString()}</div>
                   <div><span className="text-gray-500 block text-sm">{t.pages.history.camera}</span> Cam {selectedAlert.camera_id}</div>

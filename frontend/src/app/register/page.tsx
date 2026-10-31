@@ -26,8 +26,9 @@ const getRegisterSchema = (t: any) => z.object({
       message: t.auth.errors.emailGmailOnly,
     }),
   password: z.string()
-    .min(8, t.auth.errors.passwordMin)
-    .regex(/^[a-zA-Z0-9]+$/, t.auth.errors.passwordNoSpecialChars),
+    .refine(value => Array.from(value).length >= 8, t.auth.errors.passwordMin)
+    .refine(value => new TextEncoder().encode(value).length <= 72, t.auth.errors.passwordTooLong)
+    .refine(value => !value.includes("\0"), t.auth.errors.passwordInvalid),
   confirmPassword: z.string(),
   terms: z.boolean().refine((val) => val === true, {
     message: t.auth.errors.termsRequired,
@@ -80,8 +81,12 @@ export default function RegisterPage() {
       const msg = err.message || err.detail;
       if (msg === "emailExists" || msg?.includes("Email already registered") || msg?.includes("Username already registered")) {
         setError(t.auth.errors.emailExists);
-      } else if (msg?.includes("Username and password must not contain special characters")) {
+      } else if (msg?.includes("Username must not contain special characters")) {
         setError(t.auth.errors.usernameNoSpecialChars);
+      } else if (msg === "PASSWORD_TOO_LONG") {
+        setError(t.auth.errors.passwordTooLong);
+      } else if (msg === "PASSWORD_INVALID") {
+        setError(t.auth.errors.passwordInvalid);
       } else if (msg?.includes("Please use a valid Gmail address")) {
         setError(t.auth.errors.emailGmailOnly);
       } else {

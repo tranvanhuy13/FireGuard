@@ -6,10 +6,12 @@ import AlertPanel, { Alert } from "@/components/AlertPanel";
 import StatsChart from "@/components/StatsChart";
 import HistoryModal from "@/components/HistoryModal";
 import SettingsModal from "@/components/SettingsModal";
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { API_URL, WS_URL } from "@/config";
+import { authFetch } from "@/lib/api/authFetch";
+import { startPolling, startAlertStream, mergeAlerts, type LoadState, type StreamState } from "@/lib/dashboardConnection";
 import { 
   normalizeAlert, 
   normalizeAlerts, 
@@ -19,106 +21,98 @@ import {
 } from "@/lib/api/client";
 
 export default function Home() {
-  const { t, language, setLanguage } = useLanguage();
-  const { streamToken, refreshStreamToken } = useAuth();
+  const { t } = useLanguage();
+  const { user, streamToken, refreshStreamToken } = useAuth();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [cameras, setCameras] = useState<NormalizedCamera[]>([]);
-  const [error, setError] = useState(false);
+  const [historyState, setHistoryState] = useState<LoadState>("loading");
+  const [cameraState, setCameraState] = useState<LoadState>("loading");
+  const [streamState, setStreamState] = useState<StreamState>("waiting");
+  const [online, setOnline] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [streamEpoch, setStreamEpoch] = useState(0);
+  const historyRetry = useRef<() => void>(() => {});
+  const cameraRetry = useRef<() => void>(() => {});
+  const retryCameras = useCallback(() => cameraRetry.current(), []);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // HTTP lifecycles deliberately do not depend on stream-token refreshes.
   useEffect(() => {
-    const fetchAlerts = async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-      try {
-        const res = await fetch(`${API_URL}/alerts`, { signal: controller.signal });
-        clearTimeout(timeoutId);
-        if (!res.ok) throw new Error("Backend unavailable");
-        const data = await res.json();
-        setAlerts(normalizeAlerts(data.alerts || []));
-        setError(false);
-      } catch (err) {
-        clearTimeout(timeoutId);
-        console.warn("Backend connection failed, trying WebSocket...", err);
-        setError(true);
-      }
+    const history = startPolling<{ alerts: Alert[] }>({
+      url: `${API_URL}/alerts`, interval: 30000, request: authFetch,
+      onState: setHistoryState,
+      onData: data => {
+        if (!Array.isArray(data.alerts)) throw new Error("Invalid alerts response");
+        setAlerts(previous => mergeAlerts(normalizeAlerts(data.alerts), previous));
+        setLastUpdated(Date.now());
+      },
+    });
+    const camera = startPolling<{ cameras: NormalizedCamera[] }>({
+      url: `${API_URL}/cameras`, interval: 3000, request: authFetch,
+      onState: setCameraState,
+      onData: data => {
+        if (!Array.isArray(data.cameras)) throw new Error("Invalid cameras response");
+        setCameras(normalizeCameras(data.cameras));
+      },
+    });
+    historyRetry.current = history.retry;
+    cameraRetry.current = camera.retry;
+    const recover = () => {
+      setOnline(navigator.onLine);
+      if (!document.hidden) { history.retry(); camera.retry(); }
     };
-    fetchAlerts();
-
-    const fetchCameras = async () => {
-      try {
-        const res = await fetch(`${API_URL}/cameras`);
-        if (res.ok) {
-          const data = await res.json();
-          setCameras(normalizeCameras(data.cameras || []));
-        }
-      } catch (err) {
-        console.warn("Failed to fetch cameras in dashboard", err);
-      }
-    };
-    fetchCameras();
-    const camInterval = setInterval(fetchCameras, 3000);
-
-    // 2. Establish WebSocket connection for real-time updates
-    let ws: WebSocket | null = null;
-    let reconnectTimeout: any = null;
-
-    const connectWebSocket = () => {
-      const wsUrl = `${WS_URL}/ws/alerts${streamToken ? `?token=${encodeURIComponent(streamToken)}` : ''}`;
-      ws = new WebSocket(wsUrl);
-
-      ws.onopen = () => {
-        console.log("[WebSocket] Connected to FastAPI backend!");
-        setError(false);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const rawAlert = JSON.parse(event.data);
-          const newAlert = normalizeAlert(rawAlert);
-          setAlerts(prevAlerts => {
-            // Avoid duplicate additions in state
-            if (prevAlerts.some(a => a.id === newAlert.id || (a.timestamp === newAlert.timestamp && a.type === newAlert.type))) {
-              return prevAlerts;
-            }
-            return [newAlert, ...prevAlerts];
-          });
-        } catch (e) {
-          console.error("[WebSocket] Error parsing message:", e);
-        }
-      };
-
-      ws.onerror = (err) => {
-        console.warn("[WebSocket] Error:", err);
-      };
-
-      ws.onclose = async (event) => {
-        if (event.code === 1008) {
-          await refreshStreamToken();
-        }
-        reconnectTimeout = setTimeout(connectWebSocket, 3000);
-      };
-    };
-
-    connectWebSocket();
-
+    const offline = () => { setOnline(false); history.retry(); camera.retry(); };
+    setOnline(navigator.onLine);
+    window.addEventListener("online", recover);
+    window.addEventListener("offline", offline);
+    document.addEventListener("visibilitychange", recover);
     return () => {
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      clearInterval(camInterval);
+      history.dispose(); camera.dispose();
+      historyRetry.current = cameraRetry.current = () => {};
+      window.removeEventListener("online", recover);
+      window.removeEventListener("offline", offline);
+      document.removeEventListener("visibilitychange", recover);
     };
-  }, [streamToken, refreshStreamToken]);
+  }, []);
+
+  useEffect(() => {
+    if (!streamToken || !online) { setStreamState("waiting"); return; }
+    return startAlertStream({
+      url: `${WS_URL}/ws/alerts?token=${encodeURIComponent(streamToken)}`,
+      onState: setStreamState,
+      refreshToken: refreshStreamToken,
+      onConnected: () => historyRetry.current(),
+      onAlert: data => {
+        const raw = data as Alert;
+        if (!raw || typeof raw.timestamp !== "string" || typeof raw.type !== "string") return;
+        setAlerts(previous => mergeAlerts([normalizeAlert(raw)], previous));
+        setLastUpdated(Date.now());
+      },
+    });
+  }, [streamToken, refreshStreamToken, streamEpoch, online]);
+
+  const retry = () => {
+    historyRetry.current(); cameraRetry.current();
+    if (streamState !== "connected") setStreamEpoch(value => value + 1);
+  };
+  const historyUnavailable = historyState !== "ready" && historyState !== "loading";
+  const cameraUnavailable = cameraState !== "ready" && cameraState !== "loading";
+  const notices = [
+    !online ? t.dashboard.networkOffline : null,
+    historyState === "loading" ? t.dashboard.loadingHistory : null,
+    historyState === "forbidden" || cameraState === "forbidden" ? t.dashboard.accessError : null,
+    historyUnavailable && historyState !== "forbidden" ? t.dashboard.historyUnavailable : null,
+    cameraUnavailable && cameraState !== "forbidden" ? t.dashboard.camerasUnavailable : null,
+    streamState !== "connected" ? t.dashboard.reconnectingLive : null,
+  ].filter(Boolean);
 
   const kpis = calculateDashboardKPIs(cameras, alerts);
 
   return (
     <div className="h-full flex flex-col relative">
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <SettingsModal isOpen={isSettingsOpen && user?.role === "admin"} onClose={() => setIsSettingsOpen(false)} />
       
       {/* Red flashing banner if there is a new fire alert within last 15 seconds */}
       {alerts.some(a => a.type === 'fire' && (Date.now() - new Date(a.timestamp.replace(' ', 'T')).getTime() < 15000)) && (
@@ -127,16 +121,11 @@ export default function Home() {
         </div>
       )}
 
-      {error && (
-        <div className="absolute inset-0 bg-navy-900/90 z-50 flex items-center justify-center backdrop-blur-sm rounded-2xl">
-           <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center">
-              <h2 className="text-xl font-bold text-navy-900 mb-2">{t.dashboard.connectionError}</h2>
-              <p className="text-gray-600 mb-6">{t.dashboard.failedToConnect}</p>
-              <div className="flex gap-4 justify-center">
-                 <button onClick={() => window.location.reload()} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300">{t.dashboard.retry}</button>
-                 <button onClick={() => { localStorage.setItem('force_mock', 'true'); window.location.reload(); }} className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700">{t.dashboard.useDemoMode}</button>
-              </div>
-           </div>
+      {notices.length > 0 && (
+        <div role="status" aria-live="polite" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+          {notices.map(message => <p key={message}>{message}</p>)}
+          {lastUpdated && <p>{t.dashboard.lastUpdated}: {new Date(lastUpdated).toLocaleTimeString()}</p>}
+          <button type="button" onClick={retry} className="mt-2 rounded-lg bg-sky-600 px-4 py-2 text-white hover:bg-sky-700">{t.dashboard.retry}</button>
         </div>
       )}
 
@@ -161,7 +150,7 @@ export default function Home() {
         {/* Video Feed Section - Takes 2/3 width */}
         <div className="lg:col-span-2 h-full flex flex-col gap-6 overflow-hidden">
           <div className="flex-1 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
-            <CameraGrid />
+            <CameraGrid cameraData={cameras} onRefresh={retryCameras} />
           </div>
           
            {/* Bottom Stats Area (Under Video) */}
@@ -173,7 +162,7 @@ export default function Home() {
         {/* Sidebar / Alerts - Takes 1/3 width */}
         <div className="h-full flex flex-col gap-6 overflow-hidden">
           <div className="flex-1 min-h-0 bg-white border border-sky-100 shadow-sm rounded-2xl overflow-hidden">
-            <AlertPanel alerts={alerts} error={error} />
+            <AlertPanel alerts={alerts} error={historyUnavailable && alerts.length === 0 && streamState !== "connected"} />
           </div>
           
           {/* Daily Count Widget */}

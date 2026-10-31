@@ -159,20 +159,20 @@ async def test_forgot_password_generic_response():
 
 @pytest.mark.asyncio
 async def test_reset_password_validations():
-    """13. Kiểm tra validation khi đặt lại mật khẩu: ký tự đặc biệt và độ dài tối thiểu 8 ký tự"""
+    """13. Special characters reach OTP validation; short passwords are rejected."""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-        # Mật khẩu chứa ký tự đặc biệt -> 400
+        # A special-character password is accepted by validation; this unknown account has no reset OTP.
         res_special = await client.post("/auth/reset-password", json={
-            "email": "vynguyen30082005@gmail.com",
+            "email": "unknown-reset-validation@gmail.com",
             "otp": "123456",
             "new_password": "Pass!@#$123"
         })
         assert res_special.status_code == 400
-        assert "special characters" in res_special.json().get("detail", "")
+        assert res_special.json().get("detail") == "Invalid or expired code"
 
         # Mật khẩu ngắn dưới 8 ký tự -> 400
         res_short = await client.post("/auth/reset-password", json={
-            "email": "vynguyen30082005@gmail.com",
+            "email": "unknown-reset-validation@gmail.com",
             "otp": "123456",
             "new_password": "Pass12"
         })
@@ -182,13 +182,12 @@ async def test_reset_password_validations():
 @pytest.mark.asyncio
 async def test_full_reset_password_and_login_flow():
     """14. Kiểm tra toàn trình: Verify Reset OTP -> Đổi mật khẩu mới -> Đăng nhập bằng mật khẩu mới thành công"""
-    import sqlite3
+    from db.engine import get_connection
     from auth.utils import otp_expiry
 
     # Giả lập mã OTP hợp lệ trong DB cho tài khoản vyvy
     expiry_time = otp_expiry()
-    db_path = os.path.join(BACKEND_DIR, "example.db")
-    conn = sqlite3.connect(db_path)
+    conn = get_connection()
     conn.execute(
         "UPDATE users SET otp = '888888', otp_expires_at = ?, otp_attempts = 0 WHERE username = 'vyvy'",
         (expiry_time,)

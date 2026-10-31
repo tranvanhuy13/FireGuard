@@ -125,6 +125,10 @@ export const vi = {
     verifySuccess: "Xác thực thành công!",
     redirectLogin: "Đang chuyển hướng đến đăng nhập...",
     errors: {
+      passwordTooLong: "Mật khẩu không được vượt quá 72 byte UTF-8.",
+      passwordInvalid: "Mật khẩu chứa ký tự không được hỗ trợ.",
+      passwordReused: "Mật khẩu mới không được trùng với mật khẩu hiện tại.",
+      otpLocked: "Bạn đã nhập sai mã quá nhiều lần. Vui lòng yêu cầu mã mới.",
       identifierRequired: "Vui lòng nhập tên đăng nhập hoặc email",
       usernameRequired: "Vui lòng nhập tên đăng nhập",
       passwordMin: "Mật khẩu phải có ít nhất 8 ký tự",
@@ -135,13 +139,14 @@ export const vi = {
       phoneInvalid: "Số điện thoại Việt Nam không hợp lệ",
       termsRequired: "Bạn phải đồng ý với các điều khoản dịch vụ",
       invalidOtp: "Mã OTP không hợp lệ",
+      loginRateLimited: "Bạn đã đăng nhập sai quá nhiều lần. Vui lòng thử lại sau {seconds} giây.",
       invalidCredentials: "Sai tên đăng nhập/email hoặc mật khẩu.",
       invalidCredentialsUsername: "Sai tên đăng nhập hoặc mật khẩu.",
       emailExists: "Email hoặc tên đăng nhập này đã được đăng ký",
       usernameNoSpecialChars: "Tên đăng nhập không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
-      passwordNoSpecialChars: "Mật khẩu không được chứa ký tự đặc biệt (chỉ dùng chữ và số)",
       emailGmailOnly: "Vui lòng sử dụng địa chỉ Gmail hợp lệ (@gmail.com)",
       accountNotVerified: "Tài khoản chưa được kích hoạt OTP. Vui lòng xác thực tài khoản.",
+      accountBlocked: "Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên.",
       featureNotImplemented: "Tính năng chưa được kích hoạt trên máy chủ",
       forgotNotImplemented: "Tính năng quên mật khẩu chưa được kích hoạt trên máy chủ",
       resendWait: "Vui lòng đợi {seconds} giây trước khi yêu cầu mã mới.",
@@ -257,6 +262,15 @@ export const vi = {
     days30: "Hoạt động 30 ngày qua"
   },
   dashboard: {
+    networkOnline: "Có Internet",
+    networkOfflineShort: "Mất Internet",
+    networkOffline: "Mất kết nối Internet. Hệ thống sẽ kết nối lại khi có mạng.",
+    loadingHistory: "Đang tải lịch sử cảnh báo. Máy chủ có thể cần thêm thời gian phản hồi.",
+    accessError: "Phiên đăng nhập hoặc quyền truy cập không hợp lệ. Vui lòng đăng nhập lại hoặc kiểm tra quyền.",
+    historyUnavailable: "Tạm thời chưa tải được lịch sử. Các cảnh báo đã nhận vẫn được giữ lại.",
+    camerasUnavailable: "Chưa cập nhật được trạng thái camera. Đang hiển thị dữ liệu gần nhất.",
+    reconnectingLive: "Đang kết nối cảnh báo trực tiếp. Bạn vẫn có thể sử dụng bảng điều khiển.",
+    lastUpdated: "Cập nhật cảnh báo gần nhất",
     cameras: 'Camera',
     history: 'Lịch sử',
     profile: 'Hồ sơ',
@@ -301,6 +315,12 @@ export const vi = {
     clickToView: "Nhấp vào một sự kiện để xem.",
   },
   notifications: {
+    requestUnauthorized: "Vui lòng đăng nhập lại để truy cập người nhận thông báo.",
+    requestForbidden: "Tài khoản của bạn không có quyền thực hiện thao tác này.",
+    requestMissing: "Không tìm thấy API thông báo hoặc người nhận. Vui lòng kiểm tra bản deploy backend.",
+    requestNetwork: "Không kết nối được backend. Vui lòng thử lại.",
+    loadingRecipients: "Đang tải người nhận thông báo…",
+    sharedRecipientsNotice: "Danh sách người nhận được dùng chung. Chat ID đang bật mà bạn thêm sẽ nhận cảnh báo hệ thống. Quản trị viên quản lý người nhận đã có và cấu hình bot.",
     title: "Cài đặt Thông báo",
     subtitle: "Quản lý nơi và cách bạn nhận cảnh báo.",
     tabAccounts: "Tài khoản nhận tin",
@@ -526,6 +546,12 @@ export const vi = {
       rowsPerPage: "Dòng/trang",
       all: "Tất cả",
       noData: "Không tìm thấy kết quả nào",
+      errors: {
+        unauthorized: "Phiên đăng nhập đã hết hạn hoặc bạn chưa đăng nhập.",
+        forbidden: "Bạn không có quyền xem nhật ký hệ thống (yêu cầu quyền quản trị viên).",
+        networkError: "Không thể kết nối đến máy chủ. Vui lòng thử lại sau.",
+        retry: "Thử lại"
+      },
       
       cols: {
         time: "Thời gian",
@@ -552,7 +578,21 @@ export const vi = {
         ACK_ALERT: "Xác nhận cảnh báo",
         FALSE_ALARM: "Đánh dấu báo động sai",
         VIDEO_ANALYSIS: "Phân tích video",
-        TEST_NOTIFICATION: "Gửi thông báo thử"
+        TEST_NOTIFICATION: "Gửi thông báo thử",
+        "camera.add": "Thêm camera",
+        "camera.delete": "Xóa camera",
+        "camera.update": "Sửa camera",
+        "camera.toggle": "Bật/tắt camera",
+        "video.analyze": "Phân tích video",
+        "video.notification.retry": "Gửi lại thông báo video",
+        "setting.update": "Đổi cài đặt",
+        "notification.test": "Gửi thông báo thử",
+        "alert.status": "Cập nhật cảnh báo",
+        "notification.recipient.save": "Lưu người nhận thông báo",
+        "notification.recipient.delete": "Xóa người nhận thông báo",
+        "notification.recipient.test": "Thử người nhận thông báo",
+        "user.update": "Cập nhật người dùng",
+        "user.role_change": "Đổi vai trò người dùng"
       },
       
       results: {

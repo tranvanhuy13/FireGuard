@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext";
 import { WS_URL } from "../config";
 
 interface CameraDetection {
@@ -7,14 +8,16 @@ interface CameraDetection {
   detections: { class: string; confidence: number }[]; latency_ms?: number;
 }
 export function useCameraDetections() {
+  const { streamToken, refreshStreamToken } = useAuth();
   const [states, setStates] = useState<Record<number, CameraDetection>>({});
   useEffect(() => {
+    if (!streamToken) return;
     let disposed = false;
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let receivedAt = 0;
     const connect = () => {
-      socket = new WebSocket(`${WS_URL}/ws/detections`);
+      socket = new WebSocket(`${WS_URL}/ws/detections?token=${encodeURIComponent(streamToken)}`);
       socket.onmessage = (event) => {
         if (disposed) return;
         try {
@@ -23,7 +26,8 @@ export function useCameraDetections() {
           setStates(Object.fromEntries(data.cameras.map(camera => [camera.camera_id, camera])));
         } catch { setStates({}); }
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
+        if (!disposed && event.code === 1008) { setStates({}); void refreshStreamToken(); return; }
         if (!disposed) { setStates({}); retry = setTimeout(connect, 1500); }
       };
       socket.onerror = () => socket?.close();
@@ -31,7 +35,7 @@ export function useCameraDetections() {
     connect();
     const expiry = setInterval(() => { if (Date.now() - receivedAt > 1500) setStates({}); }, 500);
     return () => { disposed = true; clearTimeout(retry); clearInterval(expiry); socket?.close(); };
-  }, []);
+  }, [streamToken, refreshStreamToken]);
   return states;
 }
 

@@ -16,8 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 ENV PYTHONUNBUFFERED=1 \
-    DB_NAME=/data/fire_guard.db \
-    AUTH_DB_PATH=/data/auth.db \
     MODEL_PATH=/data/models/best.pt \
     SNAPSHOT_DIR=/data/snapshots \
     YOLO_CONFIG_DIR=/tmp/ultralytics
@@ -25,4 +23,4 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 
 # Render cap cong qua bien PORT; chay local khong co PORT thi dung 8000
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]

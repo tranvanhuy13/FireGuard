@@ -22,13 +22,35 @@ services:
     restart: unless-stopped
     environment:
       GCS_BUCKET: ${GCS_BUCKET}
+      MYSQL_HOST: ${MYSQL_HOST:?set MYSQL_HOST}
+      MYSQL_PORT: ${MYSQL_PORT:?set MYSQL_PORT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_SSL_CA: /run/secrets/aiven-ca.pem
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-5}
+      DB_POOL_TIMEOUT: ${DB_POOL_TIMEOUT:-10}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       CORS_ORIGINS: https://${DOMAIN}
       GMAIL_ADDRESS: ${GMAIL_ADDRESS:-}
       GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
       AUTH_DEV_MODE: ${AUTH_DEV_MODE:-false}
       STREAM_TOKEN_SECRET: ${STREAM_TOKEN_SECRET:-}
+      ZALO_BOT_TOKEN: ${ZALO_BOT_TOKEN:-}
+      ZALO_CHAT_ID: ${ZALO_CHAT_ID:-}
+      ZALO_ENABLED: ${ZALO_ENABLED:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-}
     volumes:
       - backend_data:/data
+      - type: bind
+        source: ${MYSQL_SSL_CA_HOST_PATH:?set absolute CA path on host}
+        target: /run/secrets/aiven-ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
 
   frontend:
     image: ${REGISTRY}/frontend:${TAG}

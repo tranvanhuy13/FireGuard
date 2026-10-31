@@ -125,6 +125,10 @@ export const en = {
     verifySuccess: "Verification Successful!",
     redirectLogin: "Redirecting to login...",
     errors: {
+      passwordTooLong: "Password must not exceed 72 UTF-8 bytes.",
+      passwordInvalid: "Password contains an unsupported character.",
+      passwordReused: "New password must differ from your current password.",
+      otpLocked: "Too many incorrect codes. Request a new code to continue.",
       identifierRequired: "Username or email is required",
       usernameRequired: "Username is required",
       passwordMin: "Password must be at least 8 characters",
@@ -135,13 +139,14 @@ export const en = {
       phoneInvalid: "Invalid Vietnam phone number",
       termsRequired: "You must accept the terms and conditions",
       invalidOtp: "Invalid OTP code",
+      loginRateLimited: "Too many failed sign-in attempts. Try again in {seconds} seconds.",
       invalidCredentials: "Incorrect username/email or password.",
       invalidCredentialsUsername: "Incorrect username or password.",
       emailExists: "This email or username is already registered",
       usernameNoSpecialChars: "Username must not contain special characters (letters and numbers only)",
-      passwordNoSpecialChars: "Password must not contain special characters (letters and numbers only)",
       emailGmailOnly: "Please use a valid Gmail address (@gmail.com)",
       accountNotVerified: "Account not verified. Please verify your account.",
+      accountBlocked: "Your account has been blocked. Please contact an administrator.",
       featureNotImplemented: "Feature is not enabled on the server",
       forgotNotImplemented: "Forgot password is not enabled on the server",
       resendWait: "Please wait {seconds}s before requesting a new code.",
@@ -257,6 +262,15 @@ export const en = {
     days30: "Last 30 Days Activity"
   },
   dashboard: {
+    networkOnline: "Internet connected",
+    networkOfflineShort: "Internet offline",
+    networkOffline: "Internet connection lost. Reconnecting when the network returns.",
+    loadingHistory: "Loading alert history. The server may take a moment to respond.",
+    accessError: "Session or permission error. Sign in again or check your access.",
+    historyUnavailable: "Alert history is temporarily unavailable. Showing previously received alerts.",
+    camerasUnavailable: "Camera status could not be refreshed. Showing the last available data.",
+    reconnectingLive: "Connecting to live alerts. Dashboard data remains available.",
+    lastUpdated: "Alerts last updated",
     cameras: 'Cameras',
     history: 'History',
     profile: 'Profile',
@@ -301,6 +315,12 @@ export const en = {
     clickToView: "Click on an event to view.",
   },
     notifications: {
+    requestUnauthorized: "Please sign in again to access notification recipients.",
+    requestForbidden: "Your account does not have permission for this action.",
+    requestMissing: "The notification API or recipient was not found. Check the backend deployment.",
+    requestNetwork: "Could not reach the backend. Please try again.",
+    loadingRecipients: "Loading notification recipients…",
+    sharedRecipientsNotice: "Recipients are shared across this system. Active destinations you add receive system alerts. Administrators manage existing recipients and bot settings.",
     title: "Notification Settings",
     subtitle: "Manage where and how you receive alerts.",
     tabAccounts: "Recipient Accounts",
@@ -526,6 +546,12 @@ export const en = {
       rowsPerPage: "Rows/page",
       all: "All",
       noData: "No results found",
+      errors: {
+        unauthorized: "Session expired or not logged in.",
+        forbidden: "You do not have permission to view the audit log (Admin role required).",
+        networkError: "Could not connect to the server. Please try again later.",
+        retry: "Retry"
+      },
       
       cols: {
         time: "Time",
@@ -552,7 +578,21 @@ export const en = {
         ACK_ALERT: "Acknowledge Alert",
         FALSE_ALARM: "Mark False Alarm",
         VIDEO_ANALYSIS: "Video Analysis",
-        TEST_NOTIFICATION: "Test Notification"
+        TEST_NOTIFICATION: "Test Notification",
+        "camera.add": "Add Camera",
+        "camera.delete": "Delete Camera",
+        "camera.update": "Edit Camera",
+        "camera.toggle": "Toggle Camera",
+        "video.analyze": "Video Analysis",
+        "video.notification.retry": "Retry Video Notification",
+        "setting.update": "Update Setting",
+        "notification.test": "Test Notification",
+        "alert.status": "Update Alert Status",
+        "notification.recipient.save": "Save Notification Recipient",
+        "notification.recipient.delete": "Delete Notification Recipient",
+        "notification.recipient.test": "Test Notification Recipient",
+        "user.update": "Update User",
+        "user.role_change": "Change User Role"
       },
       
       results: {

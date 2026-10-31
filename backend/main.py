@@ -12,13 +12,18 @@ Expected project layout:
 Access rules
 ------------
 PUBLIC     Every endpoint: cameras, video feeds, video analysis, alerts, stats,
-           history, settings, notifications, WebSocket, snapshots.
+           history, WebSocket, snapshots.
 
 LOGIN      Only the account helpers keep their own credential check, because
            they are *about* the logged-in user:
              GET /auth/login          (HTTP Basic -> returns the user profile)
              GET /auth/stream-token   (HTTP Basic -> returns a stream token)
              GET /users/me            (see users/routes.py)
+             GET/POST /notifications/accounts and /notifications/groups
+             GET/POST /settings       (users: alarm sound only)
+
+ADMIN      GET /audit-log requires a verified, unblocked administrator.
+           Editing/deleting/testing recipients and other settings require admin.
 
 NOTE       /video_feed and /ws/alerts still accept an optional ?token=... so the
            existing frontend keeps working, but the token is no longer required.
@@ -58,11 +63,13 @@ logger = logging.getLogger(__name__)
 import database
 import notification
 import storage
-from auth.dependencies import get_current_user
+from auth.dependencies import get_current_user, require_admin
+from auth.database import get_connection as get_auth_connection
 from auth.routes import router as auth_router
 from camera_manager import CameraManager
 from detection import FireDetector
 from users.routes import router as users_router
+from notification_routes import router as notification_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 from detection_rules import read_settings
 
@@ -92,9 +99,17 @@ async def lifespan(app: FastAPI):
     global main_loop
     main_loop = asyncio.get_running_loop()
     camera_manager.alert_callback = broadcast_alert
-    yield
-    video_analyzer.shutdown()
-    camera_manager.shutdown()
+    try:
+        yield
+    finally:
+        try:
+            video_analyzer.shutdown()
+        finally:
+            try:
+                camera_manager.shutdown()
+            finally:
+                from db.engine import dispose_engine
+                dispose_engine()
 
 
 app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
@@ -113,6 +128,16 @@ app.add_middleware(
 )
 
 database.init_db()
+
+
+@app.get("/health/ready")
+def database_readiness():
+    try:
+        database.init_db()
+    except Exception:
+        logger.warning("Database readiness check failed")
+        raise HTTPException(status_code=503, detail="Database unavailable") from None
+    return {"status": "ready", "database": "mysql"}
 
 # The model is not in git: in Docker it is downloaded from MinIO / GCS on first start
 _model_path = Path(os.getenv("MODEL_PATH") or "best.pt")
@@ -139,6 +164,7 @@ def get_snapshot(name: str):
 # Authentication / account routes (signup + OTP + /users/me)
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(users_router, prefix="/users", tags=["users"])
+app.include_router(notification_router)
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +221,7 @@ def login(current_user=Depends(get_current_user)):
         "username": current_user.username,
         "email": current_user.email,
         "is_active": current_user.is_active,
+        "role": current_user.role,
     }
 
 
@@ -479,8 +506,10 @@ class SettingsModel(BaseModel):
 
 
 @app.get("/settings")
-def get_settings():
+def get_settings(current_user=Depends(get_current_user)):
     """Get all settings (masking secrets)."""
+    if current_user.role != "admin":
+        return {"settings": {"alarm_sound_enabled": database.get_setting("alarm_sound_enabled", "true")}}
     settings = database.get_all_settings()
     effective = read_settings(database.get_setting)
     settings.update(fire_threshold=str(effective["fire"] * 100),
@@ -495,8 +524,10 @@ def get_settings():
 
 
 @app.post("/settings")
-def save_setting(setting: SettingsModel):
+def save_setting(setting: SettingsModel, current_user=Depends(get_current_user)):
     """Save a setting."""
+    if current_user.role != "admin" and setting.key != "alarm_sound_enabled":
+        raise HTTPException(status_code=403, detail="Admin permission required")
     if setting.value == "********":      # never save the masked placeholder back
         return {"status": "skipped", "message": "Masked value ignored"}
     bounds = {"fire_threshold": (0, 100), "smoke_threshold": (0, 100),
@@ -517,7 +548,7 @@ def save_setting(setting: SettingsModel):
     return {"status": "ok", "message": "Setting saved"}
 
 
-@app.post("/test-notification")
+@app.post("/test-notification", dependencies=[Depends(require_admin)])
 def test_notification():
     """Trigger a test notification."""
     notification.trigger_notifications("TEST EVENT", 0.99, None)
@@ -536,6 +567,20 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+@app.get("/audit-log", dependencies=[Depends(require_admin)])
+def get_audit_log(limit: int = 200, offset: int = 0):
+    """Return persisted audit history to administrators only."""
+    conn = get_auth_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM audit_log ORDER BY id DESC LIMIT ? OFFSET ?",
+            (max(1, min(limit, 500)), max(0, offset)),
+        ).fetchall()
+        return {"logs": [dict(row) for row in rows]}
+    finally:
+        conn.close()
 
 
 if __name__ == "__main__":

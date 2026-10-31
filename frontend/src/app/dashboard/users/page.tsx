@@ -5,7 +5,8 @@ import React, { useEffect, useState } from 'react';
 import RequireRole from '@/components/RequireRole';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { ShieldAlert, UserCheck, UserX } from 'lucide-react';
+import { UserCheck, UserX } from 'lucide-react';
+import { API_URL } from '@/config';
 import { isMockData } from '@/lib/api/client';
 
 export default function UsersPage() {
@@ -13,13 +14,14 @@ export default function UsersPage() {
   const { t } = useLanguage();
 
   const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(isMockData);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const fetchUsers = async () => {
-    if (!isMockData) return;
+    if (currentUser?.role !== "admin") return;
     try {
-      const res = await fetch('/users');
+      const res = await fetch(isMockData ? '/users' : `${API_URL}/users`);
+      if (!res.ok) throw new Error("Could not fetch users");
       const data = await res.json();
       setUsers(data.users || []);
     } catch (err) {
@@ -31,17 +33,20 @@ export default function UsersPage() {
 
   useEffect(() => {
     fetchUsers();
-  }, []);
+  }, [currentUser?.role]);
 
   const handleUpdate = async (userId: string, updates: any) => {
     try {
-      const res = await fetch(`/users/${userId}`, {
+      const res = await fetch(`${isMockData ? "" : API_URL}/users/${userId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
       });
       if (res.ok) {
         fetchUsers();
+      } else {
+        const data = await res.json();
+        setError(data.detail || "Update failed");
       }
     } catch (err) {
       alert(t.pages?.common?.error || 'Update failed');
@@ -70,24 +75,7 @@ export default function UsersPage() {
     handleUpdate(userId, { status: currentStatus === 'active' ? 'blocked' : 'active' });
   };
 
-  if (!isMockData) {
-    return (
-      <RequireRole roles={['admin']}>
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-bold text-gray-900">{t.pages?.users?.title || 'Users Management'}</h1>
-          </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-8 text-center text-amber-800">
-            <ShieldAlert className="w-12 h-12 text-amber-500 mx-auto mb-3" />
-            <h2 className="text-lg font-bold mb-1">{t.auth.errors.featureNotImplemented}</h2>
-            <p className="text-sm text-amber-700">Máy chủ chưa cung cấp API quản lý danh sách người dùng và phân quyền.</p>
-          </div>
-        </div>
-      </RequireRole>
-    );
-  }
-
-  if (loading) return <div className="p-8 text-center">{t.pages?.common?.loading || 'Loading...'}</div>;
+  if (loading) return <RequireRole roles={['admin']}><div className="p-8 text-center">{t.pages?.common?.loading || 'Loading...'}</div></RequireRole>;
 
   return (
     <RequireRole roles={['admin']}>

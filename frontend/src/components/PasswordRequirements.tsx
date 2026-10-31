@@ -19,7 +19,7 @@ export interface PasswordRules {
 export function checkPasswordRules(password: string): PasswordRules {
   const pwd = password || "";
   return {
-    length: pwd.length >= MIN_PASSWORD_LENGTH,
+    length: Array.from(pwd).length >= MIN_PASSWORD_LENGTH && new TextEncoder().encode(pwd).length <= 72 && !pwd.includes("\0"),
     upper: /[A-Z]/.test(pwd),
     lower: /[a-z]/.test(pwd),
     number: /[0-9]/.test(pwd),
@@ -129,7 +129,7 @@ export function PasswordRequirements({
               ) : (
                 <div className="w-2 h-2 rounded-full bg-gray-300 ml-1 mr-0.5" />
               )}
-              <span>{rulesLabels.minLength}</span>
+              <span>{new TextEncoder().encode(password).length > 72 ? t.auth.errors.passwordTooLong : password.includes("\0") ? t.auth.errors.passwordInvalid : rulesLabels.minLength}</span>
             </div>
             <div
               className={`flex items-center gap-1.5 ${

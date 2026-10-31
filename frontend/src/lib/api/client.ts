@@ -75,6 +75,9 @@ const API_PREFIXES = [
   '/test-notification',
   '/users',
   '/api',
+  '/snapshots',
+  '/notifications',
+  '/audit-logs',
 ];
 
 // Global fetch auto-injection of Basic Authorization and 401 handling
@@ -104,7 +107,7 @@ if (typeof window !== 'undefined' && !window.__fireguard_fetch_wrapped) {
     const authHeader = getAuthHeader();
 
     if (isApiCall && authHeader) {
-      const headers = new Headers(init?.headers);
+      const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
       if (!headers.has('Authorization')) {
         headers.set('Authorization', authHeader);
       }
@@ -116,7 +119,7 @@ if (typeof window !== 'undefined' && !window.__fireguard_fetch_wrapped) {
 
     const response = await originalFetch(input, modifiedInit);
 
-    if (response.status === 401 && !pathname.includes('/auth/login')) {
+    if (isApiCall && response.status === 401 && !pathname.includes('/auth/login')) {
       clearAuthSession();
       if (typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard')) {
         const currentPath = window.location.pathname + window.location.search;
@@ -182,6 +185,9 @@ export async function apiClient<T>(
         }
       }
 
+      if (response.status === 429) {
+        errorData = { ...errorData, retryAfter: Number(response.headers.get("Retry-After")) || errorData?.retryAfter || 60 };
+      }
       throw new ApiError(errorMsg, response.status, errorData);
     }
 
@@ -311,4 +317,15 @@ export function calculateDashboardKPIs(cameras: any[], alerts: any[]): Dashboard
     fireAlerts,
     smokeAlerts,
   };
+}
+
+// Only attach media credentials to this backend's snapshot route.
+export function mediaUrl(path: string, token: string | null): string | undefined {
+  const backend = new URL(API_URL, typeof window === 'undefined' ? 'http://localhost' : window.location.origin);
+  const url = new URL(/^https?:\/\//.test(path) ? path : `${backend.href.replace(/\/$/, '')}/${path.replace(/^\//, '')}`);
+  if (url.origin === backend.origin && url.pathname.startsWith(`${backend.pathname.replace(/\/$/, '')}/snapshots/`)) {
+    if (!token) return undefined;
+    url.searchParams.set('token', token);
+  }
+  return url.toString();
 }

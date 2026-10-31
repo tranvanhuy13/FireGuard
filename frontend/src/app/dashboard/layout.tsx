@@ -25,7 +25,7 @@ import { Logo } from '@/components/Logo';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { Button } from '@/components/ui/Button';
-import { isMockData } from '@/lib/api/client';
+import { isMockData, isMockAuth } from '@/lib/api/client';
 import { setupMockService } from '@/lib/api/mockService';
 
 export default function DashboardLayout({
@@ -146,7 +146,7 @@ export default function DashboardLayout({
               {language}
             </button>
 
-            {isMockData && (
+            {isMockData && isMockAuth && (
               <select
                 className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700"
                 value={user.role}
@@ -159,7 +159,7 @@ export default function DashboardLayout({
             )}
 
             <div className={`px-2 py-1 rounded-full text-xs font-medium ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {isOnline ? 'Online' : 'Offline'}
+              {isOnline ? t.dashboard.networkOnline : t.dashboard.networkOfflineShort}
             </div>
 
             <div className="h-8 w-px bg-gray-200 mx-2" />

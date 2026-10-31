@@ -12,6 +12,9 @@ MODEL_OBJECT on startup if it is not on disk yet.
 import io
 import logging
 import os
+import re
+from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 import threading
 import time
 
@@ -22,6 +25,16 @@ logger = logging.getLogger(__name__)
 SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "snapshots")
 SYNC_INTERVAL_SECONDS = 60   # retry uploading snapshots that fell back to disk
 SNAPSHOT_PREFIX = "snapshots/"
+PERIODIC_RETENTION_DAYS = max(1, int(os.getenv("PERIODIC_SNAPSHOT_RETENTION_DAYS", "7")))
+RETENTION_INTERVAL_SECONDS = max(60, int(os.getenv("SNAPSHOT_CLEANUP_INTERVAL_SECONDS", "3600")))
+RETENTION_BATCH_SIZE = 500
+_PERIODIC_NAME = re.compile(r"periodic_(\d{8}_\d{6})_cam_\d+\.jpg")
+_maintenance_lock = threading.RLock()
+_snapshot_pins = {}
+_pin_lock = threading.RLock()
+_stop = threading.Event()
+_worker = None
+_worker_lock = threading.Lock()
 MODEL_OBJECT = os.getenv("MODEL_OBJECT", "models/best.pt")
 
 S3_ENDPOINT = os.getenv("S3_ENDPOINT", "").strip()
@@ -44,6 +57,7 @@ class _MinioStore:
                             access_key=os.environ["S3_ACCESS_KEY"],
                             secret_key=os.environ["S3_SECRET_KEY"],
                             secure=os.getenv("S3_SECURE", "false").lower() == "true",
+                            region=os.getenv("S3_REGION") or None,
                             http_client=http)
         self.name = f"minio://{S3_ENDPOINT}/{self.bucket}"
 
@@ -67,8 +81,37 @@ class _MinioStore:
     def delete(self, key):
         self.client.remove_object(self.bucket, key)
 
+    def list_periodic(self):
+        for obj in self.client.list_objects(self.bucket, prefix=SNAPSHOT_PREFIX + "periodic_", recursive=True):
+            yield obj.object_name, obj.last_modified.timestamp(), obj.size
+
     def download(self, key, path):
         self.client.fget_object(self.bucket, key, path)
+
+    def stat(self, key):
+        return self.client.stat_object(self.bucket, key)
+
+    def snapshot_url(self, key):
+        from minio import Minio
+
+        # Sign with the external host itself; rewriting a signed URL breaks it.
+        endpoint = urlsplit(os.getenv("S3_PUBLIC_ENDPOINT", "").strip())
+        if (endpoint.scheme not in ("http", "https") or not endpoint.hostname
+                or endpoint.username or endpoint.password or endpoint.query
+                or endpoint.fragment or endpoint.path not in ("", "/")):
+            raise ValueError("S3_PUBLIC_ENDPOINT must be an http(s) S3 API origin without a path")
+        seconds = int(os.getenv("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        if not 1 <= seconds <= 604800:
+            raise ValueError("S3_SNAPSHOT_URL_TTL_SECONDS must be between 1 and 604800")
+        self.stat(key)  # A signed URL alone does not prove that upload succeeded.
+        signer = Minio(
+            endpoint.netloc,
+            access_key=os.environ["S3_ACCESS_KEY"],
+            secret_key=os.environ["S3_SECRET_KEY"],
+            secure=endpoint.scheme == "https",
+            region=os.getenv("S3_REGION") or "us-east-1",
+        )
+        return signer.presigned_get_object(self.bucket, key, expires=timedelta(seconds=seconds))
 
 
 class _GcsStore:
@@ -91,8 +134,17 @@ class _GcsStore:
     def delete(self, key):
         self.bucket.blob(key).delete()
 
+    def list_periodic(self):
+        for blob in self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX + "periodic_"):
+            yield blob.name, blob.updated.timestamp(), blob.size or 0
+
     def download(self, key, path):
         self.bucket.blob(key).download_to_filename(path)
+
+    def stat(self, key):
+        blob = self.bucket.blob(key)
+        blob.reload()
+        return blob
 
 
 _store = None
@@ -111,6 +163,23 @@ def _get_store():
 
 def local_path(name):
     return os.path.join(SNAPSHOT_DIR, os.path.basename(name))
+
+
+def pin_snapshot(name):
+    """Keep notification attachments out of maintenance/deletion until released."""
+    with _pin_lock:
+        name = os.path.basename(name)
+        _snapshot_pins[name] = _snapshot_pins.get(name, 0) + 1
+
+
+def unpin_snapshot(name):
+    with _pin_lock:
+        name = os.path.basename(name)
+        remaining = _snapshot_pins.get(name, 0) - 1
+        if remaining > 0:
+            _snapshot_pins[name] = remaining
+        else:
+            _snapshot_pins.pop(name, None)
 
 
 def _write_local(name, data):
@@ -157,7 +226,19 @@ def read_snapshot(name):
     return None
 
 
+def restore_snapshot(name):
+    """Restore an attachment from storage for a manually retried notification."""
+    path = local_path(name)
+    if os.path.isfile(path):
+        return path
+    data = read_snapshot(name)
+    return _write_local(name, data) if data is not None else None
+
+
 def delete_snapshot(name):
+    with _pin_lock:
+        if _snapshot_pins.get(os.path.basename(name)):
+            return
     try:
         os.remove(local_path(name))
     except OSError:
@@ -173,9 +254,25 @@ def discard_local(path):
     """Remove a local copy once it is no longer needed (only when object storage holds the original)."""
     if path and enabled():
         try:
-            os.remove(path)
-        except OSError:
-            pass
+            _get_store().stat(SNAPSHOT_PREFIX + os.path.basename(path))
+            with _pin_lock:
+                if _snapshot_pins.get(os.path.basename(path)):
+                    return
+                os.remove(path)
+        except Exception:
+            logger.warning("[Storage] Keeping local snapshot %s; remote copy not confirmed", os.path.basename(path))
+
+
+def snapshot_public_url(name):
+    """Return an externally reachable, expiring S3 link for an uploaded snapshot."""
+    if not S3_ENDPOINT:
+        return None
+    try:
+        return _get_store().snapshot_url(SNAPSHOT_PREFIX + os.path.basename(name))
+    except Exception:
+        # Do not log signed URLs or credentials returned by providers.
+        logger.warning("[Storage] S3 snapshot link unavailable for %s; check upload and public endpoint configuration", os.path.basename(name))
+        return None
 
 
 def ensure_model(path):
@@ -192,6 +289,10 @@ def _sync_pending():
     """Upload snapshots left on disk (object storage was unreachable), then drop the local copy."""
     now = time.time()
     for name in os.listdir(SNAPSHOT_DIR):
+        if _stop.is_set():
+            break
+        if _snapshot_pins.get(name):
+            continue
         path = os.path.join(SNAPSHOT_DIR, name)
         # Fresh files may still be in use (e.g. attached to a notification being sent)
         if not name.endswith(".jpg") or now - os.path.getmtime(path) < SYNC_INTERVAL_SECONDS:
@@ -199,21 +300,106 @@ def _sync_pending():
         with open(path, "rb") as f:
             data = f.read()
         _get_store().put(SNAPSHOT_PREFIX + name, data, "image/jpeg")
-        os.remove(path)
+        with _pin_lock:
+            if _snapshot_pins.get(name):
+                continue
+            os.remove(path)
         logger.info("[Storage] Synced pending snapshot %s", name)
 
 
-def start_sync():
-    """Background thread that retries pending uploads, e.g. after MinIO was down at boot."""
-    if not enabled():
-        return
+def _expired_periodic(name, modified, cutoff):
+    match = _PERIODIC_NAME.fullmatch(name)
+    if not match or modified >= cutoff:
+        return False
+    try:
+        captured = datetime.strptime(match.group(1), "%Y%m%d_%H%M%S").timestamp()
+    except ValueError:
+        return False
+    return captured < cutoff
 
-    def loop():
-        while True:
+
+def cleanup_periodic(now=None):
+    """Delete only old periodic captures, in bounded batches on each backend."""
+    cutoff = (time.time() if now is None else now) - PERIODIC_RETENTION_DAYS * 86400
+    removed = size = 0
+    with _maintenance_lock:
+        with os.scandir(SNAPSHOT_DIR) as entries:
+            attempted = 0
+            for entry in entries:
+                if _stop.is_set() or attempted >= RETENTION_BATCH_SIZE:
+                    break
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    if _snapshot_pins.get(entry.name):
+                        continue
+                    stat = entry.stat(follow_symlinks=False)
+                    if not _expired_periodic(entry.name, stat.st_mtime, cutoff):
+                        continue
+                    attempted += 1
+                    os.remove(entry.path)
+                    removed += 1
+                    size += stat.st_size
+                except OSError as exc:
+                    logger.warning("[Storage] Retention failed for %s: %s", entry.name, exc)
+        if enabled() and not _stop.is_set():
             try:
-                _sync_pending()
-            except Exception as e:
-                logger.warning("[Storage] Pending snapshot sync failed, retrying later: %s", e)
-            time.sleep(SYNC_INTERVAL_SECONDS)
+                store = _get_store()
+                attempted = 0
+                for key, modified, byte_count in store.list_periodic():
+                    if _stop.is_set() or attempted >= RETENTION_BATCH_SIZE:
+                        break
+                    name = key.removeprefix(SNAPSHOT_PREFIX)
+                    if not key.startswith(SNAPSHOT_PREFIX) or not _expired_periodic(name, modified, cutoff):
+                        continue
+                    attempted += 1
+                    try:
+                        store.delete(key)
+                        removed += 1
+                        size += byte_count
+                    except Exception as exc:
+                        logger.warning("[Storage] Retention failed for %s: %s", key, exc)
+            except Exception as exc:
+                logger.warning("[Storage] Object retention scan failed: %s", exc)
+    logger.info("[Storage] Periodic retention removed %d copies (%d bytes)", removed, size)
+    return removed, size
 
-    threading.Thread(target=loop, name="storage-sync", daemon=True).start()
+
+def start_sync():
+    """Start lifecycle-owned local/cloud maintenance, including local-only mode."""
+    global _worker
+    with _worker_lock:
+        if _worker is not None and _worker.is_alive():
+            return
+        _stop.clear()
+
+        def loop():
+            next_cleanup = 0
+            while not _stop.is_set():
+                if time.monotonic() >= next_cleanup:
+                    removed = 0
+                    try:
+                        removed, _ = cleanup_periodic()
+                    except Exception as exc:
+                        logger.warning("[Storage] Retention failed, retrying later: %s", exc)
+                    delay = SYNC_INTERVAL_SECONDS if removed >= RETENTION_BATCH_SIZE else RETENTION_INTERVAL_SECONDS
+                    next_cleanup = time.monotonic() + delay
+                if enabled() and not _stop.is_set():
+                    try:
+                        with _maintenance_lock:
+                            _sync_pending()
+                    except Exception as exc:
+                        logger.warning("[Storage] Pending sync failed, retrying later: %s", exc)
+                _stop.wait(SYNC_INTERVAL_SECONDS)
+
+        _worker = threading.Thread(target=loop, name="storage-maintenance", daemon=True)
+        _worker.start()
+
+
+def stop_sync():
+    with _worker_lock:
+        _stop.set()
+        if _worker is not None:
+            _worker.join(timeout=20)
+            if _worker.is_alive():
+                logger.warning("[Storage] Maintenance still waiting for object storage at shutdown")

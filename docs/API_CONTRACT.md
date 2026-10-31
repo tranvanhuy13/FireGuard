@@ -2,6 +2,8 @@
 
 Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backend (nhánh `origin/authentication`), giao thức xác thực HTTP Basic Auth, cơ chế Stream Token, và liệt kê các tính năng còn thiếu cần Backend triển khai tiếp theo.
 
+> **Cập nhật phân quyền:** Xem [AUTHORIZATION.md](AUTHORIZATION.md) để biết quyền `user`/`admin`, các API `/users` đã triển khai, cơ chế khóa tài khoản và token media hiện tại. Các mục tính năng còn thiếu bên dưới là mô tả lịch sử; không dùng chúng để phủ nhận API đã được bổ sung.
+
 ---
 
 ## 1. Các API Đã Được Backend Hỗ Trợ & Frontend Kết Nối Thành Công
@@ -26,7 +28,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Quy tắc kiểm tra phía Backend:**
-  - `username` và `password` không được chứa ký tự đặc biệt (chỉ chấp nhận ký tự chữ và số).
+  - `username` chỉ chứa chữ và số. Mật khẩu cho phép ký tự đặc biệt, tối thiểu 8 ký tự, tối đa 72 byte UTF-8; không tự cắt hoặc trim mật khẩu.
   - `email` bắt buộc phải là địa chỉ Gmail hợp lệ (kết thúc bằng `@gmail.com`).
   - Tài khoản mới tạo sẽ có `is_active = 0` và tự động gửi mã OTP xác thực qua email.
 - **Response thành công (HTTP 200):**
@@ -37,7 +39,8 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
   }
   ```
 - **Mã lỗi:**
-  - `400`: `"Username and password must not contain special characters"`
+  - `400`: `"Username must not contain special characters"`
+  - `400`: `PASSWORD_TOO_LONG` (vượt 72 byte UTF-8), `PASSWORD_INVALID` (ký tự NUL).
   - `400`: `"Please use a valid Gmail address (example@gmail.com)."`
   - `400`: `"Username already registered"`
   - `400`: `"Email already registered"`
@@ -63,6 +66,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Mã lỗi:**
   - `400`: `"Invalid OTP"`
   - `400`: `"OTP has expired"`
+  - `429`: `"Too many attempts. Please request a new code."` từ lần sai thứ 5; mã cũ bị hủy và tiếp tục bị khóa đến khi cấp mã mới. Thời gian gửi được giữ lại để bảo toàn cooldown.
   - `400`: `"Account already verified"`
   - `404`: `"Account not found"`
 
@@ -95,7 +99,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Lưu ý nghiệp vụ:**
   - Backend đã hỗ trợ đăng nhập bằng **username hoặc email** (nếu chuỗi identifier chứa ký tự `@`, backend sẽ tự động tìm kiếm người dùng theo email).
   - Header HTTP Basic Auth gửi lên dạng `Basic base64(identifier:password)`.
-  - Frontend tự động loại bỏ khoảng trắng đầu/cuối của chuỗi nhập trước khi gửi.
+  - Frontend chỉ loại bỏ khoảng trắng đầu/cuối của tên đăng nhập/email; mật khẩu được gửi nguyên vẹn.
   - Khi thông tin đăng nhập không chính xác, backend trả về `401 Unauthorized`, Frontend hiển thị thông báo: `"Sai tên đăng nhập/email hoặc mật khẩu."`.
   - Sau khi đăng nhập thành công, Frontend cập nhật đối tượng người dùng vào `AuthContext`, lưu `user_profile` và `auth_header` vào `sessionStorage` (để hỗ trợ F5 tải lại trang mượt mà), sau đó dùng `router.replace` chuyển hướng theo tham số `redirect` (chỉ chấp nhận đường dẫn nội bộ hợp lệ bắt đầu bằng `/`, không chứa `//` hay `http:`).
 - **Response thành công (HTTP 200):**
@@ -355,26 +359,49 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.1. Phân Quyền & Vai Trò Người Dùng (RBAC Role Field)
 - **Hiện trạng:** Bảng `users` và schema `/users/me` chỉ có `is_active: bool`, hoàn toàn **chưa có trường `role`**. Frontend hiện phải mặc định role là `"user"` (không giả lập quyền cao).
+
 - **Cần Backend bổ sung:**
   - Cột `role` (`"admin"` | `"user"`) trong database `users` (vai trò `operator`/`viewer` cũ đã được gộp và đổi tên thành `user`; nếu backend trả về `viewer`, `operator` hoặc giá trị khác, frontend tự chuẩn hóa về `user`).
   - Trả về trường `role` trong response của `GET /auth/login` và `GET /users/me`.
 
 ### 2.2. Quản Lý Danh Sách Người Dùng (Users Management)
 - **Hiện trạng:** Chưa có API quản lý người dùng.
+
 - **Cần Backend bổ sung:**
   - `GET /users`: Danh sách tất cả người dùng (hỗ trợ phân trang, tìm kiếm).
   - `PUT /users/{id}`: Thay đổi vai trò `role` của người dùng.
   - `PUT /users/{id}/status`: Khóa hoặc kích hoạt lại người dùng (`is_active: 0/1`).
 
 ### 2.3. Nhật Ký Thao Tác Hệ Thống (Audit Logs)
-- **Hiện trạng:** Chưa có lưu vết thao tác (ai bật tắt camera, ai đổi cấu hình, thời gian, IP).
-- **Cần Backend bổ sung:**
-  - `GET /audit-logs`: Danh sách nhật ký thao tác hệ thống (thời gian, user, action, target, IP, result).
+- **Endpoint:** `GET /audit-log?limit=200&offset=0`
+- **Quyền:** Chỉ Quản trị viên (`admin`).
+- **Hiện trạng:** Backend đã cung cấp endpoint trả về danh sách lịch sử thao tác hệ thống dạng JSON:
+  ```json
+  {
+    "logs": [
+      {
+        "id": 1,
+        "timestamp": "2026-10-29T08:50:00+00:00",
+        "username": "admin",
+        "role": "admin",
+        "action": "camera.toggle",
+        "target": "camera:1",
+        "detail": "on"
+      }
+    ]
+  }
+  ```
+- **Xử lý phía Frontend:**
+  - Ánh xạ trường: `username` -> `user`, `detail` -> `details`, `id` (số) -> chuỗi.
+  - Các trường mở rộng phía client chưa có trong DB (`result`, `ip`, `userAgent`): hiển thị `"-"`, ẩn bộ lọc kết quả khi chạy ở chế độ thực tế (`!isMockData`) để phản ánh trung thực dữ liệu backend.
+
+
+
 
 ### 2.4. Quên & Đặt Lại Mật Khẩu (Forgot & Reset Password Flow)
 - `POST /auth/forgot-password`: Nhận `{ "email": str }`; trả thông báo chung và gửi mã nếu tài khoản đã xác thực tồn tại.
 - `POST /auth/verify-reset-otp`: Nhận `{ "email": str, "otp": str }`; xác thực mã và trả về `{ "message": str, "expires_in": int }`. Có tối đa 5 lần nhập sai.
-- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu phải có tối thiểu 8 ký tự chữ và số; mã OTP chỉ dùng được đến khi hết hạn hoặc đổi mật khẩu thành công.
+- `POST /auth/reset-password`: Nhận `{ "email": str, "otp": str, "new_password": str }`; kiểm tra lại mã trước khi đổi mật khẩu. Mật khẩu có tối thiểu 8 ký tự, tối đa 72 byte UTF-8 và cho phép ký tự đặc biệt. Mật khẩu trùng mật khẩu hiện tại bị từ chối với `400 PASSWORD_REUSED`; trường hợp này giữ OTP để nhập lại mật khẩu khác. Đổi thành công vô hiệu OTP.
 
 ### 2.5. Đăng Xuất (Logout API)
 - **Hiện trạng:** HTTP Basic Auth là stateless nên phía backend chưa có endpoint đăng xuất. Frontend hiện tại chỉ xóa thông tin phiên ở client memory và `sessionStorage`.
@@ -383,6 +410,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.6. Đăng Nhập Mạng Xã Hội (Google / Facebook OAuth 2.0)
 - **Hiện trạng:** Chưa có tích hợp OAuth 2.0 với Google và Facebook.
+
 - **Cần Backend bổ sung:**
   - `GET /auth/google`, `GET /auth/google/callback`
   - `GET /auth/facebook`, `GET /auth/facebook/callback`
@@ -390,6 +418,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 
 ### 2.7. Xác Nhận / Báo Động Sai Cảnh Báo (Alert Review Status)
 - **Hiện trạng:** Bảng `events` trong cơ sở dữ liệu backend chưa có trường `status` và `handler`. Cảnh báo chỉ được lưu cố định.
+
 - **Cần Backend bổ sung:**
   - `PUT /alerts/{id}`: Nhận `{ "status": "confirmed" | "false_alarm", "handler": str }` để cập nhật trạng thái xử lý sự cố.
 
@@ -398,9 +427,31 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 - **Cần Backend bổ sung (khuyến nghị):**
   - `PUT /settings`: Nhận một JSON object chứa nhiều cấu hình cùng lúc để giảm số lượng request HTTP.
 
-### 2.9. Quản Lý Kênh Nhận Tin Cá Nhân (Telegram / Zalo Notification Channels)
-- **Hiện trạng:** Backend chỉ lưu token bot trong database và chỉ có `/test-notification`. Chưa có bảng lưu từng tài khoản cá nhân, nhóm hay quy tắc gửi cảnh báo theo camera.
-- **Cần Backend bổ sung:**
-  - `GET, POST, PUT, DELETE /notifications/accounts`
-  - `GET, POST, PUT, DELETE /notifications/groups`
-  - `GET, POST, PUT, DELETE /notifications/rules`
+### 2.9. Shared Zalo / Telegram notification recipients
+
+These endpoints are registered in the backend and persist to MySQL.
+
+| Endpoint | Verified user | Admin |
+| --- | --- | --- |
+| `GET /notifications/{kind}` | Yes | Yes |
+| `POST /notifications/{kind}` | Yes | Yes |
+| `PUT /notifications/{kind}/{id}` | No | Yes |
+| `DELETE /notifications/{kind}/{id}` | No | Yes |
+| `POST /notifications/{kind}/{id}/test` | No | Yes |
+
+`kind` is `accounts` or `groups`. Create/update body:
+`{"channel":"telegram","friendlyName":"Team","chatId":"-123456","active":true}`.
+Channels are `zalo` or `telegram`; recipient lists are shared across users.
+Creation returns 201 with the saved recipient. Listing returns
+`{"accounts":[...]}` or `{"groups":[...]}`. Invalid input returns 422; duplicate
+channel/chat ID or the 20-per-channel capacity limit returns 409. Missing/invalid
+credentials return 401, blocked/unverified users or insufficient roles return 403.
+Saving never sends a test message. Rules APIs remain unimplemented.
+
+`GET /settings` requires authentication and returns only the alarm sound preference
+for regular users. `POST /settings` permits users to change only that preference;
+bot/system configuration requires admin. `POST /test-notification` requires admin.
+
+### Basic authentication throttling
+
+HTTP Basic failures share a SQLite budget across protected routes, including upload authentication before body parsing. The fifth failure for an account within 60 seconds returns `429` with `{"detail":"LOGIN_RATE_LIMITED"}` and a `Retry-After` seconds header. Username/email aliases share the account budget; a separate 50-failure IP budget covers changing identifiers. Concurrent authentication checks reserve capacity and successful checks release their own reservations. Signed media requests are unaffected. See [authorization](AUTHORIZATION.md) for worker/proxy setup and cooldown semantics.

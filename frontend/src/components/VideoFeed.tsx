@@ -166,7 +166,7 @@ const VideoFeed = () => {
       <div className="w-full h-full flex items-center justify-center bg-gray-900">
         {isActive ? (
           <>
-            <img
+            {streamToken && <img
               key={streamKey}
               src={videoUrl}
               alt="Live Video Stream"
@@ -176,7 +176,7 @@ const VideoFeed = () => {
                 refreshStreamToken();
                 setLoading(true);
               }}
-            />
+            />}
 
             {(loading || status !== "connected") && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-white/50 gap-2 bg-gray-900/60">
