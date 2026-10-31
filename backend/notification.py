@@ -8,7 +8,8 @@ import time
 from urllib.parse import quote
 
 import requests
-from database import get_setting
+from sqlalchemy.exc import SQLAlchemyError
+from database import get_setting, peek_settings
 from notification_targets import list_targets
 
 logger = logging.getLogger(__name__)
@@ -63,16 +64,19 @@ def configuration_status():
     return settings, status
 
 
-def _safe_description(value):
+def _safe_description(value, secrets=()):
     """Keep provider explanations useful without exposing credentials or URLs."""
     value = str(value or "")
+    saved = peek_settings()
+    for secret in secrets:
+        if secret:
+            value = value.replace(str(secret), "[redacted]")
     for channel in CHANNELS:
         for suffix in ("bot_token", "chat_id"):
-            secret = setting(f"{channel}_{suffix}")
+            key = f"{channel}_{suffix}"
+            secret = str(os.getenv(key.upper()) or saved.get(key) or "").strip()
             if secret:
                 value = value.replace(secret, "[redacted]").replace(quote(secret, safe=""), "[redacted]")
-        for target in channel_config(channel)["targets"]:
-            value = value.replace(target["chatId"], "[redacted]")
     value = re.sub(r"https?://\S+", "[redacted URL]", value)
     value = re.sub(r"\b\d{5,}:[A-Za-z0-9_-]+\b", "[redacted token]", value)
     return " ".join(value.split())[:300]
@@ -103,9 +107,14 @@ def _post(url, *, cancelled=None, details=None, request_attempts=3, **kwargs):
                 return True, ""
             code = body.get("error_code", response.status_code)
             if details is not None:
+                token_match = re.search(r"/bot([^/]+)/", url)
                 details.update(http_status=response.status_code,
                                error_code=code if isinstance(code, int) else response.status_code,
-                               description=_safe_description(body.get("description")) or "Bot API rejected the request")
+                               description=_safe_description(body.get("description"), secrets=(
+                                   (kwargs.get("data") or {}).get("chat_id"),
+                                   (kwargs.get("json") or {}).get("chat_id"),
+                                   token_match.group(1) if token_match else None,
+                               )) or "Bot API rejected the request")
             retry = response.status_code == 429 or code == 429 or response.status_code >= 500
             error = "rate_limited" if response.status_code == 429 or code == 429 else "provider_rejected"
             if details is not None:
@@ -147,10 +156,11 @@ def _zalo_call(token, method, payload, cancelled=None, details=None, request_att
                  details=details, request_attempts=request_attempts)
 
 
-def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None):
+def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None, _config=None):
     """Send warning text and an expiring direct S3 image link."""
+    details = {} if details is None else details
     try:
-        config = channel_config("zalo")
+        config = _config or channel_config("zalo")
         destination = chat_id or config["chat_id"]
         if not config["token"] or not destination:
             if details is not None:
@@ -167,16 +177,21 @@ def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, requ
         if not ok:
             logger.warning("Zalo delivery failed: %s", error)
         return ok
+    except SQLAlchemyError:
+        details.update(reason="configuration_unavailable", http_status=503,
+                       description="Notification configuration temporarily unavailable")
+        return False
     except Exception:
+        details.update(reason="delivery_error", description="Unable to prepare Zalo notification")
         logger.warning("Zalo delivery failed; check configuration and storage")
         return False
 
 
-def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None):
+def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, request_attempts=3, chat_id=None, _config=None):
     """Upload a local photo when available; otherwise deliver warning text."""
     details = {} if details is None else details
     try:
-        config = channel_config("telegram")
+        config = _config or channel_config("telegram")
         destination = chat_id or config["chat_id"]
         if not config["token"] or not destination:
             if details is not None:
@@ -231,6 +246,10 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, 
             logger.warning("Telegram delivery failed: %s; HTTP=%s API=%s; %s", error,
                            details.get("http_status"), details.get("error_code"), details.get("description", ""))
         return ok
+    except SQLAlchemyError:
+        details.update(reason="configuration_unavailable", http_status=503,
+                       description="Notification configuration temporarily unavailable")
+        return False
     except Exception:
         if details is not None:
             details.update(reason="delivery_error", description="Unable to prepare Telegram notification")
@@ -255,7 +274,16 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
     for channel in CHANNELS:
         if channels is not None and channel not in channels:
             continue
-        config = channel_config(channel)
+        try:
+            config = channel_config(channel)
+        except SQLAlchemyError:
+            results[channel] = {"status": "failed", "reason": "configuration_unavailable", "http_status": 503,
+                                "description": "Notification configuration temporarily unavailable"}
+            continue
+        except Exception:
+            results[channel] = {"status": "failed", "reason": "configuration_error",
+                                "description": "Unable to load notification configuration"}
+            continue
         if not config["enabled"] or not config["configured"]:
             results[channel] = {"status": "unconfigured" if not config["configured"] else "disabled",
                                 "description": "Channel is disabled; enable it in Settings or set " + channel.upper() + "_ENABLED=true"
@@ -285,7 +313,7 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
                     continue
                 details = {}
                 ok = sender(body, snapshot_path, cancelled=cancelled, details=details,
-                            request_attempts=request_attempts, chat_id=target["chatId"])
+                            request_attempts=request_attempts, chat_id=target["chatId"], _config=config)
                 delivered[key_id] = {"status": "sent" if ok else
                                      "cancelled" if cancelled is not None and cancelled.is_set() else "failed", **details}
             failures = [item for item in delivered.values() if item["status"] != "sent"]

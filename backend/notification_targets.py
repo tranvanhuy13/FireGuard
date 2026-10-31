@@ -2,7 +2,8 @@
 import uuid
 from contextlib import contextmanager
 
-from db.engine import get_connection
+from db.engine import get_connection, read_rows
+from database import cache_setting
 
 
 @contextmanager
@@ -22,11 +23,10 @@ def list_targets(kind=None, channel=None):
         if value is not None:
             conditions.append(key + "=?")
             args.append(value)
-    with connection() as conn:
-        rows = conn.execute("SELECT * FROM notification_targets" +
+    rows = read_rows("SELECT * FROM notification_targets" +
                             (" WHERE " + " AND ".join(conditions) if conditions else "") +
-                            " ORDER BY sequence", args).fetchall()
-        return [public(row) for row in rows]
+                            " ORDER BY sequence", args)
+    return [public(row) for row in rows]
 
 
 def save_target(kind, body, target_id=None):
@@ -52,7 +52,10 @@ def save_target(kind, body, target_id=None):
         if body.active:
             conn.execute("INSERT INTO settings(`key`,value) VALUES (?, 'true') ON DUPLICATE KEY UPDATE value='true'",
                          (body.channel + "_enabled",))
-        return public(conn.execute("SELECT * FROM notification_targets WHERE id=?", (target_id,)).fetchone())
+        saved = public(conn.execute("SELECT * FROM notification_targets WHERE id=?", (target_id,)).fetchone())
+    if body.active:
+        cache_setting(body.channel + "_enabled", "true")
+    return saved
 
 
 def delete_target(kind, target_id):

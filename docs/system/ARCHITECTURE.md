@@ -70,3 +70,24 @@ See [authentication and roles](../AUTHORIZATION.md) for the endpoint matrix, mig
 Notification Accounts/Groups use authenticated backend APIs: both roles can view/add, while only admins edit/delete/test existing recipients and the MySQL `notification_targets` table. Bot tokens continue to come from environment/settings. Active persisted recipients are authoritative for a channel; when a channel has saved rows but all are disabled, it sends to nobody. When no rows exist, the legacy environment/settings chat ID remains a fallback. An active recipient save enables the persisted channel flag; explicit environment enabled flags remain authoritative. Camera/video alerts send to each active destination. Per-recipient results let video retries skip successful deliveries, including after manual retry; editing a destination changes its delivery identity.
 
 The recipients page always uses the real API, even when other dashboard data is mocked. The Import action explicitly copies user-created browser recipients, preserving active flags and excluding seeded demo entries. It does not send messages. The Test button invokes real single-recipient delivery only on an explicit click. Configuration uses the existing backend Settings editor; mock rules do not control actual alerts.
+
+## Settings during a database outage
+
+`database.get_setting` reads a shared settings snapshot, loaded with one SELECT.
+After five seconds, warm readers receive the last valid snapshot immediately while
+one daemon thread refreshes it. Refresh failures retain that snapshot and are
+retried on a later access, without terminating video/camera analysis. A process
+with no valid snapshot fails rather than silently inventing detection thresholds.
+Committed settings/recipient-enable writes update the local snapshot immediately;
+other processes discover changes on refresh. Old refreshes cannot undo local writes.
+Admin `get_all_settings` remains a fresh database read.
+
+Settings and recipient SELECTs retry one disconnected connection (MySQL 2006,
+2013, 2055) on a new connection. Writes are never replayed automatically. Pending
+video notifications remain visible over WebSocket after processing ends, and the
+per-channel authenticated retry API uses the existing queue/deduplication policy.
+A notification configuration outage reports a retryable channel failure and does
+not interrupt analysis or suppress the other channel. Bot error redaction uses
+in-memory values and request destinations, without issuing database queries.
+
+The admin global Test action bypasses camera cooldown and returns actual channel outcomes with overall `ok`, `partial` or `error`; an HTTP 200 alone does not mean a bot delivered a message.

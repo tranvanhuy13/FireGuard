@@ -95,3 +95,15 @@ all auth/notification/settings API requests; do not run against a production sit
 Set BASE_URL for the local frontend; PLAYWRIGHT_CHANNEL=chrome optionally uses
 installed Chrome. Browser persistence is simulated; production DB persistence is
 covered separately by the MySQL suite on an empty disposable *_test database.
+
+## Video database-outage and bot regression checks
+
+From backend, run `python -m unittest discover -s tests -p test_video_database_recovery.py`.
+The suite uses simulated MySQL errors, mocked bot HTTP responses and generated
+video frames. It covers stale-settings survival, cache recovery/concurrent writes,
+bounded read-only retry, cold failure sanitization, video callback wiring, pending
+notification WebSockets, manual per-channel retries, independent channel errors,
+Telegram photo fallback, provider rejection, rate limits and credential redaction.
+No production database writes or messages are performed. Run camera/realtime and
+MySQL offline suites alongside this change. Actual Render network latency, CPU
+throughput and provider credential validity still require deployment checks.

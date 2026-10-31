@@ -147,7 +147,7 @@ storage.start_sync()
 detector = FireDetector(MODEL_PATH)
 camera_manager = CameraManager(detector)
 # Uploaded-video check uses the very same model (and lock) as the live cameras
-video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting)
+video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting, notification.trigger_notifications)
 
 
 # Snapshots are public (Zalo needs to download them by URL).
@@ -417,6 +417,22 @@ class PlaybackControl(BaseModel):
     action: Literal["pause", "resume", "restart"]
 
 
+class RetryVideoNotification(BaseModel):
+    event_type: Literal["fire", "smoke"]
+    channel: Literal["zalo", "telegram"]
+
+
+@app.post("/video-analysis/{job_id}/notifications/retry")
+def retry_video_notification(job_id: str, body: RetryVideoNotification,
+                             current_user=Depends(get_current_user)):
+    try:
+        return video_analyzer.retry_notification(job_id, body.event_type, body.channel)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Analysis job not found") from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 @app.post("/video-analysis/{job_id}/playback")
 def control_video_playback(job_id: str, control: PlaybackControl):
     try:
@@ -444,7 +460,7 @@ async def video_analysis_updates(websocket: WebSocket, job_id: str):
                 else:
                     frame_id = job["frame_id"]
                 await asyncio.wait_for(websocket.send_json(job), timeout=5)
-                if job["status"] in ("done", "error", "cancelled"):
+                if job["status"] in ("done", "error", "cancelled") and not job.get("notification_pending", 0):
                     await websocket.close()
                     return
             # Observe client disconnects even while a paused job has no updates.
@@ -551,8 +567,14 @@ def save_setting(setting: SettingsModel, current_user=Depends(get_current_user))
 @app.post("/test-notification", dependencies=[Depends(require_admin)])
 def test_notification():
     """Trigger a test notification."""
-    notification.trigger_notifications("TEST EVENT", 0.99, None)
-    return {"status": "ok", "message": "Test notification triggered"}
+    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True)
+    results = results if isinstance(results, dict) else {}
+    sent = sum(result.get("status") == "sent" for result in results.values())
+    status = "ok" if results and sent == len(results) else "partial" if sent else "error"
+    return {"status": status, "channels": results,
+            "message": "Test notification sent" if status == "ok" else
+                       "Some channels did not send; check per-channel outcomes" if status == "partial" else
+                       "No notification sent; check enabled channels, credentials and recipients"}
 
 
 # ---------------------------------------------------------------------------
