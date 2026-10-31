@@ -3,8 +3,8 @@ import fs from 'fs';
 import path from 'path';
 
 // Tài khoản quản trị giả lập (Mock Mode)
-export const MOCK_ADMIN = { identifier: 'admin', password: 'admin123' };
-export const MOCK_OPERATOR = { identifier: 'operator', password: 'operator123' };
+export const MOCK_ADMIN = { identifier: 'admin', username: 'admin', password: 'admin123' };
+export const MOCK_OPERATOR = { identifier: 'operator', username: 'operator', password: 'operator123' };
 
 // Tài khoản thật đã đăng ký và xác thực trong Backend Database (example.db)
 export const REAL_USER = {
