@@ -4,8 +4,10 @@ Question-mark parameters are bound through SQLAlchemy, never interpolated into S
 SQL dialect differences remain explicit in the calling repositories.
 """
 from threading import Lock
+import logging
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 
 from .config import settings
 
@@ -110,6 +112,21 @@ class Connection:
 
 def get_connection():
     return Connection(get_engine().connect())
+
+
+def read_rows(sql, parameters=()):
+    """Retry one disconnected read with a fresh connection; never replay writes."""
+    if not sql.lstrip().upper().startswith("SELECT "):
+        raise ValueError("read_rows only accepts SELECT statements")
+    for attempt in range(2):
+        try:
+            with get_connection() as conn:
+                return conn.execute(sql, parameters).fetchall()
+        except OperationalError as error:
+            code = error.orig.args[0] if error.orig.args else None
+            if attempt or code not in (2006, 2013, 2055):
+                raise
+            logging.getLogger(__name__).warning("MySQL read disconnected (%s); retrying once", code)
 
 
 def check_database():

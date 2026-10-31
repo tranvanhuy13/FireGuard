@@ -340,7 +340,7 @@ Bảng đối chiếu quyền hạn chi tiết giữa 2 vai trò người dùng 
 - **Method:** `POST`
 - **Path:** `/test-notification`
 - **Auth:** Basic Auth
-- **Response:** `{"status": "ok", "message": "Test notification triggered"}`
+- **Response:** `{"status": "ok|partial|error", "channels": {"zalo": {...}, "telegram": {...}}, "message": "..."}`. HTTP 200 reports completion of the test action, not guaranteed delivery; inspect each channel. The action requires admin and bypasses camera cooldown.
 
 ---
 

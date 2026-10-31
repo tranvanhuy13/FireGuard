@@ -12,6 +12,7 @@ import uuid
 from collections import OrderedDict
 
 import cv2
+from sqlalchemy.exc import SQLAlchemyError
 import storage
 from detection_rules import read_settings, filter_detections, confirm_frame, draw_detections
 
@@ -509,8 +510,13 @@ class VideoAnalyzer:
         except InterruptedError:
             self._update(job_id, status="cancelled", buffering=False, finished_at=time.time())
         except Exception as error:
-            logger.exception("[Video %s] Playback failed", job_id)
-            self._update(job_id, status="error", error=str(error), finished_at=time.time())
+            if isinstance(error, SQLAlchemyError):
+                logger.warning("[Video %s] Playback stopped: database unavailable (%s)", job_id, type(error).__name__)
+                message = "Database temporarily unavailable. Please retry the analysis when the connection recovers."
+            else:
+                logger.exception("[Video %s] Playback failed", job_id)
+                message = str(error)
+            self._update(job_id, status="error", error=message, buffering=False, finished_at=time.time())
         finally:
             if cap is not None:
                 cap.release()
