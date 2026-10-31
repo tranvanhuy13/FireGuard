@@ -261,7 +261,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
             </div>
             <div className="flex flex-wrap justify-between gap-3 text-sm text-gray-400">
               <span>{formatTime(job.current_time ?? 0)} / {job.duration ? formatTime(job.duration) : "--:--"}</span>
-              <span>{job.frames_analyzed ?? 0} frames checked · {active ? connected ? "Connected" : "Connecting…" : "Finished"}</span>
+              <span>{job.frames_analyzed ?? 0} frames checked · {job.status === "error" ? language === "vi" ? "Phân tích thất bại" : "Analysis failed" : job.status === "cancelled" ? language === "vi" ? "Đã dừng" : "Stopped" : active ? connected ? "Connected" : "Connecting…" : "Finished"}</span>
             </div>
             <progress className="w-full h-2 accent-amber-500" max={1} value={job.progress ?? undefined} aria-label="Analysis progress" />
             <div className="flex flex-wrap gap-2">

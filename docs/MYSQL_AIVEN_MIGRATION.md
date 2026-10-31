@@ -181,3 +181,21 @@ After MySQL accepts writes, reconcile/export those changes before reverting;
 simply reusing old SQLite loses new data. Never run both backends as independent
 writers during cutover. The migration downgrade drops the MySQL application
 tables and is destructive; it is not the production rollback procedure.
+
+## Mid-video MySQL read timeouts
+
+A MySQL 2013 error means an established query connection failed/timed out; it is
+not the missing-CA error. Detection settings now use a shared five-second snapshot
+with asynchronous refresh, so a transient outage after the snapshot is loaded does
+not stop the current video. SELECT retries are bounded to one fresh connection;
+credential errors and writes are not retried. If no settings snapshot has ever
+loaded, analysis reports a generic database-unavailable error and must be retried
+once connectivity returns. Persistent outages still require investigating Render
+resources, Aiven connectivity, and service/network latency; this does not guarantee
+real-time inference on a limited CPU.
+
+Uploaded-video bot delivery requires ZALO_BOT_TOKEN / TELEGRAM_BOT_TOKEN via
+runtime environment or saved admin settings, enabled channels and active shared
+recipients. A chat ID alone is insufficient. Zalo photo links additionally require
+reachable S3 storage and S3_PUBLIC_ENDPOINT; otherwise warning text can still be
+sent. Confirm actual delivery with an explicit admin test action after deployment.

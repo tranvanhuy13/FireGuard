@@ -1,7 +1,23 @@
 """MySQL repositories for camera events, settings and camera configuration."""
 from datetime import datetime, timedelta, timezone
 
-from db.engine import check_database, get_connection
+from db.engine import check_database, get_connection, read_rows
+from settings_cache import SettingsCache
+
+
+def _load_settings():
+    return {row[0]: row[1] for row in read_rows("SELECT `key`, value FROM settings")}
+
+
+_settings = SettingsCache(_load_settings)
+
+
+def peek_settings():
+    return _settings.peek()
+
+
+def cache_setting(key, value):
+    _settings.put(key, value)
 
 
 def init_db():
@@ -35,15 +51,14 @@ def get_all_events(limit=100, offset=0):
 
 
 def get_setting(key, default=None):
-    with get_connection() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE `key`=?", (key,)).fetchone()
-        return row[0] if row else default
+    return _settings.snapshot().get(key, default)
 
 
 def set_setting(key, value):
     with get_connection() as conn:
         conn.execute("INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value=?",
                      (key, value, value))
+    cache_setting(key, value)
 
 
 def get_all_settings():
