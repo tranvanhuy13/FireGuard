@@ -10,6 +10,7 @@ From `backend/`, run the offline suites:
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_lifecycle.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_realtime_detection.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_admin_profile.py
+.\venv\Scripts\python.exe -m unittest discover -s tests -p test_auth_timing.py
 .\venv\Scripts\python.exe -m unittest discover -s tests -p test_notification_permissions.py
 ```
 
@@ -27,6 +28,12 @@ Compilation does not load the application or verify runtime model accuracy.
 importing main. It checks admin/user login roles, profile email validation, audit
 pagination, anonymous/user rejection and connection cleanup with a fake repository.
 It does not connect to MySQL, load model weights, or start cameras.
+
+`test_auth_timing.py` exercises both credential-verification entry points with
+fake lookups and limiter calls, plus real bcrypt checks. It covers missing users,
+wrong passwords, dummy matches, account validation, limiter ordering and error
+cleanup without importing main or accessing MySQL. Timing distributions are
+measured separately; unit tests do not assert wall-clock thresholds.
 
 ## Backend integration tests and side effects
 
