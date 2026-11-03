@@ -37,9 +37,41 @@ measured separately; unit tests do not assert wall-clock thresholds.
 
 ## Backend integration tests and side effects
 
-`tests/test_all_apis.py` and `tests/test_health_and_auth.py` import `main`, which checks the MySQL schema, loads the model and starts background managers. API tests can modify camera records, settings and other application state.
+From `backend/`, install `python -m pip install -r requirements-test.txt` in a
+dedicated virtual environment, then run `python -m pytest tests/ -q -rs`.
+The default runs offline tests without MySQL configuration. The three live-app
+modules (`test_all_apis.py`, `test_health_and_auth.py`, `test_notifications.py`)
+skip before importing `main`; real MySQL concurrency checks also skip. An explicit
+request for only a disabled integration module returns pytest exit code 5
+(no tests collected), with the skip reason. Other test failures remain failures.
 
-Pytest collection requires `FIREGUARD_TEST_MYSQL=1` and `MYSQL_DATABASE` ending in `_test`, before importing modules that start the application. The autouse fixture now resets its test user through the shared MySQL connection; it never writes `example.db`. Use a disposable database, disabled notification channels and configured model/storage. Offline `unittest` suites avoid this fixture.
+To run live-app tests, explicitly provide `--integration`,
+`FIREGUARD_TEST_MYSQL=1`, and `MYSQL_DATABASE` ending in `_test`:
+
+```powershell
+$env:FIREGUARD_TEST_MYSQL = '1'
+$env:MYSQL_DATABASE = 'fireguard_test'
+.\venv\Scripts\python.exe -m pytest tests/ --integration -m integration -q
+```
+
+These variables are only the safety gate: prepare the remaining MySQL/TLS
+configuration, migrations, full application dependencies, model/storage and
+disabled external notification channels in an isolated environment first.
+Do not use real users or valuable databases. `main` checks the schema, loads the
+model and starts background managers; API tests can change application data.
+
+The harness never infers integration opt-in from dotenv files. Application
+modules can still load their own environment configuration. The test-account
+reset and SMTP mock are registered only in integration mode and apply only to
+tests marked `integration`; they do not run for offline or MySQL concurrency
+tests. The `_test` guard remains mandatory before application imports. No runtime
+SQLite fallback is introduced. Standalone MySQL unittest checks retain their
+own environment guard.
+
+`test_test_harness.py` verifies default collection, direct module skips, unsafe
+opt-in rejection, fixture isolation and failure propagation in disposable
+subprocesses with sentinel application/database modules. The
+`backend-tests.yml` workflow runs the offline suite without database secrets.
 
 For database-only checks and real MySQL concurrency tests without importing main, see [MySQL verification](../MYSQL_AIVEN_MIGRATION.md#transactions-and-verification).
 

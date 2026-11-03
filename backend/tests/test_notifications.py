@@ -1,9 +1,14 @@
+import pytest
+from tests.integration_mode import require_integration
+
+require_integration()
+pytestmark = pytest.mark.integration
+
 import os
 import sys
 import time
 import tempfile
 from unittest.mock import patch, Mock, MagicMock
-import pytest
 from httpx import AsyncClient, ASGITransport
 
 BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

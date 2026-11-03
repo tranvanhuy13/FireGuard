@@ -136,6 +136,7 @@ class NotificationRecoveryTests(unittest.TestCase):
         response = Mock(status_code=403, headers={}, json=lambda: {"ok": False, "error_code": 403,
             "description": "secret-token failed for alpha-chat https://example.com/private"})
         with patch("notification.peek_settings", return_value={"zalo_bot_token": "secret-token"}), \
+             patch.dict("os.environ", {"ZALO_BOT_TOKEN": ""}), \
              patch("notification.channel_config", side_effect=AssertionError("must not query config")), \
              patch("notification.requests.post", return_value=response):
             details = {}
