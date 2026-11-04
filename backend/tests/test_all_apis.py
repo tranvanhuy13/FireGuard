@@ -1,4 +1,9 @@
 import pytest
+from tests.integration_mode import require_integration
+
+require_integration()
+pytestmark = pytest.mark.integration
+
 from httpx import AsyncClient, ASGITransport
 import sys
 import os
