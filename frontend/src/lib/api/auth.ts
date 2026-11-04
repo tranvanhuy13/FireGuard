@@ -8,6 +8,8 @@ export interface User {
   email: string;
   role: "admin" | "user";
   is_active?: boolean;
+  avatarUrl?: string;
+  phone?: string;
 }
 
 export const api = {
