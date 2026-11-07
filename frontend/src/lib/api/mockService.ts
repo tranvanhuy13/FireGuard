@@ -1,5 +1,44 @@
 /* eslint-disable */
 import { API_URL } from '@/config';
+import { DEMO_CAMERAS, USE_DEMO_CAMERAS, type DemoCamera } from '@/lib/demoCameras';
+
+// In-memory camera list for the demo mode (resets on page reload).
+let demoCameras: DemoCamera[] | null = null;
+const getDemoCameras = () => (demoCameras ??= DEMO_CAMERAS.map(camera => ({ ...camera })));
+const demoJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+function handleDemoCameras(parsedUrl: URL, init?: RequestInit): Response {
+  const list = getDemoCameras();
+  const method = (init?.method || 'GET').toUpperCase();
+  const match = parsedUrl.pathname.match(/^\/cameras\/(\d+)(?:\/(toggle))?$/);
+  const id = match ? Number(match[1]) : null;
+  const body = () => { try { return JSON.parse(String(init?.body || '{}')); } catch { return {}; } };
+
+  if (!match) {
+    if (method === 'POST') {
+      const { name, source } = body();
+      const next = list.reduce((max, camera) => Math.max(max, camera.id), 0) + 1;
+      list.push({ id: next, name: name || `Camera ${next}`, source: source || '0', is_active: false, status: 'disconnected' });
+      return demoJson({ status: 'ok', id: next, message: 'Camera added' });
+    }
+    return demoJson({ cameras: list });
+  }
+
+  const index = list.findIndex(camera => camera.id === id);
+  if (index === -1) return demoJson({ detail: 'Camera not found' }, 404);
+  if (match[2] === 'toggle') {
+    const active = parsedUrl.searchParams.get('active') === 'true';
+    list[index] = { ...list[index], is_active: active, status: active ? 'connected' : 'disconnected' };
+    return demoJson({ status: 'ok', message: `Camera ${active ? 'enabled' : 'disabled'}` });
+  }
+  if (method === 'DELETE') { list.splice(index, 1); return demoJson({ status: 'ok', message: 'Camera removed' }); }
+  if (method === 'PUT') {
+    const { name, is_active } = body();
+    list[index] = { ...list[index], name: name ?? list[index].name, is_active: !!is_active, status: is_active ? 'connected' : 'disconnected' };
+    return demoJson({ status: 'ok', message: 'Camera updated' });
+  }
+  return demoJson(list[index]);
+}
 
 const MOCK_DATA_KEY = 'fireguard_mock_data_v2';
 
@@ -586,6 +625,8 @@ export const setupMockService = () => {
       // Camera controls and video feeds must use the same backend state,
       // including when other dashboard data is mocked.
       if (/^\/cameras(?:\/|$)/.test(parsedUrl.pathname)) {
+        // Opt-in demo: serve the hard-coded public cameras without a backend.
+        if (USE_DEMO_CAMERAS) return handleDemoCameras(parsedUrl, init);
         return originalFetch(input, init);
       }
       // Notification destinations must be persisted where the real bots read them.

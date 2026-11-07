@@ -10,6 +10,7 @@ import { isMockData } from "../lib/api/client";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
+import { isHlsSource, USE_DEMO_CAMERAS } from "../lib/demoCameras";
 
 interface Camera {
   id: number;
@@ -18,6 +19,63 @@ interface Camera {
   is_active: boolean;
   status: string;
 }
+
+const LAYOUTS = [4, 9, 16, 25] as const;
+type LayoutSize = (typeof LAYOUTS)[number];
+
+/**
+ * Plays a public HLS (.m3u8) stream directly in the browser (view only, no AI).
+ * Camera sources that are not http(s) .m3u8 URLs keep using the backend MJPEG feed.
+ */
+const HlsVideo = ({ src, label }: { src: string; label: string }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    setFailed(false);
+    let disposed = false;
+    let hls: any = null;
+    let retries = 0;
+
+    const start = async () => {
+      if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = src;                       // Safari plays HLS natively
+        video.onerror = () => !disposed && setFailed(true);
+        video.play().catch(() => {});
+        return;
+      }
+      const { default: Hls } = await import("hls.js");
+      if (disposed) return;
+      if (!Hls.isSupported()) { setFailed(true); return; }
+      hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+      hls.on(Hls.Events.ERROR, (_event: unknown, data: any) => {
+        if (!data.fatal || disposed) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR && retries++ < 3) hls.startLoad();
+        else if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retries++ < 3) hls.recoverMediaError();
+        else { hls.destroy(); setFailed(true); }
+      });
+    };
+    start().catch(() => !disposed && setFailed(true));
+
+    return () => { disposed = true; hls?.destroy(); video.removeAttribute("src"); video.load(); };
+  }, [src]);
+
+  return (
+    <div className="relative w-full h-full bg-black">
+      <video ref={videoRef} aria-label={label} className="w-full h-full object-cover bg-black" autoPlay muted playsInline />
+      {failed && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black text-[#ff5252] text-xs font-semibold tracking-wide uppercase">
+          {"MẤT KẾT NỐI"}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefresh?: () => void }) => {
   const detections = useCameraDetections();
@@ -28,7 +86,8 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
   const [newCamSource, setNewCamSource] = useState("0");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
-  const [layoutMode, setLayoutMode] = useState<"auto" | "1" | "4">("auto");
+  const [layoutMode, setLayoutMode] = useState<LayoutSize>(4);
+  const [now, setNow] = useState("");
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
   const [toggling, setToggling] = useState<Record<number, boolean>>({});
   const polling = useRef<ReturnType<typeof startPolling> | null>(null);
@@ -51,6 +110,14 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
   useEffect(() => {
     if (cameraData !== undefined) { setCameras(cameraData); setLoading(false); }
   }, [cameraData]);
+
+  // One shared clock for every tile's timestamp.
+  useEffect(() => {
+    const tick = () => setNow(new Date().toLocaleString("vi-VN"));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (onRefresh) return;
@@ -185,52 +252,32 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
 
   const activeCount = cameras.filter(c => c.is_active && c.status === 'connected').length;
 
-  let gridCols = "grid-cols-1";
-  let itemsToRender = cameras;
-
-  if (layoutMode === "1") {
-    gridCols = "grid-cols-1";
-    itemsToRender = cameras.slice(0, 1);
-  } else if (layoutMode === "4") {
-    gridCols = "grid-cols-1 md:grid-cols-2";
-    itemsToRender = cameras.slice(0, 4);
-  } else {
-    // auto
-    if (cameras.length === 1) gridCols = "grid-cols-1";
-    else if (cameras.length === 2) gridCols = "grid-cols-1 md:grid-cols-2";
-    else if (cameras.length === 3 || cameras.length === 4) gridCols = "grid-cols-1 md:grid-cols-2";
-    else gridCols = "grid-cols-1 md:grid-cols-2 lg:grid-cols-3"; // or whatever fits best
-  }
+  // Same as the CCTV wall: a square grid (2x2, 3x3, 4x4, 5x5) that fills the panel.
+  const side = Math.sqrt(layoutMode);
+  const itemsToRender = cameras.slice(0, layoutMode);
+  const emptySlots = layoutMode - itemsToRender.length;
 
   return (
     <div className="h-full flex flex-col">
       <div className="flex justify-between items-center mb-4 px-2">
         <div>
           <h2 className="text-white font-bold text-lg">
-            {t.camera.activeCameras} ({activeCount}/{cameras.length} running)
+            {USE_DEMO_CAMERAS ? "CCTV MONITORING (DEMO)" : `${t.camera.activeCameras} (${activeCount}/${cameras.length} running)`}
           </h2>
-          <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>
+          {!USE_DEMO_CAMERAS && <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>}
         </div>
         <div className="flex items-center gap-2">
-          <div className="hidden md:flex bg-navy-900/50 rounded-lg p-0.5 border border-sky-900/30">
-            <button
-              onClick={() => setLayoutMode("auto")}
-              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "auto" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
-            >
-              Auto
-            </button>
-            <button
-              onClick={() => setLayoutMode("1")}
-              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "1" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
-            >
-              1
-            </button>
-            <button
-              onClick={() => setLayoutMode("4")}
-              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors ${layoutMode === "4" ? "bg-sky-500 text-white" : "text-sky-200 hover:text-white"}`}
-            >
-              4
-            </button>
+          <div className="flex gap-1">
+            {LAYOUTS.map(size => (
+              <button
+                key={size}
+                onClick={() => setLayoutMode(size)}
+                aria-pressed={layoutMode === size}
+                className={`px-3 py-1 text-xs font-medium rounded transition-colors text-white ${layoutMode === size ? "bg-[#3b63ff]" : "bg-[#3b63ff]/50 hover:bg-[#5678ff]"}`}
+              >
+                {size} CAM
+              </button>
+            ))}
           </div>
           {canAnalyze && (
             <button
@@ -240,7 +287,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
               {t.camera.analyzeVideo}
             </button>
           )}
-          {canManage && (
+          {canManage && !USE_DEMO_CAMERAS && (
             <button
               onClick={() => setIsAdding(true)}
               className="px-3 py-1 bg-sky-500 hover:bg-sky-400 rounded text-xs text-white font-medium transition-colors shadow-sm"
@@ -251,7 +298,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
         </div>
       </div>
 
-      {isAdding && canManage && (
+      {isAdding && canManage && !USE_DEMO_CAMERAS && (
         <div className="mb-4 p-4 bg-white border border-sky-100 rounded-xl space-y-3 shadow-sm animate-in slide-in-from-top-2">
           <h3 className="text-sm text-navy-900 font-medium">
             {t.camera.addCamera}
@@ -291,136 +338,138 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
       )}
 
       <div
-        className={`grid gap-4 flex-1 min-h-0 overflow-y-auto ${gridCols} ${itemsToRender.length === 1 ? 'place-items-center' : ''}`}
+        className="grid gap-1 flex-1 min-h-0 overflow-hidden p-1"
+        style={{ gridTemplateColumns: `repeat(${side}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${side}, minmax(0, 1fr))` }}
       >
         {itemsToRender.map((cam) => (
           <div
             key={cam.id}
             id={`cam-container-${cam.id}`}
-            className={`relative rounded-xl overflow-hidden bg-[#0B2540] border border-sky-900/50 group shadow-sm flex items-center justify-center w-full ${itemsToRender.length === 1 ? 'max-w-[800px]' : ''}`}
-            style={{ aspectRatio: '4/3' }}
+            onDoubleClick={() => toggleFullscreen(cam.id)}
+            className="relative bg-black border border-[#1f3251] overflow-hidden group min-h-0 min-w-0"
           >
-            {cam.is_active && !isMockData && <CameraDetectionStatus state={detections[cam.id]} />}
-            {/* Controls Overlay */}
-            <div className="absolute top-2 right-2 z-20 flex items-center gap-1">
-              {canToggle && (
-                <button
-                  role="switch"
-                  aria-checked={cam.is_active}
-                  onClick={() => handleToggleCamera(cam.id, !cam.is_active)}
-                  disabled={!!toggling[cam.id]}
-                  className="flex items-center gap-2 px-2 py-1 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 hover:border-white/30 transition-colors disabled:opacity-60"
-                  title={cam.is_active ? "Turn camera off" : "Turn camera on"}
-                >
-                  <span
-                    className={`text-[10px] font-bold font-mono ${cam.is_active ? "text-green-400" : "text-gray-400"}`}
+            {/* Header bar (name + controls) */}
+            <div className="absolute left-0 top-0 right-0 z-20 h-8 flex items-center justify-between px-2.5 bg-black/45 text-white">
+              <div className="flex items-center gap-2 text-xs sm:text-sm min-w-0">
+                <span
+                  className={`shrink-0 w-2 h-2 rounded-full ${
+                    !cam.is_active
+                      ? "bg-gray-500"
+                      : cam.status === "connected"
+                        ? "bg-[#0fd36a]"
+                        : cam.status === "connecting"
+                          ? "bg-yellow-500 animate-bounce"
+                          : "bg-red-500 animate-pulse"
+                  }`}
+                />
+                <span className="truncate">
+                  {cam.name}
+                  {!cam.is_active
+                    ? ` · ${t.camera.inactive}`
+                    : cam.status === "connecting"
+                      ? ` · ${t.camera.connecting}`
+                      : cam.status === "disconnected"
+                        ? ` · ${t.camera.disconnected}`
+                        : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {canToggle && (
+                  <button
+                    role="switch"
+                    aria-checked={cam.is_active}
+                    onClick={() => handleToggleCamera(cam.id, !cam.is_active)}
+                    disabled={!!toggling[cam.id]}
+                    className="flex items-center gap-1.5 disabled:opacity-60"
+                    title={cam.is_active ? "Turn camera off" : "Turn camera on"}
                   >
-                    {cam.is_active ? "ON" : "OFF"}
-                  </span>
-                  <span
-                    className={`relative w-8 h-4 rounded-full transition-colors ${cam.is_active ? "bg-green-500" : "bg-gray-600"}`}
+                    <span className={`text-[10px] font-bold font-mono ${cam.is_active ? "text-green-400" : "text-gray-400"}`}>
+                      {cam.is_active ? "ON" : "OFF"}
+                    </span>
+                    <span className={`relative w-7 h-3.5 rounded-full transition-colors ${cam.is_active ? "bg-green-500" : "bg-gray-600"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 bg-white rounded-full transition-transform ${cam.is_active ? "translate-x-3.5" : ""}`} />
+                    </span>
+                  </button>
+                )}
+                {canManage && cam.id !== 1 && (
+                  <button
+                    onClick={() => handleDeleteCamera(cam.id)}
+                    className="text-red-400 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title={t.camera.deleteVideo}
                   >
-                    <span
-                      className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${cam.is_active ? "translate-x-4" : ""}`}
-                    />
-                  </span>
-                </button>
-              )}
-
-              <button
-                onClick={() => toggleFullscreen(cam.id)}
-                className="p-1.5 bg-black/60 backdrop-blur-md text-white rounded-lg border border-white/10 hover:bg-black/80 transition-all opacity-0 group-hover:opacity-100"
-                title="Toàn màn hình"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
-              </button>
-
-              {canManage && cam.id !== 1 && (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                )}
                 <button
-                  onClick={() => handleDeleteCamera(cam.id)}
-                  className="p-1.5 bg-red-500/80 text-white rounded hover:bg-red-500 transition-all opacity-0 group-hover:opacity-100"
-                  title={t.camera.deleteVideo}
+                  onClick={() => toggleFullscreen(cam.id)}
+                  className="text-base leading-none hover:text-sky-300"
+                  title="Toàn màn hình"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2v2"></path></svg>
+                  ⛶
                 </button>
-              )}
+              </div>
             </div>
 
-            {/* Status Badge */}
-            <div className="absolute top-2 left-2 z-20 flex items-center gap-2 px-2 py-1 bg-black/60 backdrop-blur-md rounded-lg border border-white/10">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  !cam.is_active
-                    ? "bg-gray-500"
-                    : cam.status === "connected"
-                      ? "bg-green-500 animate-pulse"
-                      : cam.status === "connecting"
-                        ? "bg-yellow-500 animate-bounce"
-                        : "bg-red-500 animate-pulse"
-                }`}
-              ></div>
-              <span className="text-[10px] font-semibold text-white/90 tracking-wide font-mono">
-                {cam.name}{" "}
-                {!cam.is_active
-                  ? t.camera.inactive
-                  : cam.status === "connecting"
-                    ? t.camera.connecting
-                    : cam.status === "disconnected"
-                      ? t.camera.disconnected
-                      : ""}
-              </span>
-            </div>
+            {cam.is_active && !isMockData && cam.status === "connected" && !isHlsSource(cam.source) && <CameraDetectionStatus state={detections[cam.id]} />}
 
             {!cam.is_active ? (
               <div className="w-full h-full flex flex-col items-center justify-center bg-[#071728] text-sky-200/50 text-xs gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-40"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
                 <span className="font-medium font-sans">{t.camera.cameraIsInactive}</span>
                 {canToggle && (
                   <button
                     onClick={() => handleToggleCamera(cam.id, true)}
                     disabled={!!toggling[cam.id]}
-                    className="mt-1 px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded text-[11px] font-medium transition-colors disabled:opacity-50"
+                    className="px-3 py-1.5 bg-[#3b63ff] hover:bg-[#5678ff] text-white rounded text-[11px] font-medium transition-colors disabled:opacity-50"
                   >
                     {t.camera.turnOnCamera}
                   </button>
                 )}
               </div>
             ) : cam.status === "disconnected" ? (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-[#0B2540] text-red-400 text-xs gap-2 relative">
-                <div className="absolute inset-0 bg-red-900/10 pointer-events-none" />
-                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="opacity-55 animate-pulse z-10"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                <span className="font-semibold tracking-wide uppercase text-[10px] z-10">{t.camera.connectionLost}</span>
-                <span className="text-[10px] text-red-300/50 z-10">{t.camera.reconnecting}</span>
+              <div className="w-full h-full flex flex-col items-center justify-center bg-black text-[#ff5252] text-xs gap-1">
+                <span className="font-semibold tracking-wide uppercase">{t.camera.connectionLost}</span>
+                <span className="text-[10px] text-red-300/60">{t.camera.reconnecting}</span>
                 {canToggle && (
-                  <button 
+                  <button
                     onClick={() => handleToggleCamera(cam.id, true)}
-                    className="mt-2 px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[11px] font-medium transition-colors z-10"
+                    className="mt-1 px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded text-[11px] font-medium transition-colors"
                   >
                     Reconnect
                   </button>
                 )}
               </div>
             ) : cam.status === "connecting" ? (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-[#0B2540] text-yellow-400 text-xs gap-2">
+              <div className="w-full h-full flex flex-col items-center justify-center bg-black text-yellow-400 text-xs gap-2">
                 <div className="w-6 h-6 border-2 border-yellow-500/30 border-t-yellow-400 rounded-full animate-spin" />
                 <span className="font-semibold tracking-wide uppercase text-[10px]">{t.camera.connecting}</span>
               </div>
+            ) : isHlsSource(cam.source) ? (
+              <HlsVideo key={cam.source} src={cam.source} label={cam.name} />
             ) : (
-              <div className="relative w-full h-full bg-[#071728]">
+              <div className="relative w-full h-full bg-black">
                 <img
                   key={streamToken}
                   src={streamToken ? `${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}` : undefined}
                   alt={cam.name}
-                  className="w-full h-full object-contain"
+                  className="w-full h-full object-contain bg-black"
                   onError={(e) => {
                     refreshStreamToken();
                     e.currentTarget.style.display = 'none';
-                    e.currentTarget.parentElement!.style.backgroundImage = 'linear-gradient(45deg, #0f2027, #203a43, #2c5364)';
                   }}
                 />
               </div>
             )}
+
+            {/* Timestamp */}
+            <div className="absolute right-2.5 bottom-2.5 z-20 text-white text-xs bg-black/50 px-2 py-0.5 rounded pointer-events-none">
+              {now}
+            </div>
           </div>
+        ))}
+
+        {/* Empty slots keep the grid shape */}
+        {Array.from({ length: emptySlots }, (_, i) => (
+          <div key={`empty-${i}`} className="bg-black border border-[#1f3251] min-h-0 min-w-0" />
         ))}
       </div>
 
