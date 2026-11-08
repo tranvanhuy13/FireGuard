@@ -1,11 +1,23 @@
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from .utils import verify_password
+from .utils import get_password_hash, verify_password
 from .login_limiter import reserve, finish
 from users.models import User
 from .database import get_connection
 
 security = HTTPBasic()
+
+# Use the same bcrypt policy as real accounts, once per worker rather than request.
+_DUMMY_PASSWORD_HASH = get_password_hash("bug-015-dummy-password")
+
+
+def _verify_user_password(user, password: str) -> bool:
+    hashed_password = (
+        user.hashed_password if user is not None else _DUMMY_PASSWORD_HASH
+    )
+    matches = verify_password(password, hashed_password)
+    # Even a password matching the dummy hash must never authenticate.
+    return user is not None and matches
 
 def get_db():
     db = get_connection()
@@ -35,9 +47,7 @@ def get_user_by_identifier(db, identifier: str):
 
 def authenticate_user(db, identifier: str, password: str):
     user = get_user_by_identifier(db, identifier)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
+    if not _verify_user_password(user, password):
         return False
     return user
 
@@ -48,7 +58,7 @@ def get_current_user(request: Request, db = Depends(get_db), credentials: HTTPBa
     client_ip = request.client.host if request.client else "unknown"
     ticket, scopes = reserve(db, credentials.username, user, client_ip)
     try:
-        valid = bool(user and verify_password(credentials.password, user.hashed_password))
+        valid = _verify_user_password(user, credentials.password)
     except ValueError:
         valid = False
     except Exception:
