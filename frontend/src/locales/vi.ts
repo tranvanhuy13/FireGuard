@@ -460,7 +460,7 @@ export const vi = {
     profile: {
       title: "Hồ sơ & Cài đặt",
       pageDesc: "Quản lý thông tin tài khoản cá nhân, ảnh đại diện, giao diện hiển thị và bảo mật hệ thống.",
-      noticeDesc: "Lưu ý: Thông tin ảnh đại diện và tùy chọn giao diện hiển thị được lưu trữ an toàn theo từng trình duyệt.",
+      noticeDesc: "Thông tin tài khoản, ảnh đại diện và bảo mật được kết nối đồng bộ an toàn với cơ sở dữ liệu hệ thống.",
       accountInfo: "Thông tin tài khoản",
       name: "Họ và tên",
       namePlaceholder: "Nhập họ và tên...",

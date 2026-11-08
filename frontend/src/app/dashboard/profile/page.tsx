@@ -1,11 +1,12 @@
-/* eslint-disable */
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { useTheme } from '@/context/ThemeContext';
-import { isMockAuth } from '@/lib/api/client';
+import { setAuthHeader } from '@/lib/api/client';
+import { authApi } from '@/lib/api/auth';
 import {
   UserCircle,
   Eye,
@@ -22,27 +23,31 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lock,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
+
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024; // 2MB
 
 export default function ProfilePage() {
   const { user, setUser, refreshStreamToken } = useAuth();
   const { t } = useLanguage();
   const { theme, setTheme, resolvedTheme } = useTheme();
 
-  const p = t.pages?.profile || ({} as any);
+  const p = (t.pages?.profile || {}) as Record<string, string>;
 
-  const extendedUser = user as any;
+  // ---------------------------------------------------------------------------
+  // Profile Info States
+  // ---------------------------------------------------------------------------
   const [fullName, setFullName] = useState(user?.fullName || '');
-  const [phone, setPhone] = useState(extendedUser?.phone || '');
-  const [avatarUrl, setAvatarUrl] = useState(extendedUser?.avatarUrl || '');
-
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
   const [avatarError, setAvatarError] = useState('');
 
-  // Password fields
+  // ---------------------------------------------------------------------------
+  // Password Change States
+  // ---------------------------------------------------------------------------
   const [password, setPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -51,24 +56,23 @@ export default function ProfilePage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isPwdSaving, setIsPwdSaving] = useState(false);
   const [pwdMessage, setPwdMessage] = useState('');
+  const [pwdErrorMessage, setPwdErrorMessage] = useState('');
 
-  // Stream Token state
+  // ---------------------------------------------------------------------------
+  // Stream Token States
+  // ---------------------------------------------------------------------------
   const [isRefreshingToken, setIsRefreshingToken] = useState(false);
   const [tokenMessage, setTokenMessage] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Validations
-  let phoneError = '';
-  if (phone && !/^\d{9,11}$/.test(phone)) {
-    phoneError = p.phoneError || 'Số điện thoại không hợp lệ (9-11 chữ số)';
-  }
-
-  const isProfileChanged =
-    fullName !== (user?.fullName || '') ||
-    phone !== (extendedUser?.phone || '') ||
-    avatarUrl !== (extendedUser?.avatarUrl || '');
-  const canSaveProfile = isProfileChanged && !phoneError;
+  // ---------------------------------------------------------------------------
+  // Computed Validation & Rules
+  // ---------------------------------------------------------------------------
+  const initialFullName = user?.fullName || user?.username || '';
+  const initialAvatar = user?.avatarUrl || '';
+  const isProfileChanged = fullName !== initialFullName || avatarUrl !== initialAvatar;
+  const canSaveProfile = isProfileChanged && !isProfileSaving;
 
   const rules = {
     length: newPassword.length >= 8,
@@ -90,38 +94,40 @@ export default function ProfilePage() {
   } else if (newPassword && password && newPassword === password) {
     pwdError = p.pwdSameAsOld || 'Mật khẩu mới không được trùng mật khẩu cũ';
   }
-  const canSavePwd = newPassword && confirmPassword && password && strengthScore === 4 && !pwdError;
+  const canSavePwd =
+    Boolean(password && newPassword && confirmPassword && strengthScore === 4 && !pwdError && !isPwdSaving);
 
-  // Initialize profile values
+  // ---------------------------------------------------------------------------
+  // Initialize Profile on User Load
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (user) {
-      setFullName(user.fullName || '');
-      setPhone(extendedUser?.phone || '');
+      setFullName(user.fullName || user.username || '');
       const savedAvatar =
-        extendedUser?.avatarUrl ||
+        user.avatarUrl ||
         (typeof window !== 'undefined'
           ? localStorage.getItem(`fireguard_avatar_${user.username}`) || ''
           : '');
       setAvatarUrl(savedAvatar);
     }
-  }, [user, extendedUser?.phone, extendedUser?.avatarUrl]);
+  }, [user]);
 
-  // Handle avatar upload with FileReader (Base64 for persistence)
+  // ---------------------------------------------------------------------------
+  // Avatar Upload / Remove
+  // ---------------------------------------------------------------------------
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setAvatarError('');
     setAvatarMessage('');
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Check MIME type
     if (!file.type.startsWith('image/')) {
       setAvatarError(p.avatarTypeError || 'Vui lòng chọn định dạng file ảnh hợp lệ (JPG, PNG, WEBP).');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
-    // Check size <= 2MB
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > MAX_AVATAR_SIZE) {
       setAvatarError(p.avatarSizeError || 'Ảnh vượt quá kích thước cho phép (tối đa 2MB).');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
@@ -137,7 +143,6 @@ export default function ProfilePage() {
     reader.readAsDataURL(file);
   };
 
-  // Handle remove avatar
   const handleRemoveAvatar = () => {
     setAvatarError('');
     setAvatarUrl('');
@@ -148,59 +153,90 @@ export default function ProfilePage() {
     setTimeout(() => setAvatarMessage(''), 3000);
   };
 
-  // Handle saving profile
+  // ---------------------------------------------------------------------------
+  // Save Profile Handler
+  // ---------------------------------------------------------------------------
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSaveProfile) return;
+
     setIsProfileSaving(true);
     setProfileMessage('');
+
     try {
-      await new Promise((r) => setTimeout(r, 600));
-      if (user) {
-        const updated = { ...user, fullName, phone, avatarUrl };
-        setUser(updated as any);
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem('user_profile', JSON.stringify(updated));
-          if (avatarUrl) {
-            localStorage.setItem(`fireguard_avatar_${user.username}`, avatarUrl);
-          } else {
-            localStorage.removeItem(`fireguard_avatar_${user.username}`);
-          }
+      const res = await authApi.updateProfile({ fullName, avatarUrl });
+      setUser(res.user);
+
+      if (typeof window !== 'undefined' && user?.username) {
+        if (avatarUrl) {
+          localStorage.setItem(`fireguard_avatar_${user.username}`, avatarUrl);
+        } else {
+          localStorage.removeItem(`fireguard_avatar_${user.username}`);
         }
       }
-      setProfileMessage(p.saveSuccess || 'Lưu thông tin thành công!');
-    } catch {
-      setProfileMessage(p.saveError || 'Lỗi lưu thông tin.');
+
+      setProfileMessage(p.saveSuccess || 'Profile information saved successfully!');
+    } catch (err: unknown) {
+      const error = err as { data?: { detail?: string }; message?: string };
+      setProfileMessage(error?.data?.detail || error?.message || p.saveError || 'Failed to save profile information.');
     } finally {
       setIsProfileSaving(false);
-      setTimeout(() => setProfileMessage(''), 3000);
+      setTimeout(() => setProfileMessage(''), 3500);
     }
   };
 
-  // Handle saving password
+  // ---------------------------------------------------------------------------
+  // Save Password Handler
+  // ---------------------------------------------------------------------------
   const handleSavePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSavePwd) return;
+
     setIsPwdSaving(true);
     setPwdMessage('');
+    setPwdErrorMessage('');
+
     try {
-      await new Promise((r) => setTimeout(r, 800));
-      setPwdMessage(p.pwdSuccess || 'Đổi mật khẩu thành công!');
+      await authApi.changePassword({
+        currentPassword: password,
+        newPassword,
+      });
+
+      // Update Basic Auth Header with new credentials to keep the active session valid
+      if (user) {
+        const rawCreds = `${user.username}:${newPassword}`;
+        const newBasicHeader =
+          'Basic ' +
+          (typeof window !== 'undefined'
+            ? btoa(unescape(encodeURIComponent(rawCreds)))
+            : Buffer.from(rawCreds).toString('base64'));
+        setAuthHeader(newBasicHeader);
+      }
+
+      setPwdMessage(p.pwdSuccess || 'Password updated successfully!');
       setPassword('');
       setNewPassword('');
       setConfirmPassword('');
-    } catch {
-      setPwdMessage(p.pwdError || 'Lỗi đổi mật khẩu.');
+    } catch (err: unknown) {
+      const error = err as { data?: { detail?: string }; message?: string };
+      const msg = error?.data?.detail || error?.message || p.pwdError || 'Lỗi đổi mật khẩu.';
+      setPwdErrorMessage(msg);
     } finally {
       setIsPwdSaving(false);
-      setTimeout(() => setPwdMessage(''), 3000);
+      setTimeout(() => {
+        setPwdMessage('');
+        setPwdErrorMessage('');
+      }, 4000);
     }
   };
 
-  // Refresh Stream Token
+  // ---------------------------------------------------------------------------
+  // Refresh Stream Token Handler
+  // ---------------------------------------------------------------------------
   const handleRefreshStreamToken = async () => {
     setIsRefreshingToken(true);
     setTokenMessage('');
+
     try {
       await refreshStreamToken();
       setTokenMessage(p.streamTokenRefreshed || 'Đã làm mới mã kết nối thành công!');
@@ -214,7 +250,7 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-8 pb-12 pt-2">
-      {/* Page Title & Breadcrumb */}
+      {/* Page Title & Description */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100 flex items-center gap-3">
           <UserCircle className="w-7 h-7 text-sky-600 dark:text-sky-400" />
@@ -225,17 +261,16 @@ export default function ProfilePage() {
         </p>
       </div>
 
-      {!isMockAuth && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl p-4 flex items-center gap-3 text-amber-800 dark:text-amber-300 text-sm">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>
-            {p.noticeDesc || 'Lưu ý: Thông tin ảnh đại diện và tùy chọn giao diện hiển thị được lưu trữ an toàn theo từng trình duyệt.'}
-          </span>
-        </div>
-      )}
+      {/* Sync Status Banner */}
+      <div className="bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800/60 rounded-xl p-4 flex items-center gap-3 text-sky-800 dark:text-sky-300 text-sm">
+        <ShieldCheck className="w-5 h-5 text-sky-600 dark:text-sky-400 shrink-0" />
+        <span>
+          {p.noticeDesc || 'Thông tin tài khoản, ảnh đại diện và mật khẩu đã được kết nối đồng bộ an toàn với cơ sở dữ liệu hệ thống.'}
+        </span>
+      </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 1: USER PROFILE INFORMATION & AVATAR MANAGEMENT */}
+      {/* SECTION 1: ACCOUNT INFORMATION & AVATAR */}
       {/* ========================================================================= */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 transition-colors">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-6 flex items-center gap-2">
@@ -243,10 +278,9 @@ export default function ProfilePage() {
           {p.accountInfo || 'Thông tin tài khoản'}
         </h2>
 
-        {/* Avatar Control Area */}
+        {/* Avatar Area */}
         <div className="p-5 bg-slate-50/70 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 mb-6">
           <div className="flex flex-col sm:flex-row items-center gap-6">
-            {/* Circular Avatar Preview */}
             <div
               className="relative group cursor-pointer shrink-0"
               onClick={() => fileInputRef.current?.click()}
@@ -254,6 +288,7 @@ export default function ProfilePage() {
             >
               <div className="w-24 h-24 rounded-full bg-sky-100 dark:bg-slate-800 flex items-center justify-center border-4 border-white dark:border-slate-700 shadow-md overflow-hidden text-3xl font-bold text-sky-600 dark:text-sky-400 transition-transform group-hover:scale-105">
                 {avatarUrl ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
                   <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
                   (fullName || user?.username || 'U').charAt(0).toUpperCase()
@@ -271,13 +306,12 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Avatar Action Buttons */}
             <div className="flex-1 text-center sm:text-left space-y-2">
               <div className="flex flex-wrap items-center justify-center sm:justify-start gap-3">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1.5 transition-colors shadow-sm"
+                  className="px-4 py-2 text-xs font-semibold rounded-lg bg-sky-500 hover:bg-sky-700 text-white flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                 >
                   {avatarUrl ? <Camera className="w-3.5 h-3.5" /> : <Upload className="w-3.5 h-3.5" />}
                   {avatarUrl ? p.changeAvatar || 'Thay đổi ảnh' : p.uploadAvatar || 'Tải ảnh lên'}
@@ -287,7 +321,7 @@ export default function ProfilePage() {
                   <button
                     type="button"
                     onClick={handleRemoveAvatar}
-                    className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-1.5 transition-colors"
+                    className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-red-200 dark:border-red-900/60 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     {p.deleteAvatar || 'Xóa ảnh'}
@@ -329,6 +363,7 @@ export default function ProfilePage() {
                 placeholder={p.namePlaceholder || 'Nhập họ và tên...'}
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                 {p.username || 'Tên đăng nhập'}
@@ -341,19 +376,7 @@ export default function ProfilePage() {
                 disabled
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
-                {p.phone || 'Số điện thoại'}
-              </label>
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-lg p-2.5 focus:ring-2 focus:ring-sky-500 focus:outline-none"
-                placeholder={p.phonePlaceholder || 'VD: 0912345678'}
-              />
-              {phoneError && <p className="text-red-500 text-xs mt-1">{phoneError}</p>}
-            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                 {p.email || 'Địa chỉ Email'}
@@ -366,6 +389,7 @@ export default function ProfilePage() {
                 disabled
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                 {p.role || 'Vai trò'}
@@ -382,7 +406,8 @@ export default function ProfilePage() {
                 </span>
               </div>
             </div>
-            <div>
+
+            <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
                 {p.verificationStatus || 'Trạng thái xác thực'}
               </label>
@@ -397,20 +422,22 @@ export default function ProfilePage() {
           <div className="flex items-center gap-4 pt-2">
             <button
               type="submit"
-              disabled={!canSaveProfile || isProfileSaving}
+              disabled={!canSaveProfile}
               className={`px-5 py-2.5 font-medium rounded-lg transition-colors flex items-center gap-2 ${
                 canSaveProfile
-                  ? 'bg-sky-600 text-white hover:bg-sky-700'
+                  ? 'bg-sky-600 text-white hover:bg-sky-700 cursor-pointer shadow-sm'
                   : 'bg-gray-200 dark:bg-slate-800 text-gray-400 dark:text-slate-500 cursor-not-allowed'
               }`}
             >
               {isProfileSaving ? p.savingInfo || 'Đang lưu...' : p.saveInfo || 'Lưu thông tin'}
             </button>
+
             {isProfileChanged && (
               <span className="text-sm text-amber-600 dark:text-amber-400">
                 {p.unsavedChanges || 'Có thay đổi chưa lưu'}
               </span>
             )}
+
             {profileMessage && (
               <span className="text-sm text-green-600 dark:text-green-400">{profileMessage}</span>
             )}
@@ -419,7 +446,7 @@ export default function ProfilePage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 2: THEME & DISPLAY MODE (DARK / LIGHT / SYSTEM) */}
+      {/* SECTION 2: THEME & DISPLAY MODE */}
       {/* ========================================================================= */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 transition-colors">
         <div className="flex items-center justify-between mb-2">
@@ -436,11 +463,10 @@ export default function ProfilePage() {
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Light Mode Card */}
           <button
             type="button"
             onClick={() => setTheme('light')}
-            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${
+            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
               theme === 'light'
                 ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-300 shadow-sm'
                 : 'border-gray-200 dark:border-slate-800 hover:border-gray-300 dark:hover:border-slate-700 text-gray-700 dark:text-slate-300'
@@ -462,11 +488,10 @@ export default function ProfilePage() {
             )}
           </button>
 
-          {/* Dark Mode Card */}
           <button
             type="button"
             onClick={() => setTheme('dark')}
-            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${
+            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
               theme === 'dark'
                 ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-300 shadow-sm'
                 : 'border-gray-200 dark:border-slate-800 hover:border-gray-300 dark:hover:border-slate-700 text-gray-700 dark:text-slate-300'
@@ -488,11 +513,10 @@ export default function ProfilePage() {
             )}
           </button>
 
-          {/* System Default Card */}
           <button
             type="button"
             onClick={() => setTheme('system')}
-            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${
+            className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center gap-3 transition-all cursor-pointer ${
               theme === 'system'
                 ? 'border-sky-500 bg-sky-50/50 dark:bg-sky-950/20 text-sky-700 dark:text-sky-300 shadow-sm'
                 : 'border-gray-200 dark:border-slate-800 hover:border-gray-300 dark:hover:border-slate-700 text-gray-700 dark:text-slate-300'
@@ -587,7 +611,7 @@ export default function ProfilePage() {
       </div>
 
       {/* ========================================================================= */}
-      {/* SECTION 4: SECURITY, PASSWORD & STREAM TOKEN */}
+      {/* SECTION 4: SECURITY & PASSWORD CHANGE */}
       {/* ========================================================================= */}
       <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 transition-colors">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-6 flex items-center gap-2">
@@ -616,7 +640,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
               >
                 {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -638,7 +662,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
               >
                 {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -660,7 +684,11 @@ export default function ProfilePage() {
                           : 'text-green-600 font-semibold'
                       }
                     >
-                      {strengthScore < 2 ? p.strengthWeak || 'Yếu' : strengthScore < 4 ? p.strengthMedium || 'Trung bình' : p.strengthStrong || 'Mạnh'}
+                      {strengthScore < 2
+                        ? p.strengthWeak || 'Yếu'
+                        : strengthScore < 4
+                        ? p.strengthMedium || 'Trung bình'
+                        : p.strengthStrong || 'Mạnh'}
                     </span>
                   </div>
                   <div className="h-1.5 w-full bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
@@ -703,7 +731,7 @@ export default function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300"
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 cursor-pointer"
               >
                 {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
               </button>
@@ -714,16 +742,17 @@ export default function ProfilePage() {
           <div className="flex items-center gap-4 pt-1">
             <button
               type="submit"
-              disabled={!canSavePwd || isPwdSaving}
+              disabled={!canSavePwd}
               className={`px-5 py-2.5 font-medium rounded-lg transition-colors ${
                 canSavePwd
-                  ? 'bg-sky-600 text-white hover:bg-sky-700'
+                  ? 'bg-sky-600 text-white hover:bg-sky-700 cursor-pointer shadow-sm'
                   : 'bg-gray-200 dark:bg-slate-800 text-gray-400 dark:text-slate-500 cursor-not-allowed'
               }`}
             >
               {isPwdSaving ? p.updatingPassword || 'Đang cập nhật...' : p.changePasswordBtn || 'Đổi mật khẩu'}
             </button>
             {pwdMessage && <span className="text-sm text-green-600 dark:text-green-400">{pwdMessage}</span>}
+            {pwdErrorMessage && <span className="text-sm text-red-600 dark:text-red-400">{pwdErrorMessage}</span>}
           </div>
         </form>
 
@@ -744,7 +773,7 @@ export default function ProfilePage() {
               type="button"
               onClick={handleRefreshStreamToken}
               disabled={isRefreshingToken}
-              className="px-4 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300 transition-colors flex items-center gap-2"
+              className="px-4 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300 transition-colors flex items-center gap-2 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingToken ? 'animate-spin' : ''}`} />
               {isRefreshingToken ? p.refreshingStreamToken || 'Đang làm mới...' : p.refreshStreamToken || 'Làm mới Stream Token'}
