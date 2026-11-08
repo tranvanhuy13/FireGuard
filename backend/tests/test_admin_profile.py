@@ -76,5 +76,98 @@ class AdminProfileTests(unittest.TestCase):
         self.assertEqual(profile.email, "admin@example.com")
 
 
+
+
+class UserProfileApiTests(unittest.TestCase):
+    def setUp(self):
+        from users.routes import router as users_router
+        from auth.dependencies import get_db
+        from auth.utils import get_password_hash
+
+        self.app = FastAPI()
+        self.app.include_router(users_router, prefix="/users")
+
+        self.user = SimpleNamespace(
+            id=10,
+            username="vyvy",
+            email="vynguyen30082005@gmail.com",
+            role="user",
+            is_active=True,
+            is_blocked=False,
+            full_name="Vy Nguyen",
+            phone="0912345678",
+            avatar_url="https://example.com/avatar.png",
+            hashed_password=get_password_hash("OldPassword123"),
+        )
+        self.mock_db = Mock()
+        self.app.dependency_overrides[get_current_user] = lambda: self.user
+        self.app.dependency_overrides[get_db] = lambda: self.mock_db
+        self.client = TestClient(self.app)
+
+    def tearDown(self):
+        self.client.close()
+
+    def test_read_users_me_returns_profile_fields(self):
+        res = self.client.get("/users/me")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["username"], "vyvy")
+        self.assertEqual(data["fullName"], "Vy Nguyen")
+        self.assertEqual(data["phone"], "0912345678")
+        self.assertEqual(data["avatarUrl"], "https://example.com/avatar.png")
+
+    def test_update_users_me_updates_db_and_returns_updated(self):
+        res = self.client.put("/users/me", json={
+            "fullName": "Vy Updated",
+            "phone": "0987654321",
+            "avatarUrl": "https://example.com/new.png"
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["fullName"], "Vy Updated")
+        self.assertEqual(data["phone"], "0987654321")
+        self.mock_db.execute.assert_called_once()
+        self.mock_db.commit.assert_called_once()
+
+    def test_update_users_me_rejects_invalid_phone(self):
+        res = self.client.put("/users/me", json={"phone": "123"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Số điện thoại không hợp lệ", res.json()["detail"])
+
+    def test_change_password_rejects_wrong_current_password(self):
+        res = self.client.post("/users/change-password", json={
+            "currentPassword": "WrongPassword999",
+            "newPassword": "BrandNewPassword123"
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("Mật khẩu hiện tại không chính xác", res.json()["detail"])
+
+    def test_change_password_rejects_identical_password(self):
+        res = self.client.post("/users/change-password", json={
+            "currentPassword": "OldPassword123",
+            "newPassword": "OldPassword123"
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("không được trùng mật khẩu cũ", res.json()["detail"])
+
+    def test_change_password_rejects_short_password(self):
+        res = self.client.post("/users/change-password", json={
+            "currentPassword": "OldPassword123",
+            "newPassword": "short"
+        })
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("at least 8 characters", res.json()["detail"])
+
+    def test_change_password_success_hashes_and_commits(self):
+        res = self.client.post("/users/change-password", json={
+            "currentPassword": "OldPassword123",
+            "newPassword": "NewValidPassword123"
+        })
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["message"], "Password changed successfully")
+        self.mock_db.execute.assert_called_once()
+        self.mock_db.commit.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

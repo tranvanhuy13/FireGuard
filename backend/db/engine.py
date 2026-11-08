@@ -132,7 +132,7 @@ def read_rows(sql, parameters=()):
 def check_database():
     with get_connection() as conn:
         version = conn.execute("SELECT version_num FROM alembic_version").fetchall()
-        if [row[0] for row in version] != ["0001_mysql"]:
+        if [row[0] for row in version] not in (["0001_mysql"], ["0002_user_profile"]):
             raise RuntimeError("Database schema version mismatch; run alembic upgrade head")
         for table in ("users", "events", "cameras", "settings", "notification_targets", "audit_log", "login_attempts"):
             conn.execute(f"SELECT 1 FROM {table} LIMIT 1")

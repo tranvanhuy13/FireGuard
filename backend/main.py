@@ -120,8 +120,10 @@ app.add_middleware(
         "https://fireguard-279w.onrender.com",
         "https://fireguard-10hd.onrender.com",
         "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://192.168.1.12:3000",
     ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -216,12 +218,18 @@ def read_root():
 @app.get("/auth/login")
 def login(current_user=Depends(get_current_user)):
     """Check credentials (HTTP Basic). Returns the user profile on success."""
+    name = getattr(current_user, "full_name", None) or current_user.username
     return {
         "id": current_user.id,
         "username": current_user.username,
         "email": current_user.email,
         "is_active": current_user.is_active,
         "role": current_user.role,
+        "full_name": getattr(current_user, "full_name", None) or "",
+        "fullName": name,
+        "phone": getattr(current_user, "phone", None) or "",
+        "avatar_url": getattr(current_user, "avatar_url", None) or "",
+        "avatarUrl": getattr(current_user, "avatar_url", None) or "",
     }
 
 

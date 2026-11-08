@@ -460,7 +460,7 @@ export const en = {
     profile: {
       title: "Profile & Settings",
       pageDesc: "Manage personal account details, profile picture, display theme, and system security.",
-      noticeDesc: "Notice: Profile photo and display preferences are stored securely for your browser session.",
+      noticeDesc: "Account information, profile photo, and password are securely synchronized with the system database.",
       accountInfo: "Account Information",
       name: "Full Name",
       namePlaceholder: "Enter your full name...",

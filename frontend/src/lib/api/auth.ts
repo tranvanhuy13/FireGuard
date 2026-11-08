@@ -63,7 +63,18 @@ export const api = {
     const basicHeader = "Basic " + (typeof window !== 'undefined' ? btoa(unescape(encodeURIComponent(rawCreds))) : Buffer.from(rawCreds).toString('base64'));
 
     try {
-      const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean; role: "admin" | "user" }>("/auth/login", {
+      const res = await apiClient<{
+        id: number;
+        username: string;
+        email: string;
+        is_active: boolean;
+        role: "admin" | "user";
+        full_name?: string;
+        fullName?: string;
+        phone?: string;
+        avatar_url?: string;
+        avatarUrl?: string;
+      }>("/auth/login", {
         method: "GET",
         headers: {
           Authorization: basicHeader,
@@ -75,10 +86,12 @@ export const api = {
       const user: User = {
         id: String(res.id),
         username: res.username,
-        fullName: res.username,
+        fullName: res.fullName || res.full_name || res.username,
         email: res.email,
         role: res.role === "admin" ? "admin" : "user",
         is_active: res.is_active,
+        phone: res.phone || "",
+        avatarUrl: res.avatarUrl || res.avatar_url || "",
       };
 
       if (typeof window !== 'undefined') {
@@ -223,14 +236,27 @@ export const api = {
       throw new ApiError("UNAUTHORIZED", 401);
     }
 
-    const res = await apiClient<{ id: number; username: string; email: string; is_active: boolean; role?: string }>("/users/me");
+    const res = await apiClient<{
+      id: number;
+      username: string;
+      email: string;
+      is_active: boolean;
+      role?: string;
+      full_name?: string;
+      fullName?: string;
+      phone?: string;
+      avatar_url?: string;
+      avatarUrl?: string;
+    }>("/users/me");
     const user: User = {
       id: String(res.id),
       username: res.username,
-      fullName: res.username,
+      fullName: res.fullName || res.full_name || res.username,
       email: res.email,
       role: res.role === "admin" ? "admin" : "user",
       is_active: res.is_active,
+      phone: res.phone || "",
+      avatarUrl: res.avatarUrl || res.avatar_url || "",
     };
 
     if (typeof window !== 'undefined') {
@@ -238,6 +264,96 @@ export const api = {
     }
 
     return { user };
+  },
+
+  updateProfile: async (data: {
+    fullName?: string;
+    phone?: string;
+    avatarUrl?: string;
+  }): Promise<{ user: User; message: string }> => {
+    if (isMockAuth) {
+      if (typeof window !== "undefined") {
+        const userStr = sessionStorage.getItem("user_profile");
+        if (userStr) {
+          const current = JSON.parse(userStr);
+          const updated: User = {
+            ...current,
+            fullName: data.fullName ?? current.fullName,
+            phone: data.phone ?? current.phone,
+            avatarUrl: data.avatarUrl ?? current.avatarUrl,
+          };
+          sessionStorage.setItem("user_profile", JSON.stringify(updated));
+          return { user: updated, message: "Lưu thông tin thành công!" };
+        }
+      }
+      return {
+        user: { id: "1", username: "admin", fullName: data.fullName || "Admin", email: "admin@fireguard.ai", role: "admin", phone: data.phone, avatarUrl: data.avatarUrl },
+        message: "Lưu thông tin thành công!"
+      };
+    }
+
+    const res = await apiClient<{
+      id: number;
+      username: string;
+      email: string;
+      role: "admin" | "user";
+      is_active: boolean;
+      full_name?: string;
+      fullName?: string;
+      phone?: string;
+      avatar_url?: string;
+      avatarUrl?: string;
+      message?: string;
+    }>("/users/me", {
+      method: "PUT",
+      body: JSON.stringify({
+        fullName: data.fullName,
+        phone: data.phone,
+        avatarUrl: data.avatarUrl,
+      }),
+    });
+
+    const user: User = {
+      id: String(res.id),
+      username: res.username,
+      fullName: res.fullName || res.full_name || res.username,
+      email: res.email,
+      role: res.role === "admin" ? "admin" : "user",
+      is_active: res.is_active,
+      phone: res.phone || "",
+      avatarUrl: res.avatarUrl || res.avatar_url || "",
+    };
+
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("user_profile", JSON.stringify(user));
+    }
+
+    return { user, message: res.message || "Lưu thông tin thành công!" };
+  },
+
+  changePassword: async (data: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<{ message: string }> => {
+    if (isMockAuth) {
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (data.currentPassword === data.newPassword) {
+            reject(new ApiError("Mật khẩu mới không được trùng mật khẩu cũ", 400));
+          } else {
+            resolve({ message: "Đổi mật khẩu thành công!" });
+          }
+        }, 500);
+      });
+    }
+
+    return apiClient<{ message: string }>("/users/change-password", {
+      method: "POST",
+      body: JSON.stringify({
+        currentPassword: data.currentPassword,
+        newPassword: data.newPassword,
+      }),
+    });
   },
 
   getStreamToken: async (): Promise<{ token: string; expires_in: number }> => {
