@@ -114,52 +114,52 @@ export default function HistoryPage() {
     setSortConfig({ key, direction });
   };
 
-  if (loading && alerts.length === 0) return <div className="p-8"><div className="animate-pulse bg-gray-200 h-64 rounded-md"></div></div>;
+  if (loading && alerts.length === 0) return <div className="p-8"><div className="animate-pulse bg-gray-200 dark:bg-slate-800 h-64 rounded-md"></div></div>;
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <h1 className="text-2xl font-bold">{t.pages.history.title}</h1>
-        <button onClick={handleExportCsv} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t.pages.history.title}</h1>
+        <button onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
       </div>
       
       <div className="flex flex-col md:flex-row gap-4">
-        <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs" />
-        <select className="border rounded-md px-3 py-2 bg-white" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
-          <option value="all">{t.alerts.allTypes || 'All Types'}</option>
-          <option value="fire">{t.notifications ? t.notifications.fire : "Fire"}</option>
-          <option value="smoke">{t.notifications ? t.notifications.smoke : "Smoke"}</option>
+        <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-900 dark:text-slate-100" />
+        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+          <option value="all" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.allTypes || 'All Types'}</option>
+          <option value="fire" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.notifications ? t.notifications.fire : "Fire"}</option>
+          <option value="smoke" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.notifications ? t.notifications.smoke : "Smoke"}</option>
         </select>
-        <select className="border rounded-md px-3 py-2 bg-white" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-          <option value="all">{t.alerts.allStatuses || 'All Statuses'}</option>
-          <option value="new">{t.alerts.statusNew}</option>
-          <option value="confirmed">{t.alerts.statusConfirmed}</option>
-          <option value="false_alarm">{t.alerts.statusFalseAlarm}</option>
+        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option value="all" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.allStatuses || 'All Statuses'}</option>
+          <option value="new" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.statusNew}</option>
+          <option value="confirmed" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.statusConfirmed}</option>
+          <option value="false_alarm" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.statusFalseAlarm}</option>
         </select>
       </div>
 
       {filteredAlerts.length === 0 ? (
-        <div className="text-center p-12 text-gray-500">{t.pages.common.empty}</div>
+        <div className="text-center p-12 text-gray-500 dark:text-slate-400">{t.pages.common.empty}</div>
       ) : (
-        <div className="bg-white rounded-lg shadow overflow-hidden flex flex-col">
+        <div className="bg-white dark:bg-slate-900 rounded-lg shadow overflow-hidden flex flex-col border border-gray-200 dark:border-slate-800">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b">
-                  <th className="p-4 font-medium cursor-pointer" onClick={() => requestSort('timestamp')}>{t.pages.history.time} {sortConfig.key === 'timestamp' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                  <th className="p-4 font-medium cursor-pointer" onClick={() => requestSort('camera_id')}>{t.pages.history.camera} {sortConfig.key === 'camera_id' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                  <th className="p-4 font-medium cursor-pointer" onClick={() => requestSort('type')}>{t.pages.history.type} {sortConfig.key === 'type' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                  <th className="p-4 font-medium cursor-pointer" onClick={() => requestSort('confidence')}>{t.pages.history.confidence} {sortConfig.key === 'confidence' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
-                  <th className="p-4 font-medium cursor-pointer" onClick={() => requestSort('status')}>{t.pages.history.status} {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                <tr className="bg-gray-50 dark:bg-slate-800/60 border-b border-gray-200 dark:border-slate-800 text-gray-700 dark:text-slate-300 text-sm">
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/50" onClick={() => requestSort('timestamp')}>{t.pages.history.time} {sortConfig.key === 'timestamp' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/50" onClick={() => requestSort('camera_id')}>{t.pages.history.camera} {sortConfig.key === 'camera_id' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/50" onClick={() => requestSort('type')}>{t.pages.history.type} {sortConfig.key === 'type' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/50" onClick={() => requestSort('confidence')}>{t.pages.history.confidence} {sortConfig.key === 'confidence' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
+                  <th className="p-4 font-semibold cursor-pointer hover:bg-gray-100 dark:hover:bg-slate-700/50" onClick={() => requestSort('status')}>{t.pages.history.status} {sortConfig.key === 'status' && (sortConfig.direction === 'asc' ? '↑' : '↓')}</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-100 dark:divide-slate-800 text-gray-800 dark:text-slate-200 text-sm">
                 {currentItems.map(a => (
-                  <tr key={a.id} className="border-b hover:bg-gray-50 cursor-pointer transition-colors" onClick={() => setSelectedAlert(a)}>
-                    <td className="p-4">{new Date(a.timestamp).toLocaleString()}</td>
-                    <td className="p-4">Cam {a.camera_id}</td>
-                    <td className="p-4 capitalize">{a.type === 'fire' ? t.notifications.fire : t.notifications.smoke}</td>
-                    <td className="p-4">{(a.confidence > 1 ? a.confidence : a.confidence * 100).toFixed(1)}%</td>
+                  <tr key={a.id} className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors" onClick={() => setSelectedAlert(a)}>
+                    <td className="p-4 text-gray-900 dark:text-slate-100">{new Date(a.timestamp).toLocaleString()}</td>
+                    <td className="p-4 text-gray-700 dark:text-slate-300">Cam {a.camera_id}</td>
+                    <td className="p-4 capitalize text-gray-700 dark:text-slate-300">{a.type === 'fire' ? t.notifications.fire : t.notifications.smoke}</td>
+                    <td className="p-4 text-gray-700 dark:text-slate-300">{(a.confidence > 1 ? a.confidence : a.confidence * 100).toFixed(1)}%</td>
                     <td className="p-4">
                       <Badge variant={a.status === 'confirmed' ? 'danger' : a.status === 'new' ? 'warning' : 'secondary'}>
                           {a.status === 'confirmed' ? t.alerts.statusConfirmed : a.status === 'new' ? t.alerts.statusNew : t.alerts.statusFalseAlarm}
@@ -170,7 +170,7 @@ export default function HistoryPage() {
               </tbody>
             </table>
           </div>
-          <div className="p-4 border-t flex justify-between items-center bg-gray-50 text-sm">
+          <div className="p-4 border-t border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800/60 text-sm text-gray-700 dark:text-slate-300">
             <span>{t.pages.history.pagination}: {currentPage} / {totalPages}</span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
@@ -182,25 +182,25 @@ export default function HistoryPage() {
 
       <AnimatePresence>
         {selectedAlert && (
-          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-            <motion.div initial={{y:50, opacity:0}} animate={{y:0, opacity:1}} exit={{y:50, opacity:0}} className="bg-white rounded-lg p-6 max-w-lg w-full shadow-xl">
-              <h2 className="text-xl font-bold mb-4">{t.pages.history.detailsModal}</h2>
+          <motion.div initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+            <motion.div initial={{y:50, opacity:0}} animate={{y:0, opacity:1}} exit={{y:50, opacity:0}} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg p-6 max-w-lg w-full shadow-xl text-gray-900 dark:text-slate-100">
+              <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-slate-100">{t.pages.history.detailsModal}</h2>
               <div className="space-y-4">
-                <img src={selectedAlert.snapshot ? mediaUrl(selectedAlert.snapshot, streamToken) : '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 rounded-md" />
+                <img src={selectedAlert.snapshot ? mediaUrl(selectedAlert.snapshot, streamToken) : '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 dark:bg-slate-800 rounded-md" />
                 <div className="grid grid-cols-2 gap-4">
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.time}</span> {new Date(selectedAlert.timestamp).toLocaleString()}</div>
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.camera}</span> Cam {selectedAlert.camera_id}</div>
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.type}</span> <span className="capitalize">{selectedAlert.type}</span></div>
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.confidence}</span> {(selectedAlert.confidence > 1 ? selectedAlert.confidence : selectedAlert.confidence * 100).toFixed(1)}%</div>
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.status}</span> 
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.time}</span> <span className="text-gray-900 dark:text-slate-100">{new Date(selectedAlert.timestamp).toLocaleString()}</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.camera}</span> <span className="text-gray-900 dark:text-slate-100">Cam {selectedAlert.camera_id}</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.type}</span> <span className="capitalize text-gray-900 dark:text-slate-100">{selectedAlert.type}</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.confidence}</span> <span className="text-gray-900 dark:text-slate-100">{(selectedAlert.confidence > 1 ? selectedAlert.confidence : selectedAlert.confidence * 100).toFixed(1)}%</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.status}</span> 
                     <Badge variant={selectedAlert.status === 'confirmed' ? 'danger' : selectedAlert.status === 'new' ? 'warning' : 'secondary'}>
                         {selectedAlert.status}
                     </Badge>
                   </div>
-                  <div><span className="text-gray-500 block text-sm">{t.pages.history.handler}</span> {selectedAlert.handler || '-'}</div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.handler}</span> <span className="text-gray-900 dark:text-slate-100">{selectedAlert.handler || '-'}</span></div>
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
+              <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">
                 <Button variant="outline" onClick={() => setSelectedAlert(null)}>{t.pages.common.cancel}</Button>
                 {(user?.role === 'admin' || user?.role === 'user') && selectedAlert.status === 'new' && (
                   <>
