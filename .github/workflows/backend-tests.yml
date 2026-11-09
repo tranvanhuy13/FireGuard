@@ -1,6 +1,7 @@
 name: Backend offline tests
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [master, main]

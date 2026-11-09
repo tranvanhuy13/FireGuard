@@ -18,7 +18,12 @@ env:
   REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.AR_REPO }}
 
 jobs:
+  backend-checks:
+    uses: ./.github/workflows/backend-tests.yml
+  frontend-checks:
+    uses: ./.github/workflows/frontend-checks.yml
   build:
+    needs: [backend-checks, frontend-checks]
     runs-on: ubuntu-latest
     permissions:
       contents: read
