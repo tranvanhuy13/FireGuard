@@ -59,6 +59,11 @@ Both bots share the same warning body (detected class, confidence, time and sour
 
 ## Access control as implemented
 
+After the review fixes, long-lived feeds and sockets recheck media authorization
+every 30 seconds. Upload body parsing is bounded to two concurrent requests per
+process and 501 MiB including multipart overhead; the file limit remains 500 MiB.
+`CORS_ORIGINS`, when configured, replaces the development origin defaults.
+
 Operational HTTP routes require verified, unblocked accounts through HTTP Basic. Both `user` and `admin` may monitor cameras, add/edit/delete/toggle them, analyze video, read history/statistics, test notifications and change the shared alarm sound preference. System configuration and account management require `admin`.
 
 Camera feeds, snapshots and all WebSockets require signed, expiring media credentials. Connected feeds/sockets recheck authorization periodically. Zalo's direct S3 links carry their own expiring S3 signature and do not use backend media credentials. Roles and blocking state are stored in the account database; signup cannot assign admin privileges.

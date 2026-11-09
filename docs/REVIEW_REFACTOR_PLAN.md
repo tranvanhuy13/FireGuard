@@ -11,7 +11,7 @@
 | `fix/review-camera-consistency` | master | R04: ghi DB thành công trước đổi RAM, tuần tự toggle/update/delete | 11 test camera đạt |
 | `fix/review-schema-readiness` | master | R05, cải thiện 8: đối chiếu migration head, kiểm tra cột profile; metadata LONGTEXT khớp migration | 13 test schema/persistence đạt |
 | `fix/review-frontend-recovery` | master | R11/R13/R14: ảnh MJPEG reconnect có giới hạn, không ẩn DOM; timeout gồm signal và body; phản hồi refresh đúng | TypeScript/lint đạt; 3 test client + 14 test connection đạt |
-| `fix/review-api-security` | master | R01/R02/R12: HTTP/media/socket auth, token thống nhất; kiểm tra quyền mỗi 30 giây; chặn byte upload và giới hạn 2 upload đồng thời; CORS env | 19 test security/upload đạt; suite trước lần sửa test registration có 116 test đạt và 1 test cần chỉnh harness; cần kiểm tra tích hợp cuối |
+| `fix/review-api-security` | master | R01/R02/R12: HTTP/media/socket auth, token thống nhất; kiểm tra quyền mỗi 30 giây; chặn byte upload và giới hạn 2 upload đồng thời; CORS env; đóng file spool khi chặn giữa body | 20 test security/upload được bao phủ trong suite tích hợp đạt |
 | `fix/review-alert-history` | schema-readiness | R03/R06/R07/R08/R09/R10: endpoint status, migration 0003 camera event, tên bot/ảnh unique, phân trang/filter/export đầy đủ | 106 test backend đạt, 7 skip, 44 subtest đạt; TypeScript/lint đạt |
 | `ci/review-quality-gates` | master | Cải thiện 2/3: test backend + TypeScript/lint/unit frontend là dependency của build/deploy trên cả 2 workflow deploy | Đối chiếu workflow, diff check; chưa chạy GitHub Actions |
 | `refactor/review-followups` | master | Cải thiện 1/7/8: tài liệu hợp đồng, bỏ FPS/resolution giả, ConfigDict; kế hoạch rõ cho thay đổi kiến trúc | Xác minh ở nhánh tích hợp |
@@ -52,3 +52,21 @@ Nhánh dự kiến: `refactor/runtime-observability` cho tuổi frame/inference/
 ## Giới hạn xác minh
 
 Chưa thử camera vật lý, độ chính xác model, MySQL migration thật, provider bot thật hoặc deployment. Aikido MCP không khả dụng trong phiên, nên chưa có kết quả SAST từ Aikido; không tuyên bố mã đã được dịch vụ này xác nhận an toàn. Không gửi dữ liệu nguồn tới dịch vụ thay thế. Các kết quả tích hợp/browser cuối cùng được ghi ở phần cập nhật bàn giao.
+
+## Bàn giao bản tích hợp
+
+Nhánh `review/integration-2026-11-09` kết hợp bảy nhánh trên, giữ master nguyên tại b35a477. Đã giải quyết giao điểm main.py bằng cách giữ event router có xác thực và bỏ route lịch sử cũ trùng đường dẫn. Không push hay merge vào master.
+
+| Kiểm tra | Kết quả |
+| --- | --- |
+| Backend offline trên bản kết hợp | 127 passed, 7 skipped, 44 subtests passed; 2 warning deprecation TestClient/AnyIO |
+| Frontend TypeScript | Đạt, gồm browser spec mới |
+| Frontend unit | 17/17 đạt |
+| Frontend lint | 0 errors, 6 warning cũ; các file test/config mới lint riêng đạt |
+| Chrome headless với API/WS intercept | 2/2 đạt: xem bản ghi 65, lọc reset trang, status dùng PATCH chuẩn; camera retry khi token không đổi |
+| Workflow | YAML parse đạt; các reusable workflow có workflow_call và đường dẫn tồn tại; chưa chạy trên GitHub Actions |
+| Sau chỉnh watermark export | 17 test repository lịch sử/schema/camera đạt |
+
+Browser test nằm ở `frontend/tests/review_regressions.spec.ts`. Chạy một frontend riêng với API/WS trỏ localhost:18080, mock flags false; BASE_URL=http://127.0.0.1:18030, PLAYWRIGHT_CHANNEL=chrome. `FIREGUARD_NEXT_DIST_DIR=.next/review` cho phép dev server thử nghiệm dùng build directory riêng, không chiếm lock của server người dùng đang chạy. Server thử nghiệm đã dừng sau test; tsconfig được Next tự thêm đường dẫn đã khôi phục về bản trước test.
+
+R01–R14 đã có thay đổi mã và kiểm thử phù hợp như trên; chưa thể đánh dấu nghiệm thu production trước khi migration/MySQL thật, camera và staging được xác minh. Cải thiện 1/2/3 đã có tài liệu/test/CI, 7/8 mới xử lý phần telemetry giả, ConfigDict và metadata; các phần còn lại và cải thiện 4/5/6 vẫn là kế hoạch cụ thể trong mục kiến trúc, chưa triển khai.
