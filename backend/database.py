@@ -56,9 +56,6 @@ def search_events(limit=50, offset=0, *, search="", event_type="all", status="al
     if sort not in sortable or direction not in ("asc", "desc"):
         raise ValueError("Invalid history order")
     clauses, args = [], []
-    if max_id is not None:
-        clauses.append("id <= ?")
-        args.append(max_id)
     for column, value in (("type", event_type), ("status", status)):
         if value != "all":
             clauses.append(column + " = ?")
@@ -67,10 +64,12 @@ def search_events(limit=50, offset=0, *, search="", event_type="all", status="al
         pattern = "%" + search.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
         clauses.append("(CAST(id AS CHAR) LIKE ? ESCAPE '!' OR CAST(camera_id AS CHAR) LIKE ? ESCAPE '!' OR camera_name LIKE ? ESCAPE '!')")
         args.extend([pattern] * 3)
-    where = " WHERE " + " AND ".join(clauses) if clauses else ""
     with get_connection() as conn:
+        watermark = max_id if max_id is not None else conn.execute("SELECT MAX(id) FROM events").fetchone()[0] or 0
+        clauses.append("id <= ?")
+        args.append(watermark)
+        where = " WHERE " + " AND ".join(clauses)
         total = conn.execute("SELECT COUNT(*) FROM events" + where, args).fetchone()[0]
-        watermark = conn.execute("SELECT MAX(id) FROM events" + where, args).fetchone()[0]
         rows = conn.execute("SELECT * FROM events" + where +
                             f" ORDER BY {sort} {direction}, id {direction} LIMIT ? OFFSET ?",
                             [*args, limit, offset]).fetchall()
