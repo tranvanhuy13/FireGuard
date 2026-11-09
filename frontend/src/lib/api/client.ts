@@ -156,16 +156,18 @@ export async function apiClient<T>(
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const abortFromCaller = () => controller.abort(customConfig.signal?.reason);
+  if (customConfig.signal?.aborted) abortFromCaller();
+  else customConfig.signal?.addEventListener('abort', abortFromCaller, { once: true });
 
   const config: RequestInit = {
     ...customConfig,
     headers,
-    signal: customConfig.signal || controller.signal,
+    signal: controller.signal,
   };
 
   try {
     const response = await fetch(url, config);
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       let errorMsg = "An error occurred";
@@ -191,16 +193,18 @@ export async function apiClient<T>(
       throw new ApiError(errorMsg, response.status, errorData);
     }
 
-    return response.json();
+    return await response.json();
   } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    if (controller.signal.aborted) {
       throw new ApiError("REQUEST_TIMEOUT", 408);
     }
     if (error instanceof ApiError) {
       throw error;
     }
     throw new ApiError(error.message || "NETWORK_ERROR", 0);
+  } finally {
+    clearTimeout(timeoutId);
+    customConfig.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

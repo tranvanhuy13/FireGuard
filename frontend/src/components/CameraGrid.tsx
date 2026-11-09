@@ -10,6 +10,7 @@ import { isMockData } from "../lib/api/client";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
+import RecoveringCameraImage from "./RecoveringCameraImage";
 
 interface Camera {
   id: number;
@@ -407,17 +408,12 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
               </div>
             ) : (
               <div className="relative w-full h-full bg-[#071728]">
-                <img
+                  {streamToken && <RecoveringCameraImage
                   key={streamToken}
-                  src={streamToken ? `${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}` : undefined}
+                    src={`${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}`}
                   alt={cam.name}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    refreshStreamToken();
-                    e.currentTarget.style.display = 'none';
-                    e.currentTarget.parentElement!.style.backgroundImage = 'linear-gradient(45deg, #0f2027, #203a43, #2c5364)';
-                  }}
-                />
+                    refreshToken={refreshStreamToken}
+                  />}
               </div>
             )}
           </div>
