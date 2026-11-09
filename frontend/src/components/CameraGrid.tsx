@@ -1,7 +1,7 @@
 /* eslint-disable */
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { startPolling } from "../lib/dashboardConnection";
 import { authFetch } from "../lib/api/authFetch";
 import { useLanguage } from "../context/LanguageContext";
@@ -11,7 +11,7 @@ import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
 import { isHlsSource, DEMO_CAMERAS_ENABLED } from "../lib/demoCameras";
-import { pageCount, clampPage, pageSlice } from "../lib/cameraView";
+import { pageCount, clampPage, pageSlice, effectiveStatus, isFrameFresh } from "../lib/cameraView";
 
 interface Camera {
   id: number;
@@ -28,17 +28,41 @@ type LayoutSize = (typeof LAYOUTS)[number];
  * Plays a public HLS (.m3u8) stream directly in the browser (view only, no AI).
  * Camera sources that are not http(s) .m3u8 URLs keep using the backend MJPEG feed.
  */
-const HlsVideo = ({ src, label }: { src: string; label: string }) => {
+const RETRY_AFTER_MS = 15000;
+
+const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
+  src: string;
+  label: string;
+  camId: number;
+  onStatus: (camId: number, failed: boolean) => void;
+  onFrame: (camId: number) => void;
+}) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  // Tell the grid whether this stream is currently broken (drives the status dot and KPIs).
+  useEffect(() => {
+    onStatus(camId, failed);
+  }, [camId, failed, onStatus]);
+
+  // After a fatal error, try again later so the tile recovers when the stream comes back.
+  useEffect(() => {
+    if (!failed) return;
+    const timer = setTimeout(() => setAttempt(value => value + 1), RETRY_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, [failed]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    setFailed(false);
     let disposed = false;
     let hls: any = null;
     let retries = 0;
+
+    // Playing again = recovered; time advancing = a real new frame (used for the timestamp).
+    video.onplaying = () => { if (!disposed) setFailed(false); };
+    video.ontimeupdate = () => { if (!disposed) onFrame(camId); };
 
     const start = async () => {
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -63,8 +87,12 @@ const HlsVideo = ({ src, label }: { src: string; label: string }) => {
     };
     start().catch(() => !disposed && setFailed(true));
 
-    return () => { disposed = true; hls?.destroy(); video.removeAttribute("src"); video.load(); };
-  }, [src]);
+    return () => {
+      disposed = true;
+      video.onplaying = null; video.ontimeupdate = null; video.onerror = null;
+      hls?.destroy(); video.removeAttribute("src"); video.load();
+    };
+  }, [src, attempt, camId, onFrame]);
 
   return (
     <div className="relative w-full h-full bg-black">
@@ -78,7 +106,12 @@ const HlsVideo = ({ src, label }: { src: string; label: string }) => {
   );
 };
 
-const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefresh?: () => void }) => {
+const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
+  cameraData?: Camera[];
+  onRefresh?: () => void;
+  /** Ids of cameras whose HLS stream is currently broken (so the dashboard KPIs can count them as down). */
+  onStreamFailures?: (failedIds: number[]) => void;
+}) => {
   const detections = useCameraDetections();
   const { t } = useLanguage();
   const { user, can, streamToken, refreshStreamToken } = useAuth();
@@ -90,6 +123,9 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
   const [layoutMode, setLayoutMode] = useState<LayoutSize>(4);
   const [page, setPage] = useState(0);
   const [now, setNow] = useState("");
+  const [nowMs, setNowMs] = useState(0);
+  const [streamFailed, setStreamFailed] = useState<Record<number, boolean>>({});
+  const [frameAt, setFrameAt] = useState<Record<number, number>>({});
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
   const [toggling, setToggling] = useState<Record<number, boolean>>({});
   const polling = useRef<ReturnType<typeof startPolling> | null>(null);
@@ -107,6 +143,21 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
   const canToggle = !!user;
   const canAnalyze = user?.role === "admin" || user?.role === "user";
 
+  const handleStreamStatus = useCallback((camId: number, failed: boolean) => {
+    setStreamFailed(prev => (!!prev[camId] === failed ? prev : { ...prev, [camId]: failed }));
+  }, []);
+  const handleFrame = useCallback((camId: number) => {
+    const at = Date.now();
+    // Throttled to ~1 update/second per camera.
+    setFrameAt(prev => (prev[camId] !== undefined && at - prev[camId] < 1000 ? prev : { ...prev, [camId]: at }));
+  }, []);
+
+  useEffect(() => {
+    onStreamFailures?.(Object.keys(streamFailed).filter(id => streamFailed[Number(id)]).map(Number));
+  }, [streamFailed, onStreamFailures]);
+
+  const statusOf = (cam: Camera) => effectiveStatus(cam.is_active, cam.status, !!streamFailed[cam.id]);
+
   const fetchCameras = () => { if (onRefresh) onRefresh(); else polling.current?.retry(); };
 
   useEffect(() => {
@@ -115,7 +166,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
 
   // One shared clock for every tile's timestamp.
   useEffect(() => {
-    const tick = () => setNow(new Date().toLocaleString("vi-VN"));
+    const tick = () => { setNow(new Date().toLocaleString("vi-VN")); setNowMs(Date.now()); };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
@@ -252,7 +303,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
     );
   }
 
-  const activeCount = cameras.filter(c => c.is_active && c.status === 'connected').length;
+  const activeCount = cameras.filter(c => c.is_active && statusOf(c) === 'connected').length;
 
   // Same as the CCTV wall: a square grid (2x2, 3x3, 4x4, 5x5) that fills the panel.
   const side = Math.sqrt(layoutMode);
@@ -263,15 +314,15 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex justify-between items-center mb-4 px-2">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4 px-2">
         <div>
           <h2 className="text-white font-bold text-lg">
             {DEMO_CAMERAS_ENABLED ? "CCTV MONITORING (DEMO)" : `${t.camera.activeCameras} (${activeCount}/${cameras.length} running)`}
           </h2>
           {!DEMO_CAMERAS_ENABLED && <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1">
             {LAYOUTS.map(size => (
               <button
                 key={size}
@@ -284,7 +335,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
             ))}
           </div>
           {totalPages > 1 && (
-            <div className="flex items-center gap-1 text-white text-xs" aria-label="Camera pages">
+            <div className="flex items-center gap-1 text-white text-xs shrink-0" aria-label="Camera pages">
               <button
                 onClick={() => setPage(currentPage - 1)}
                 disabled={currentPage === 0}
@@ -380,9 +431,9 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
                   className={`shrink-0 w-2 h-2 rounded-full ${
                     !cam.is_active
                       ? "bg-gray-500"
-                      : cam.status === "connected"
+                      : statusOf(cam) === "connected"
                         ? "bg-[#0fd36a]"
-                        : cam.status === "connecting"
+                        : statusOf(cam) === "connecting"
                           ? "bg-yellow-500 animate-bounce"
                           : "bg-red-500 animate-pulse"
                   }`}
@@ -391,9 +442,9 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
                   {cam.name}
                   {!cam.is_active
                     ? ` · ${t.camera.inactive}`
-                    : cam.status === "connecting"
+                    : statusOf(cam) === "connecting"
                       ? ` · ${t.camera.connecting}`
-                      : cam.status === "disconnected"
+                      : statusOf(cam) === "disconnected"
                         ? ` · ${t.camera.disconnected}`
                         : ""}
                 </span>
@@ -469,7 +520,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
                 <span className="font-semibold tracking-wide uppercase text-[10px]">{t.camera.connecting}</span>
               </div>
             ) : isHlsSource(cam.source) ? (
-              <HlsVideo key={cam.source} src={cam.source} label={cam.name} />
+              <HlsVideo key={cam.source} src={cam.source} label={cam.name} camId={cam.id} onStatus={handleStreamStatus} onFrame={handleFrame} />
             ) : (
               <div className="relative w-full h-full bg-black">
                 <img
@@ -486,9 +537,28 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
             )}
 
             {/* Timestamp */}
-            <div className="absolute right-2.5 bottom-2.5 z-20 text-white text-xs bg-black/50 px-2 py-0.5 rounded pointer-events-none">
-              {now}
-            </div>
+            {(() => {
+              const hls = isHlsSource(cam.source);
+              const lastFrame = frameAt[cam.id];
+              // The clock is only shown as "live" while the picture is really live; otherwise
+              // it is replaced by a warning (with the time of the last frame we received).
+              const live = cam.is_active && statusOf(cam) === "connected" && (!hls || isFrameFresh(lastFrame, nowMs));
+              const waiting = cam.is_active && cam.status === "connected" && hls && lastFrame === undefined && !streamFailed[cam.id];
+              return (
+                <div
+                  className={`absolute right-2.5 bottom-2.5 z-20 text-xs px-2 py-0.5 rounded pointer-events-none ${live ? "text-white bg-black/50" : "text-red-300 bg-black/70"}`}
+                  title={live ? "Giờ hệ thống của máy đang xem" : "Không có hình mới"}
+                >
+                  {live
+                    ? now
+                    : !cam.is_active
+                      ? "Đã tắt"
+                      : waiting
+                      ? "Đang tải…"
+                      : `Mất tín hiệu · ${lastFrame ? new Date(lastFrame).toLocaleTimeString("vi-VN") : "--:--:--"}`}
+                </div>
+              );
+            })()}
           </div>
         ))}
 

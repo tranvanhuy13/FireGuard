@@ -11,6 +11,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { API_URL, WS_URL } from "@/config";
 import { authFetch } from "@/lib/api/authFetch";
+import { applyStreamFailures } from "@/lib/cameraView";
 import { startPolling, startAlertStream, mergeAlerts, type LoadState, type StreamState } from "@/lib/dashboardConnection";
 import { 
   normalizeAlert, 
@@ -34,6 +35,7 @@ export default function Home() {
   const historyRetry = useRef<() => void>(() => {});
   const cameraRetry = useRef<() => void>(() => {});
   const retryCameras = useCallback(() => cameraRetry.current(), []);
+  const [failedStreamIds, setFailedStreamIds] = useState<number[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -107,7 +109,8 @@ export default function Home() {
     streamState !== "connected" ? t.dashboard.reconnectingLive : null,
   ].filter(Boolean);
 
-  const kpis = calculateDashboardKPIs(cameras, alerts);
+  // Cameras whose HLS stream failed in the browser must not be counted as running.
+  const kpis = calculateDashboardKPIs(applyStreamFailures(cameras, failedStreamIds), alerts);
 
   return (
     <div className="h-full flex flex-col relative">
@@ -150,7 +153,7 @@ export default function Home() {
         {/* Video Feed Section - Takes 2/3 width */}
         <div className="lg:col-span-2 h-full flex flex-col gap-6 overflow-hidden">
           <div className="flex-1 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
-            <CameraGrid cameraData={cameras} onRefresh={retryCameras} />
+            <CameraGrid cameraData={cameras} onRefresh={retryCameras} onStreamFailures={setFailedStreamIds} />
           </div>
           
            {/* Bottom Stats Area (Under Video) */}

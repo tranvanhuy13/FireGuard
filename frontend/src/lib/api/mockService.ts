@@ -1,16 +1,17 @@
 /* eslint-disable */
 import { API_URL } from '@/config';
 import { DEMO_CAMERAS, DEMO_CAMERAS_ENABLED, type DemoCamera } from '@/lib/demoCameras';
+import { apiPathname } from '@/lib/cameraView';
 
 // In-memory camera list for the demo mode (resets on page reload).
 let demoCameras: DemoCamera[] | null = null;
 const getDemoCameras = () => (demoCameras ??= DEMO_CAMERAS.map(camera => ({ ...camera })));
 const demoJson = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
-function handleDemoCameras(parsedUrl: URL, init?: RequestInit): Response {
+function handleDemoCameras(parsedUrl: URL, apiPath: string, init?: RequestInit): Response {
   const list = getDemoCameras();
   const method = (init?.method || 'GET').toUpperCase();
-  const match = parsedUrl.pathname.match(/^\/cameras\/(\d+)(?:\/(toggle))?$/);
+  const match = apiPath.match(/^\/cameras\/(\d+)(?:\/(toggle))?$/);
   const id = match ? Number(match[1]) : null;
   const body = () => { try { return JSON.parse(String(init?.body || '{}')); } catch { return {}; } };
 
@@ -624,9 +625,11 @@ export const setupMockService = () => {
       const parsedUrl = new URL(url, window.location.origin);
       // Camera controls and video feeds must use the same backend state,
       // including when other dashboard data is mocked.
-      if (/^\/cameras(?:\/|$)/.test(parsedUrl.pathname)) {
+      // NEXT_PUBLIC_API_URL may carry a prefix (e.g. https://host/api): match without it.
+      const cameraPath = apiPathname(parsedUrl.pathname, API_URL);
+      if (/^\/cameras(?:\/|$)/.test(cameraPath)) {
         // Opt-in demo: serve the hard-coded public cameras without a backend.
-        if (DEMO_CAMERAS_ENABLED) return handleDemoCameras(parsedUrl, init);
+        if (DEMO_CAMERAS_ENABLED) return handleDemoCameras(parsedUrl, cameraPath, init);
         return originalFetch(input, init);
       }
       // Notification destinations must be persisted where the real bots read them.
