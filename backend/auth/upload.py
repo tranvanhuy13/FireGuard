@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
+from starlette.formparsers import MultiPartException
 
 from .database import get_connection
 from .dependencies import get_current_user, security
@@ -34,17 +35,25 @@ class UploadLimitMiddleware:
             return await JSONResponse({"detail": "Too many concurrent uploads"}, status_code=429,
                                       headers={"Retry-After": "5"})(scope, receive, send)
         received = 0
+        exceeded = False
 
         async def limited_receive():
-            nonlocal received
+            nonlocal received, exceeded
             message = await receive()
             received += len(message.get("body", b""))
             if received > self.max_bytes:
-                raise HTTPException(status_code=413, detail="Upload body too large")
+                exceeded = True
+                # The multipart parser closes partially-spooled files on this exception.
+                raise MultiPartException("Upload body too large")
             return message
 
+        async def limited_send(message):
+            if exceeded and message["type"] == "http.response.start":
+                message = {**message, "status": 413}
+            await send(message)
+
         try:
-            await self.app(scope, limited_receive, send)
+            await self.app(scope, limited_receive, limited_send)
         finally:
             self.slots.release()
 
