@@ -1,5 +1,6 @@
 """Initial schema; timestamp strings intentionally preserve the existing API."""
 import sqlalchemy as sa
+from sqlalchemy.dialects.mysql import LONGTEXT
 
 metadata = sa.MetaData()
 
@@ -33,7 +34,7 @@ users = table("users", identity(), sa.Column("username", sa.String(255), unique=
     sa.Column("otp_expires_at", sa.String(64)), sa.Column("otp_attempts", sa.Integer, server_default="0"),
     sa.Column("role", sa.String(16), nullable=False, server_default="user"),
     sa.Column("is_blocked", sa.Integer, nullable=False, server_default="0"),
-    sa.Column("full_name", sa.String(255)), sa.Column("phone", sa.String(32)), sa.Column("avatar_url", sa.Text),
+    sa.Column("full_name", sa.String(255)), sa.Column("phone", sa.String(32)), sa.Column("avatar_url", sa.Text().with_variant(LONGTEXT, "mysql")),
     sa.CheckConstraint("role IN ('user', 'admin')", name="users_role"))
 audit = table("audit_log", identity(), sa.Column("timestamp", sa.String(40), nullable=False),
     sa.Column("username", sa.String(255), nullable=False), sa.Column("role", sa.String(16), nullable=False),
