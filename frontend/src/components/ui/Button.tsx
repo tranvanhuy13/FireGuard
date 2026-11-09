@@ -15,10 +15,10 @@ export function Button({
   
   const variants = {
     primary: "bg-primary text-white hover:bg-primary-hover",
-    secondary: "bg-navy-900 text-white hover:bg-navy-800",
+    secondary: "bg-navy-900 dark:bg-slate-800 text-white hover:bg-navy-800 dark:hover:bg-slate-700",
     danger: "bg-danger text-white hover:opacity-90",
-    ghost: "bg-transparent hover:bg-gray-100 text-gray-600 hover:text-navy-900",
-    outline: "border-2 border-gray-200 bg-transparent text-navy-900 hover:bg-gray-50",
+    ghost: "bg-transparent hover:bg-gray-100 dark:hover:bg-slate-800 text-gray-600 dark:text-slate-300 hover:text-navy-900 dark:hover:text-white",
+    outline: "border-2 border-gray-200 dark:border-slate-700 bg-transparent text-navy-900 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800",
   };
   
   const sizes = {
