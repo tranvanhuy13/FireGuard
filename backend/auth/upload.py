@@ -1,12 +1,52 @@
 """Authenticate uploads before FastAPI parses or spools their multipart body."""
 from contextlib import closing
+import threading
 
 from fastapi import HTTPException, Request
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
+from starlette.responses import JSONResponse
 
 from .database import get_connection
 from .dependencies import get_current_user, security
+
+
+class UploadLimitMiddleware:
+    """Bound bytes actually received and concurrent multipart parsing before spooling."""
+    def __init__(self, app, max_bytes, max_concurrent=2):
+        self.app = app
+        self.max_bytes = max_bytes
+        self.slots = threading.BoundedSemaphore(max_concurrent)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["method"] != "POST" or scope["path"] != "/video-analysis":
+            return await self.app(scope, receive, send)
+        headers = dict(scope.get("headers", []))
+        try:
+            length = int(headers.get(b"content-length", b"0"))
+            if length < 0:
+                raise ValueError()
+        except ValueError:
+            return await JSONResponse({"detail": "Invalid Content-Length"}, status_code=400)(scope, receive, send)
+        if length > self.max_bytes:
+            return await JSONResponse({"detail": "Upload body too large"}, status_code=413)(scope, receive, send)
+        if not self.slots.acquire(blocking=False):
+            return await JSONResponse({"detail": "Too many concurrent uploads"}, status_code=429,
+                                      headers={"Retry-After": "5"})(scope, receive, send)
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            received += len(message.get("body", b""))
+            if received > self.max_bytes:
+                raise HTTPException(status_code=413, detail="Upload body too large")
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        finally:
+            self.slots.release()
 
 
 class AuthenticatedUploadRoute(APIRoute):
