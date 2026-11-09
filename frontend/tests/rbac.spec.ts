@@ -93,19 +93,20 @@ test.describe('Phân quyền & Kiểm soát truy cập (Access Control & Protect
   // --------------------------------------------------------------------------
   test.describe('Cơ chế Chuẩn Hóa Role & Quyền Hạn (PR #13, PR #14 & PR #19)', () => {
     test('Hàm normalizeUser: operator / viewer / các role khác được tự động chuyển thành user (PR #19)', () => {
-      const normalizeUser = (u: any) => {
+      const normalizeUser = (u: unknown) => {
         if (!u || typeof u !== 'object') return null;
+        const role = 'role' in u ? u.role : undefined;
         return {
           ...u,
-          role: u.role === 'admin' ? 'admin' : 'user',
+          role: role === 'admin' ? 'admin' : 'user',
         };
       };
 
-      expect(normalizeUser({ username: 'test_admin', role: 'admin' }).role).toBe('admin');
-      expect(normalizeUser({ username: 'test_user', role: 'user' }).role).toBe('user');
-      expect(normalizeUser({ username: 'test_viewer', role: 'viewer' }).role).toBe('user');
-      expect(normalizeUser({ username: 'test_operator', role: 'operator' }).role).toBe('user');
-      expect(normalizeUser({ username: 'test_unknown', role: 'guest' }).role).toBe('user');
+      expect(normalizeUser({ username: 'test_admin', role: 'admin' })?.role).toBe('admin');
+      expect(normalizeUser({ username: 'test_user', role: 'user' })?.role).toBe('user');
+      expect(normalizeUser({ username: 'test_viewer', role: 'viewer' })?.role).toBe('user');
+      expect(normalizeUser({ username: 'test_operator', role: 'operator' })?.role).toBe('user');
+      expect(normalizeUser({ username: 'test_unknown', role: 'guest' })?.role).toBe('user');
     });
 
     test('Quyền hạn của User (Viewer cũ): Cho phép toggle camera, xem stream, phân tích video', () => {

@@ -38,6 +38,7 @@ def resolve_ca_path():
 def settings():
     load_dotenv(BACKEND_DIR / ".env.local")
     load_dotenv(BACKEND_DIR / ".env")
+    load_dotenv(BACKEND_DIR.parent / ".env")
     required = ("MYSQL_HOST", "MYSQL_PORT", "MYSQL_DATABASE", "MYSQL_USER", "MYSQL_PASSWORD")
     missing = [key for key in required if not os.getenv(key)]
     if missing:

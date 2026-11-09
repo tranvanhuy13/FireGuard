@@ -64,12 +64,12 @@ export default function DashboardLayout({
 
   if (isLoading || !user) {
     return (
-      <div className="min-h-screen bg-navy-50 flex">
-        <div className="w-64 bg-white border-r border-gray-200 animate-pulse hidden md:block"></div>
+      <div className="min-h-screen bg-navy-50 dark:bg-slate-950 flex">
+        <div className="w-64 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 animate-pulse hidden md:block"></div>
         <div className="flex-1 flex flex-col">
-          <div className="h-16 bg-white border-b border-gray-200 animate-pulse"></div>
+          <div className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 animate-pulse"></div>
           <div className="flex-1 p-8">
-             <div className="h-full bg-gray-200 rounded-2xl animate-pulse"></div>
+             <div className="h-full bg-gray-200 dark:bg-slate-800 rounded-2xl animate-pulse"></div>
           </div>
         </div>
       </div>
@@ -90,9 +90,9 @@ export default function DashboardLayout({
   const visibleNavItems = navItems.filter(item => item.roles.includes(user.role));
 
   return (
-    <div className="min-h-screen bg-navy-50 flex">
-      <aside className={`fixed inset-y-0 left-0 z-40 bg-white border-r border-gray-200 transition-all duration-300 flex flex-col ${sidebarOpen ? 'w-64' : 'w-20 -translate-x-full md:translate-x-0'}`}>
-        <div className="h-16 flex items-center justify-center border-b border-gray-200">
+    <div className="min-h-screen bg-navy-50 dark:bg-slate-950 flex transition-colors duration-200">
+      <aside className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transition-all duration-300 flex flex-col ${sidebarOpen ? 'w-64' : 'w-20 -translate-x-full md:translate-x-0'}`}>
+        <div className="h-16 flex items-center justify-center border-b border-gray-200 dark:border-slate-800">
           <Logo iconOnly={!sidebarOpen} />
         </div>
         
@@ -101,7 +101,7 @@ export default function DashboardLayout({
             const isActive = pathname === item.href;
             return (
               <Link key={item.name} href={item.href}>
-                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive ? 'bg-sky-50 text-sky-600' : 'text-gray-600 hover:bg-gray-50'}`}>
+                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive ? 'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400 font-medium' : 'text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-800'}`}>
                   {item.icon}
                   {sidebarOpen && <span className="font-medium">{item.name}</span>}
                 </div>
@@ -110,8 +110,8 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-200">
-          <button onClick={logout} className="flex items-center gap-3 px-3 py-2 w-full text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+        <div className="p-4 border-t border-gray-200 dark:border-slate-800">
+          <button onClick={logout} className="flex items-center gap-3 px-3 py-2 w-full text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors">
             <LogOut className="w-5 h-5" />
             {sidebarOpen && <span className="font-medium">{t.dashboard.logout}</span>}
           </button>
@@ -119,12 +119,12 @@ export default function DashboardLayout({
       </aside>
 
       <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0">
+        <header className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 transition-colors">
           <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 hover:text-navy-900">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 dark:text-slate-400 hover:text-navy-900 dark:hover:text-slate-100">
               <Menu className="w-5 h-5" />
             </button>
-            <h2 className="text-lg font-semibold text-navy-900 hidden sm:block">
+            <h2 className="text-lg font-semibold text-navy-900 dark:text-slate-100 hidden sm:block">
               {visibleNavItems.find(i => i.href === pathname)?.name || t.dashboard.dashboard}
             </h2>
           </div>
@@ -132,7 +132,7 @@ export default function DashboardLayout({
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setSoundEnabled(!soundEnabled)}
-              className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+              className="p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors"
               title={soundEnabled ? t.dashboard.muteAlerts : t.dashboard.unmuteAlerts}
             >
               {soundEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
@@ -140,7 +140,7 @@ export default function DashboardLayout({
             
             <button 
               onClick={() => setLanguage(language === 'en' ? 'vi' : 'en')}
-              className="flex items-center gap-1 p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors font-medium text-sm uppercase"
+              className="flex items-center gap-1 p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full transition-colors font-medium text-sm uppercase"
             >
               <Globe className="w-4 h-4" />
               {language}
@@ -148,42 +148,40 @@ export default function DashboardLayout({
 
             {isMockData && isMockAuth && (
               <select
-                className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white text-gray-700"
+                className="text-sm border border-gray-300 dark:border-slate-700 rounded-md px-2 py-1 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200"
                 value={user.role}
                 onChange={(e) => setUser({ ...user, role: e.target.value as any })}
               >
                 <option value="user">User</option>
-
                 <option value="admin">Admin</option>
               </select>
             )}
 
-            <div className={`px-2 py-1 rounded-full text-xs font-medium ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            <div className={`px-2 py-1 rounded-full text-xs font-medium ${isOnline ? 'bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-400' : 'bg-red-100 dark:bg-red-950/50 text-red-700 dark:text-red-400'}`}>
               {isOnline ? t.dashboard.networkOnline : t.dashboard.networkOfflineShort}
             </div>
 
-            <div className="h-8 w-px bg-gray-200 mx-2" />
+            <div className="h-8 w-px bg-gray-200 dark:bg-slate-800 mx-2" />
             
-            <div className="flex items-center gap-3">
+            <Link href="/dashboard/profile" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
               <div className="text-right hidden sm:block">
-                <div className="text-sm font-semibold text-navy-900">{user.fullName}</div>
-                <div className="text-xs text-gray-500 capitalize">
+                <div className="text-sm font-semibold text-navy-900 dark:text-slate-100">{user.fullName}</div>
+                <div className="text-xs text-gray-500 dark:text-slate-400 capitalize">
                   {user.role === 'admin' ? t.dashboard.roleAdmin : t.dashboard.roleUser}
                 </div>
               </div>
-              <div className="w-9 h-9 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-sm overflow-hidden shadow-sm">
+              <div className="w-9 h-9 rounded-full bg-sky-100 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold text-sm overflow-hidden shadow-sm">
                 {(user as any).avatarUrl ? <img src={(user as any).avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : user.fullName.charAt(0).toUpperCase()}
               </div>
-            </div>
+            </Link>
           </div>
         </header>
 
         {/* Page Content */}
-        <div className="flex-1 p-4 lg:p-8 overflow-auto">
+        <div className="flex-1 p-4 lg:p-8 overflow-auto bg-navy-50 dark:bg-slate-950 transition-colors">
           {children}
         </div>
       </main>
     </div>
   );
 }
-
