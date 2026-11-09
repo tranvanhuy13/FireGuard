@@ -238,7 +238,11 @@ export default function ProfilePage() {
     setTokenMessage('');
 
     try {
-      await refreshStreamToken();
+      const token = await refreshStreamToken();
+      if (!token) {
+        setTokenMessage(p.streamTokenError || 'Lỗi làm mới mã stream token.');
+        return;
+      }
       setTokenMessage(p.streamTokenRefreshed || 'Đã làm mới mã kết nối thành công!');
     } catch {
       setTokenMessage(p.streamTokenError || 'Lỗi làm mới mã stream token.');
