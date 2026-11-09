@@ -32,9 +32,9 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `PERIODIC_SNAPSHOT_RETENTION_DAYS` | Periodic capture lifetime; default 7 days, minimum 1; set 30 for a month |
 | `SNAPSHOT_CLEANUP_INTERVAL_SECONDS` | Retention scan interval; default 3600 seconds, minimum 60 |
 | `FORWARDED_ALLOW_IPS` | Uvicorn trusted reverse-proxy addresses for client IP limits; configure for the deployed proxy |
-| `S3_ENDPOINT` | Select MinIO/S3-compatible storage |
+| `S3_ENDPOINT` | Select MinIO/S3-compatible storage; full http(s) URLs support API paths such as Supabase `/storage/v1/s3`; bare host:port retains the MinIO client |
 | `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SECURE` | MinIO/S3 configuration |
-| `S3_PUBLIC_ENDPOINT` | Public S3 API origin, e.g. `https://s3.example.com`; no bucket/path; required for Zalo image links |
+| `S3_PUBLIC_ENDPOINT` | Public S3 endpoint for Zalo links; full URL mode preserves API paths, e.g. Supabase `/storage/v1/s3`; bare MinIO mode requires an origin without a path |
 | `S3_REGION` | Bucket region; public-link signing defaults to `us-east-1`; set to the actual region |
 | `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 image-link lifetime, default 86400 (24 hours), range 1–604800 |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |

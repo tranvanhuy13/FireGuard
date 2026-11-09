@@ -157,7 +157,11 @@ def enabled():
 def _get_store():
     global _store
     if _store is None:
-        _store = _MinioStore() if S3_ENDPOINT else _GcsStore()
+        if S3_ENDPOINT.startswith(("http://", "https://")):
+            from s3_url_store import S3UrlStore
+            _store = S3UrlStore(S3_ENDPOINT)
+        else:
+            _store = _MinioStore() if S3_ENDPOINT else _GcsStore()
     return _store
 
 
