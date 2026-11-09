@@ -109,6 +109,7 @@ class CameraLifecycleTests(unittest.TestCase):
 
     def test_manager_disables_all_cameras_and_allows_restart(self):
         manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager._mutation_lock = threading.RLock()
         camera = self.camera()
         manager.cameras = {camera.id: camera}
         saved = threading.Event()
@@ -179,6 +180,30 @@ class CameraLifecycleTests(unittest.TestCase):
             manager.add_camera('rtsp://old', 'New', False)
             database.add_db_camera.assert_called_once_with('New', '0', 0)
 
+
+    def test_failed_camera_writes_preserve_live_state_and_allow_retry(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager._mutation_lock = threading.RLock()
+        camera = self.camera()
+        manager.cameras = {camera.id: camera}
+        database = Mock()
+        with patch.dict(sys.modules, {'database': database}):
+            database.set_db_camera_status.side_effect = RuntimeError('database unavailable')
+            with self.assertRaises(RuntimeError):
+                manager.toggle_camera(camera.id, True)
+            self.assertFalse(camera.is_active)
+            database.delete_db_camera.side_effect = RuntimeError('database unavailable')
+            with self.assertRaises(RuntimeError):
+                manager.remove_camera(camera.id)
+            self.assertIs(manager.cameras[camera.id], camera)
+            self.assertTrue(camera.running)
+            database.set_db_camera_status.side_effect = None
+            self.assertTrue(manager.toggle_camera(camera.id, True))
+            self.assertTrue(camera.is_active)
+            database.delete_db_camera.side_effect = None
+            self.assertTrue(manager.remove_camera(camera.id))
+            self.assertFalse(camera.running)
+            self.assertNotIn(camera.id, manager.cameras)
 
     def test_fire_and_smoke_have_independent_confirmation_and_cooldowns(self):
         manager = cm.CameraManager.__new__(cm.CameraManager)
