@@ -53,6 +53,11 @@ Repeat after a backend redeploy to verify persistent remote storage. A live
 backend health check alone does not prove storage works. Do not trigger bot
 notifications or change production users to test storage.
 
+Render Free has no interactive Shell. For a deployment check, temporarily set
+Docker Command to `python storage_smoke.py --start-backend`: it runs the check,
+then replaces its process with the normal Uvicorn backend. Restore the empty
+Docker Command after checking the deploy logs to avoid testing on every startup.
+
 Free storage and egress are limited; check current usage in Supabase. Periodic
 snapshot retention does not remove event/video notification evidence. Monitor
 total usage and clean up that evidence intentionally when no longer needed.

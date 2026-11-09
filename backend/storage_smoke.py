@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import sys
 import tempfile
 import uuid
 
@@ -40,9 +41,18 @@ def main():
 
 
 if __name__ == "__main__":
+    original_snapshot_dir = os.environ.get("SNAPSHOT_DIR")
     try:
         main()
     except Exception as exc:
         # Provider exceptions may include signed URLs or credential identifiers.
         print(json.dumps({"storage_check": "failed", "error_type": type(exc).__name__}), flush=True)
         raise SystemExit(1)
+    if sys.argv[1:] == ["--start-backend"]:
+        if original_snapshot_dir is None:
+            os.environ.pop("SNAPSHOT_DIR", None)
+        else:
+            os.environ["SNAPSHOT_DIR"] = original_snapshot_dir
+        os.execv(sys.executable, [sys.executable, "-m", "uvicorn", "main:app",
+                                 "--host", "0.0.0.0", "--port", os.getenv("PORT", "8000"),
+                                 "--log-level", "info"])
