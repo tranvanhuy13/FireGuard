@@ -46,7 +46,13 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         # Provider exceptions may include signed URLs or credential identifiers.
-        print(json.dumps({"storage_check": "failed", "error_type": type(exc).__name__}), flush=True)
+        result = {"storage_check": "failed", "error_type": type(exc).__name__}
+        from botocore.exceptions import ClientError
+        if isinstance(exc, ClientError):
+            result.update(operation=exc.operation_name,
+                          code=exc.response.get("Error", {}).get("Code"),
+                          http_status=exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode"))
+        print(json.dumps(result), flush=True)
         raise SystemExit(1)
     if sys.argv[1:] == ["--start-backend"]:
         if original_snapshot_dir is None:
