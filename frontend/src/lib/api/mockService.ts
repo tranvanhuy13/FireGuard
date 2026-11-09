@@ -1,6 +1,6 @@
 /* eslint-disable */
 import { API_URL } from '@/config';
-import { DEMO_CAMERAS, USE_DEMO_CAMERAS, type DemoCamera } from '@/lib/demoCameras';
+import { DEMO_CAMERAS, DEMO_CAMERAS_ENABLED, type DemoCamera } from '@/lib/demoCameras';
 
 // In-memory camera list for the demo mode (resets on page reload).
 let demoCameras: DemoCamera[] | null = null;
@@ -626,7 +626,7 @@ export const setupMockService = () => {
       // including when other dashboard data is mocked.
       if (/^\/cameras(?:\/|$)/.test(parsedUrl.pathname)) {
         // Opt-in demo: serve the hard-coded public cameras without a backend.
-        if (USE_DEMO_CAMERAS) return handleDemoCameras(parsedUrl, init);
+        if (DEMO_CAMERAS_ENABLED) return handleDemoCameras(parsedUrl, init);
         return originalFetch(input, init);
       }
       // Notification destinations must be persisted where the real bots read them.

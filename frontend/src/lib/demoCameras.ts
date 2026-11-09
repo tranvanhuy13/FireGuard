@@ -1,3 +1,6 @@
+import { isMockData } from "./api/client";
+import { computeDemoEnabled } from "./cameraView";
+
 /**
  * Hard-coded demo cameras (public HLS streams), used only when
  * NEXT_PUBLIC_USE_DEMO_CAMERAS=true together with mock data.
@@ -15,7 +18,11 @@ export interface DemoCamera {
   status: "connected" | "connecting" | "disconnected";
 }
 
+/** Raw env flag. Do not use it directly in the UI: use DEMO_CAMERAS_ENABLED. */
 export const USE_DEMO_CAMERAS = process.env.NEXT_PUBLIC_USE_DEMO_CAMERAS === "true";
+
+/** Single source of truth for UI and mock service: demoEnabled = isMockData && USE_DEMO_CAMERAS. */
+export const DEMO_CAMERAS_ENABLED = computeDemoEnabled(isMockData, USE_DEMO_CAMERAS);
 
 const cam = (id: number, name: string, source: string, is_active = true): DemoCamera => ({
   id, name, source, is_active, status: is_active ? "connected" : "disconnected",

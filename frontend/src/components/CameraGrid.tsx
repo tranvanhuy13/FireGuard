@@ -10,7 +10,8 @@ import { isMockData } from "../lib/api/client";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
-import { isHlsSource, USE_DEMO_CAMERAS } from "../lib/demoCameras";
+import { isHlsSource, DEMO_CAMERAS_ENABLED } from "../lib/demoCameras";
+import { pageCount, clampPage, pageSlice } from "../lib/cameraView";
 
 interface Camera {
   id: number;
@@ -87,6 +88,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
   const [layoutMode, setLayoutMode] = useState<LayoutSize>(4);
+  const [page, setPage] = useState(0);
   const [now, setNow] = useState("");
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
   const [toggling, setToggling] = useState<Record<number, boolean>>({});
@@ -254,7 +256,9 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
 
   // Same as the CCTV wall: a square grid (2x2, 3x3, 4x4, 5x5) that fills the panel.
   const side = Math.sqrt(layoutMode);
-  const itemsToRender = cameras.slice(0, layoutMode);
+  const totalPages = pageCount(cameras.length, layoutMode);
+  const currentPage = clampPage(page, cameras.length, layoutMode);
+  const itemsToRender = pageSlice(cameras, currentPage, layoutMode);
   const emptySlots = layoutMode - itemsToRender.length;
 
   return (
@@ -262,16 +266,16 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
       <div className="flex justify-between items-center mb-4 px-2">
         <div>
           <h2 className="text-white font-bold text-lg">
-            {USE_DEMO_CAMERAS ? "CCTV MONITORING (DEMO)" : `${t.camera.activeCameras} (${activeCount}/${cameras.length} running)`}
+            {DEMO_CAMERAS_ENABLED ? "CCTV MONITORING (DEMO)" : `${t.camera.activeCameras} (${activeCount}/${cameras.length} running)`}
           </h2>
-          {!USE_DEMO_CAMERAS && <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>}
+          {!DEMO_CAMERAS_ENABLED && <span className="text-xs text-sky-200/70">{t.camera.supportsBadConditions}</span>}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex gap-1">
             {LAYOUTS.map(size => (
               <button
                 key={size}
-                onClick={() => setLayoutMode(size)}
+                onClick={() => { setLayoutMode(size); setPage(0); }}
                 aria-pressed={layoutMode === size}
                 className={`px-3 py-1 text-xs font-medium rounded transition-colors text-white ${layoutMode === size ? "bg-[#3b63ff]" : "bg-[#3b63ff]/50 hover:bg-[#5678ff]"}`}
               >
@@ -279,6 +283,27 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
               </button>
             ))}
           </div>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1 text-white text-xs" aria-label="Camera pages">
+              <button
+                onClick={() => setPage(currentPage - 1)}
+                disabled={currentPage === 0}
+                aria-label="Trang trước"
+                className="px-2 py-1 rounded bg-[#3b63ff]/50 hover:bg-[#5678ff] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ‹
+              </button>
+              <span className="px-1 tabular-nums">Trang {currentPage + 1}/{totalPages}</span>
+              <button
+                onClick={() => setPage(currentPage + 1)}
+                disabled={currentPage >= totalPages - 1}
+                aria-label="Trang sau"
+                className="px-2 py-1 rounded bg-[#3b63ff]/50 hover:bg-[#5678ff] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ›
+              </button>
+            </div>
+          )}
           {canAnalyze && (
             <button
               onClick={() => setIsAnalyzerOpen(true)}
@@ -287,7 +312,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
               {t.camera.analyzeVideo}
             </button>
           )}
-          {canManage && !USE_DEMO_CAMERAS && (
+          {canManage && !DEMO_CAMERAS_ENABLED && (
             <button
               onClick={() => setIsAdding(true)}
               className="px-3 py-1 bg-sky-500 hover:bg-sky-400 rounded text-xs text-white font-medium transition-colors shadow-sm"
@@ -298,7 +323,7 @@ const CameraGrid = ({ cameraData, onRefresh }: { cameraData?: Camera[]; onRefres
         </div>
       </div>
 
-      {isAdding && canManage && !USE_DEMO_CAMERAS && (
+      {isAdding && canManage && !DEMO_CAMERAS_ENABLED && (
         <div className="mb-4 p-4 bg-white border border-sky-100 rounded-xl space-y-3 shadow-sm animate-in slide-in-from-top-2">
           <h3 className="text-sm text-navy-900 font-medium">
             {t.camera.addCamera}
