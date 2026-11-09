@@ -2,7 +2,7 @@
 "use client";
 import { mediaUrl } from "@/lib/api/client";
 import { Download } from 'lucide-react';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +16,10 @@ export default function HistoryPage() {
   const { user, streamToken } = useAuth();
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [reload, setReload] = useState(0);
+  const [requestError, setRequestError] = useState(false);
+  const [exporting, setExporting] = useState(false);
   
   // filters, sort, pagination
   const [search, setSearch] = useState('');
@@ -28,39 +32,58 @@ export default function HistoryPage() {
   // modal
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
 
-  const fetchAlerts = () => {
-    setLoading(true);
-    fetch(`${API_URL}/history`)
-      .then(res => res.json())
-      .then(data => { 
-        const rawEvents = data.events || data.alerts || [];
-        const mappedEvents = rawEvents.map((e: any) => ({
-          ...e,
-          snapshot: e.snapshot || e.snapshot_path
-        }));
-        setAlerts(mappedEvents); 
-        setLoading(false); 
-      })
-      .catch(() => setLoading(false));
-  };
+  const queryFor = useCallback((limit: number, offset: number) => new URLSearchParams({
+    limit: String(limit), offset: String(offset), search, event_type: typeFilter,
+    status: statusFilter, sort: sortConfig.key, direction: sortConfig.direction,
+  }), [search, typeFilter, statusFilter, sortConfig]);
 
   useEffect(() => {
-    fetchAlerts();
-  }, []);
+    const controller = new AbortController();
+    let disposed = false;
+    setLoading(true);
+    setRequestError(false);
+    fetch(`${API_URL}/history?${queryFor(itemsPerPage, (currentPage - 1) * itemsPerPage)}`, { signal: controller.signal })
+      .then(async res => { if (!res.ok) throw new Error('History failed'); return res.json(); })
+      .then(data => {
+        if (disposed) return;
+        setAlerts(data.events.map((event: any) => ({ ...event, snapshot: event.snapshot_path })));
+        setTotal(data.total);
+        setCurrentPage(page => Math.min(page, Math.max(1, Math.ceil(data.total / itemsPerPage))));
+      })
+      .catch(() => { if (!disposed) setRequestError(true); })
+      .finally(() => { if (!disposed) setLoading(false); });
+    return () => { disposed = true; controller.abort(); };
+  }, [queryFor, currentPage, reload]);
 
-  const handleExportCsv = () => {
+  const handleExportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
+    setRequestError(false);
+    try {
+    const exported = [];
+    let watermark: number | undefined;
+    for (let offset = 0; ; offset += 500) {
+      const query = queryFor(500, offset);
+      if (watermark !== undefined) query.set('max_id', String(watermark));
+      const response = await fetch(`${API_URL}/history?${query}`);
+      if (!response.ok) throw new Error('Export failed');
+      const data = await response.json();
+      watermark ??= data.max_id;
+      exported.push(...data.events);
+      if (offset + data.events.length >= data.total || data.events.length === 0) break;
+    }
     const headers = ["ID", "Camera ID", "Type", "Time", "Confidence", "Status", "Handler"];
     const csvContent = [
       headers.join(","),
-      ...alerts.map(a => [
+      ...exported.map(a => [
         a.id,
-        a.camera_id,
+        a.camera_id ?? '',
         a.type,
         new Date(a.timestamp).toLocaleString(),
         (a.confidence > 1 ? a.confidence : a.confidence * 100).toFixed(1) + "%",
         a.status,
-        a.handler || ''
-      ].map(field => `"${field}"`).join(","))
+        a.handled_by || ''
+      ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(","))
     ].join("\n");
 
     const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -71,66 +94,56 @@ export default function HistoryPage() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    } catch { setRequestError(true); }
+    finally { setExporting(false); }
   };
 
   const handleUpdateStatus = async (status: string) => {
     if (!selectedAlert) return;
     try {
-      const res = await fetch(`${API_URL}/alerts/${selectedAlert.id}`, {
-        method: 'PUT',
+      const res = await fetch(`${API_URL}/alerts/${selectedAlert.id}/status`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, handler: user?.username || 'user' })
+        body: JSON.stringify({ status })
       });
       if (res.ok) {
-        fetchAlerts();
+        setReload(value => value + 1);
         setSelectedAlert(null);
-      }
-    } catch (error) {
-      console.error(error);
+      } else { setRequestError(true); }
+    } catch {
+      setRequestError(true);
     }
   };
 
-  const filteredAlerts = useMemo(() => {
-    return alerts.filter(a => {
-      const matchSearch = String(a.id).toLowerCase().includes(search.toLowerCase()) || String(a.camera_id).includes(search);
-      const matchType = typeFilter === 'all' || a.type === typeFilter;
-      const matchStatus = statusFilter === 'all' || a.status === statusFilter;
-      return matchSearch && matchType && matchStatus;
-    }).sort((a, b) => {
-      const aVal = a[sortConfig.key];
-      const bVal = b[sortConfig.key];
-      if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [alerts, search, typeFilter, statusFilter, sortConfig]);
-
-  const totalPages = Math.ceil(filteredAlerts.length / itemsPerPage);
-  const currentItems = filteredAlerts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const filteredAlerts = alerts;
+  const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
+  const currentItems = alerts;
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
     if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
+    setCurrentPage(1);
   };
 
-  if (loading && alerts.length === 0) return <div className="p-8"><div className="animate-pulse bg-gray-200 dark:bg-slate-800 h-64 rounded-md"></div></div>;
+  if (loading && alerts.length === 0 && !requestError) return <div className="p-8"><div className="animate-pulse bg-gray-200 dark:bg-slate-800 h-64 rounded-md"></div></div>;
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t.pages.history.title}</h1>
-        <button onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
+        <button disabled={exporting} onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
       </div>
       
       <div className="flex flex-col md:flex-row gap-4">
-        <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-900 dark:text-slate-100" />
-        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}>
+        <Input placeholder="Search..." value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }} className="max-w-xs bg-white dark:bg-slate-800 border-gray-300 dark:border-slate-700 text-gray-900 dark:text-slate-100" />
+        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setCurrentPage(1); }}>
           <option value="all" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.allTypes || 'All Types'}</option>
           <option value="fire" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.notifications ? t.notifications.fire : "Fire"}</option>
           <option value="smoke" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.notifications ? t.notifications.smoke : "Smoke"}</option>
         </select>
-        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+        <select className="border border-gray-300 dark:border-slate-700 rounded-md px-3 py-2 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-500" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}>
           <option value="all" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.allStatuses || 'All Statuses'}</option>
           <option value="new" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.statusNew}</option>
           <option value="confirmed" className="bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100">{t.alerts.statusConfirmed}</option>
@@ -138,6 +151,7 @@ export default function HistoryPage() {
         </select>
       </div>
 
+      {requestError && <p role="alert" className="text-red-600">{t.review.requestFailed}</p>}
       {filteredAlerts.length === 0 ? (
         <div className="text-center p-12 text-gray-500 dark:text-slate-400">{t.pages.common.empty}</div>
       ) : (
@@ -157,7 +171,7 @@ export default function HistoryPage() {
                 {currentItems.map(a => (
                   <tr key={a.id} className="border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors" onClick={() => setSelectedAlert(a)}>
                     <td className="p-4 text-gray-900 dark:text-slate-100">{new Date(a.timestamp).toLocaleString()}</td>
-                    <td className="p-4 text-gray-700 dark:text-slate-300">Cam {a.camera_id}</td>
+                    <td className="p-4 text-gray-700 dark:text-slate-300">{a.camera_name || (a.camera_id != null ? `Cam ${a.camera_id}` : t.review.unknownCamera)}</td>
                     <td className="p-4 capitalize text-gray-700 dark:text-slate-300">{a.type === 'fire' ? t.notifications.fire : t.notifications.smoke}</td>
                     <td className="p-4 text-gray-700 dark:text-slate-300">{(a.confidence > 1 ? a.confidence : a.confidence * 100).toFixed(1)}%</td>
                     <td className="p-4">
@@ -174,7 +188,7 @@ export default function HistoryPage() {
             <span>{t.pages.history.pagination}: {currentPage} / {totalPages}</span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Prev</Button>
-              <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+              <Button size="sm" variant="outline" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>Next</Button>
             </div>
           </div>
         </div>
@@ -189,7 +203,7 @@ export default function HistoryPage() {
                 <img src={selectedAlert.snapshot ? mediaUrl(selectedAlert.snapshot, streamToken) : '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 dark:bg-slate-800 rounded-md" />
                 <div className="grid grid-cols-2 gap-4">
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.time}</span> <span className="text-gray-900 dark:text-slate-100">{new Date(selectedAlert.timestamp).toLocaleString()}</span></div>
-                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.camera}</span> <span className="text-gray-900 dark:text-slate-100">Cam {selectedAlert.camera_id}</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.camera}</span> <span className="text-gray-900 dark:text-slate-100">{selectedAlert.camera_name || (selectedAlert.camera_id != null ? `Cam ${selectedAlert.camera_id}` : t.review.unknownCamera)}</span></div>
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.type}</span> <span className="capitalize text-gray-900 dark:text-slate-100">{selectedAlert.type}</span></div>
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.confidence}</span> <span className="text-gray-900 dark:text-slate-100">{(selectedAlert.confidence > 1 ? selectedAlert.confidence : selectedAlert.confidence * 100).toFixed(1)}%</span></div>
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.status}</span> 
@@ -197,7 +211,7 @@ export default function HistoryPage() {
                         {selectedAlert.status}
                     </Badge>
                   </div>
-                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.handler}</span> <span className="text-gray-900 dark:text-slate-100">{selectedAlert.handler || '-'}</span></div>
+                  <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.handler}</span> <span className="text-gray-900 dark:text-slate-100">{selectedAlert.handled_by || '-'}</span></div>
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-slate-800">

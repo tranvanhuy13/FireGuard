@@ -1,4 +1,5 @@
 export const en = {
+  review: { requestFailed: "Unable to complete the request. Please try again.", unknownCamera: "Unknown camera" },
   header: {
     title: "FIRE GUARD AI",
     subtitle: "Advanced Fire Detection & Early Warning System",
