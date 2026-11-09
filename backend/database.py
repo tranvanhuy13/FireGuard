@@ -25,11 +25,11 @@ def init_db():
     check_database()
 
 
-def add_event(type, confidence, snapshot_path=None):
+def add_event(type, confidence, snapshot_path=None, *, camera_id=None, camera_name=None):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with get_connection() as conn:
-        cursor = conn.execute("INSERT INTO events (timestamp, type, confidence, snapshot_path) VALUES (?, ?, ?, ?)",
-                              (timestamp, type, confidence, snapshot_path))
+        cursor = conn.execute("INSERT INTO events (timestamp, type, confidence, snapshot_path, camera_id, camera_name) VALUES (?, ?, ?, ?, ?, ?)",
+                              (timestamp, type, confidence, snapshot_path, camera_id, camera_name))
         return cursor.lastrowid, timestamp
 
 
@@ -48,6 +48,33 @@ def get_daily_stats(days=7):
 def get_all_events(limit=100, offset=0):
     with get_connection() as conn:
         return conn.execute("SELECT * FROM events ORDER BY id DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
+
+
+def search_events(limit=50, offset=0, *, search="", event_type="all", status="all",
+                  sort="timestamp", direction="desc", max_id=None):
+    sortable = {"timestamp", "camera_id", "type", "confidence", "status", "id"}
+    if sort not in sortable or direction not in ("asc", "desc"):
+        raise ValueError("Invalid history order")
+    clauses, args = [], []
+    if max_id is not None:
+        clauses.append("id <= ?")
+        args.append(max_id)
+    for column, value in (("type", event_type), ("status", status)):
+        if value != "all":
+            clauses.append(column + " = ?")
+            args.append(value)
+    if search:
+        pattern = "%" + search.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        clauses.append("(CAST(id AS CHAR) LIKE ? ESCAPE '!' OR CAST(camera_id AS CHAR) LIKE ? ESCAPE '!' OR camera_name LIKE ? ESCAPE '!')")
+        args.extend([pattern] * 3)
+    where = " WHERE " + " AND ".join(clauses) if clauses else ""
+    with get_connection() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM events" + where, args).fetchone()[0]
+        watermark = conn.execute("SELECT MAX(id) FROM events" + where, args).fetchone()[0]
+        rows = conn.execute("SELECT * FROM events" + where +
+                            f" ORDER BY {sort} {direction}, id {direction} LIMIT ? OFFSET ?",
+                            [*args, limit, offset]).fetchall()
+    return {"events": rows, "total": total, "max_id": watermark or 0}
 
 
 def get_setting(key, default=None):

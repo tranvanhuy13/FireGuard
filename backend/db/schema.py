@@ -17,7 +17,8 @@ def identity():
 events = table("events", identity(), sa.Column("timestamp", sa.String(40), nullable=False),
     sa.Column("type", sa.String(32), nullable=False), sa.Column("confidence", sa.Double, nullable=False),
     sa.Column("snapshot_path", sa.Text), sa.Column("status", sa.String(32), nullable=False, server_default="new"),
-    sa.Column("handled_by", sa.String(255)), sa.Column("handled_at", sa.String(40)))
+    sa.Column("handled_by", sa.String(255)), sa.Column("handled_at", sa.String(40)),
+    sa.Column("camera_id", sa.Integer), sa.Column("camera_name", sa.Text))
 sa.Index("events_timestamp", events.c.timestamp)
 cameras = table("cameras", identity(), sa.Column("name", sa.Text, nullable=False),
     sa.Column("source", sa.Text, nullable=False), sa.Column("is_active", sa.Integer, server_default="1"),
