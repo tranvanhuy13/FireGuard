@@ -18,8 +18,7 @@ class User(UserBase):
     avatar_url: str | None = None
     avatarUrl: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")

@@ -38,7 +38,8 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `S3_REGION` | Bucket region; public-link signing defaults to `us-east-1`; set to the actual region |
 | `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 image-link lifetime, default 86400 (24 hours), range 1–604800 |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |
-| `STREAM_TOKEN_SECRET` | Stable signing secret for compatibility tokens across restarts |
+| `STREAM_TOKEN_SECRET` | Stable signing secret for password-bound media tokens across restarts |
+| `CORS_ORIGINS` | Comma-separated allowed HTTP(S) origins; explicit configuration replaces development defaults |
 | `ZALO_BOT_TOKEN`, `ZALO_CHAT_ID`, `ZALO_ENABLED` | Optional nonblank environment overrides for Zalo notification settings |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_ENABLED` | Optional nonblank environment overrides for Telegram notification settings |
 | `GMAIL_ADDRESS`, `GMAIL_APP_PASSWORD` | Account OTP email configuration |
