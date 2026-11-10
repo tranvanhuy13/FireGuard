@@ -4,7 +4,9 @@ Question-mark parameters are bound through SQLAlchemy, never interpolated into S
 SQL dialect differences remain explicit in the calling repositories.
 """
 from threading import Lock
+from pathlib import Path
 import logging
+from alembic.script import ScriptDirectory
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
@@ -132,10 +134,12 @@ def read_rows(sql, parameters=()):
 def check_database():
     with get_connection() as conn:
         version = conn.execute("SELECT version_num FROM alembic_version").fetchall()
-        if [row[0] for row in version] != ["0001_mysql"]:
+        expected = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "migrations")).get_current_head()
+        if [row[0] for row in version] != [expected]:
             raise RuntimeError("Database schema version mismatch; run alembic upgrade head")
         for table in ("users", "events", "cameras", "settings", "notification_targets", "audit_log", "login_attempts"):
             conn.execute(f"SELECT 1 FROM {table} LIMIT 1")
+        conn.execute("SELECT full_name, phone, avatar_url FROM users LIMIT 1")
         locks = conn.execute("SELECT name FROM transaction_locks").fetchall()
         if {row["name"] for row in locks} != {"auth", "notifications"}:
             raise RuntimeError("Database migrations are incomplete")

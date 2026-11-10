@@ -12,6 +12,7 @@ import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionSta
 import { useAuth } from "../context/AuthContext";
 import { isHlsSource, DEMO_CAMERAS_ENABLED } from "../lib/demoCameras";
 import { pageCount, clampPage, pageSlice, effectiveStatus, isFrameFresh } from "../lib/cameraView";
+import RecoveringCameraImage from "./RecoveringCameraImage";
 
 interface Camera {
   id: number;
@@ -522,17 +523,13 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
             ) : isHlsSource(cam.source) ? (
               <HlsVideo key={cam.source} src={cam.source} label={cam.name} camId={cam.id} onStatus={handleStreamStatus} onFrame={handleFrame} />
             ) : (
-              <div className="relative w-full h-full bg-black">
-                <img
+              <div className="relative w-full h-full bg-[#071728]">
+                  {streamToken && <RecoveringCameraImage
                   key={streamToken}
-                  src={streamToken ? `${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}` : undefined}
+                    src={`${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}`}
                   alt={cam.name}
-                  className="w-full h-full object-contain bg-black"
-                  onError={(e) => {
-                    refreshStreamToken();
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+                    refreshToken={refreshStreamToken}
+                  />}
               </div>
             )}
 

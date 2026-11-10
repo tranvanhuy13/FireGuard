@@ -335,6 +335,7 @@ class Camera:
 class CameraManager:
     def __init__(self, detector):
         self.cameras = {}
+        self._mutation_lock = threading.RLock()
         self.detector = detector
         # One model, many callers (live cameras + uploaded-video analysis):
         # serialize inference so the model is never called from two threads at once.
@@ -383,34 +384,38 @@ class CameraManager:
 
     def remove_camera(self, camera_id):
         import database
-        cam = self.cameras.pop(camera_id, None)
-        if cam is None:
-            return False
-        cam.stop()
-        database.delete_db_camera(camera_id)
-        return True
+        with self._mutation_lock:
+            cam = self.cameras.get(camera_id)
+            if cam is None:
+                return False
+            database.delete_db_camera(camera_id)
+            cam.stop()
+            self.cameras.pop(camera_id)
+            return True
 
     def has_active_camera(self):
         return any(cam.running and cam.is_active for cam in list(self.cameras.values()))
 
     def update_camera(self, camera_id, name, is_active):
         import database
-        cam = self.cameras.get(camera_id)
-        if cam is None:
-            return False
-        database.update_db_camera(camera_id, name, "0", is_active)
-        cam.name = name
-        cam.set_active(is_active)
-        return True
+        with self._mutation_lock:
+            cam = self.cameras.get(camera_id)
+            if cam is None:
+                return False
+            database.update_db_camera(camera_id, name, "0", is_active)
+            cam.name = name
+            cam.set_active(is_active)
+            return True
 
     def toggle_camera(self, camera_id, is_active):
         import database
-        cam = self.cameras.get(camera_id)
-        if cam is None:
-            return False
-        cam.set_active(is_active)
-        database.set_db_camera_status(camera_id, is_active)
-        return True
+        with self._mutation_lock:
+            cam = self.cameras.get(camera_id)
+            if cam is None:
+                return False
+            database.set_db_camera_status(camera_id, is_active)
+            cam.set_active(is_active)
+            return True
 
     def shutdown(self):
         self.running = False

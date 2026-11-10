@@ -136,6 +136,7 @@ class NotificationRecoveryTests(unittest.TestCase):
         response = Mock(status_code=403, headers={}, json=lambda: {"ok": False, "error_code": 403,
             "description": "secret-token failed for alpha-chat https://example.com/private"})
         with patch("notification.peek_settings", return_value={"zalo_bot_token": "secret-token"}), \
+             patch.dict("os.environ", {"ZALO_BOT_TOKEN": ""}), \
              patch("notification.channel_config", side_effect=AssertionError("must not query config")), \
              patch("notification.requests.post", return_value=response):
             details = {}
@@ -194,7 +195,8 @@ class NotificationRecoveryTests(unittest.TestCase):
             {"id": "job", "revision": 2, "frame_id": 1, "status": "done", "notification_pending": 0},
         ]
         namespace = {"app": FastAPI(), "asyncio": asyncio, "WebSocket": WebSocket,
-                     "WebSocketDisconnect": WebSocketDisconnect, "video_analyzer": analyzer}
+                     "WebSocketDisconnect": WebSocketDisconnect, "video_analyzer": analyzer,
+                     "time": __import__("time"), "authorize_websocket": AsyncMock(return_value=True)}
         exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
         socket = Mock(accept=AsyncMock(), send_json=AsyncMock(), close=AsyncMock(),
                       receive_text=AsyncMock(side_effect=asyncio.TimeoutError))

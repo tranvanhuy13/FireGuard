@@ -49,9 +49,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const [streamToken, setStreamToken] = useState<string | null>(null);
   const tokenRefreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const tokenExpiresAtRef = useRef<number | null>(null);
   const refreshStreamTokenRef = useRef<() => Promise<string | null>>(async () => null);
   const pendingRefreshRef = useRef<Promise<string | null> | null>(null);
   const sessionGenerationRef = useRef(0);
+  const userRef = useRef<User | null>(user);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const refreshStreamToken = useCallback(async (): Promise<string | null> => {
     if (pendingRefreshRef.current) return pendingRefreshRef.current;
@@ -62,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const data = await authApi.getStreamToken();
         if (generation !== sessionGenerationRef.current) return null;
         setStreamToken(data.token);
+        tokenExpiresAtRef.current = Date.now() + (data.expires_in || 3600) * 1000;
 
         if (tokenRefreshTimerRef.current) {
           clearTimeout(tokenRefreshTimerRef.current);
@@ -78,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (generation !== sessionGenerationRef.current) return null;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           if (tokenRefreshTimerRef.current) clearTimeout(tokenRefreshTimerRef.current);
+          tokenExpiresAtRef.current = null;
           setStreamToken(null);
           setUser(null);
           clearAuthSession();
@@ -101,6 +109,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = useCallback(async (newUser: User) => {
     sessionGenerationRef.current += 1;
     pendingRefreshRef.current = null;
+    tokenExpiresAtRef.current = null;
     setUser(newUser);
     if (typeof window !== "undefined") {
       sessionStorage.setItem("user_profile", JSON.stringify(newUser));
@@ -131,6 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {
         setUser(null);
+        tokenExpiresAtRef.current = null;
         if (typeof window !== "undefined") {
           sessionStorage.removeItem("user_profile");
         }
@@ -146,6 +156,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [refreshStreamToken, setUser]);
+
+  useEffect(() => {
+    const checkAndRefreshToken = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") {
+        return;
+      }
+      if (!userRef.current) {
+        return;
+      }
+      const now = Date.now();
+      const expiresAt = tokenExpiresAtRef.current;
+      if (!expiresAt || expiresAt - now < 60000) {
+        void refreshStreamTokenRef.current();
+      }
+    };
+
+    document.addEventListener("visibilitychange", checkAndRefreshToken);
+    window.addEventListener("online", checkAndRefreshToken);
+
+    return () => {
+      document.removeEventListener("visibilitychange", checkAndRefreshToken);
+      window.removeEventListener("online", checkAndRefreshToken);
+    };
+  }, []);
 
   const hasRole = (roles: User["role"][]) => {
     if (!user) return false;
@@ -170,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (tokenRefreshTimerRef.current) {
       clearTimeout(tokenRefreshTimerRef.current);
     }
+    tokenExpiresAtRef.current = null;
     setStreamToken(null);
     await authApi.logout();
     setUser(null);

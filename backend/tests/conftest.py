@@ -1,52 +1,37 @@
-import pytest
+"""Safe default collection; application integration tests require explicit opt-in."""
 import os
+from pathlib import Path
 import sys
 
-BACKEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if BACKEND_DIR not in sys.path:
-    sys.path.insert(0, BACKEND_DIR)
+import pytest
 
-# Guard before importing application modules: collection imports main and starts services.
-from dotenv import load_dotenv
-load_dotenv(os.path.join(BACKEND_DIR, ".env.local"))
-load_dotenv(os.path.join(BACKEND_DIR, ".env"))
-if os.getenv("FIREGUARD_TEST_MYSQL") != "1" or not os.getenv("MYSQL_DATABASE", "").endswith("_test"):
-    pytest.exit("Integration pytest requires FIREGUARD_TEST_MYSQL=1 and MYSQL_DATABASE ending in _test; use unittest for offline checks.", returncode=4)
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 
-from unittest.mock import patch
-from auth.utils import get_password_hash
-from db.engine import get_connection
 
-@pytest.fixture(autouse=True)
-def mock_otp_email_sending():
-    """Mock việc gửi email SMTP thật để test chạy độc lập, tốc độ cao và không phụ thuộc mạng ngoại vi"""
-    with patch("auth.routes.send_otp_email", return_value=True):
-        yield
+def pytest_addoption(parser):
+    parser.addoption("--integration", action="store_true", default=False,
+                     help="Enable application integration tests against a disposable *_test MySQL database")
 
-@pytest.fixture(autouse=True)
-def setup_test_user():
-    """Tự động đảm bảo tài khoản kiểm thử chuẩn 'vyvy' luôn sẵn sàng trong database trước mỗi bài test"""
-    conn = get_connection()
-    conn.execute("DELETE FROM users WHERE username = 'vyvy' OR email = 'vynguyen30082005@gmail.com'")
-    conn.execute(
-        """
-        INSERT INTO users (username, email, hashed_password, is_active, otp_attempts)
-        VALUES (?, ?, ?, 1, 0)
-        """,
-        ('vyvy', 'vynguyen30082005@gmail.com', get_password_hash('vyvy12345678'))
-    )
-    conn.commit()
-    conn.close()
-    yield
-    # Dọn dẹp và khôi phục trạng thái chuẩn sau mỗi bài test
-    conn = get_connection()
-    conn.execute("DELETE FROM users WHERE username = 'vyvy' OR email = 'vynguyen30082005@gmail.com'")
-    conn.execute(
-        """
-        INSERT INTO users (username, email, hashed_password, is_active, otp_attempts)
-        VALUES (?, ?, ?, 1, 0)
-        """,
-        ('vyvy', 'vynguyen30082005@gmail.com', get_password_hash('vyvy12345678'))
-    )
-    conn.commit()
-    conn.close()
+
+def pytest_configure(config):
+    from tests import integration_mode
+    integration_mode.enabled = False
+    if not config.getoption("--integration"):
+        return
+    # Never infer opt-in from developer dotenv files or import main before validation.
+    if (os.getenv("FIREGUARD_TEST_MYSQL") != "1"
+            or not os.getenv("MYSQL_DATABASE", "").endswith("_test")):
+        raise pytest.UsageError(
+            "--integration requires FIREGUARD_TEST_MYSQL=1 and MYSQL_DATABASE ending in _test")
+    integration_mode.enabled = True
+    config.pluginmanager.import_plugin("tests.integration_fixtures")
+
+
+def pytest_collection_modifyitems(config, items):
+    if config.getoption("--integration"):
+        return
+    for item in items:
+        if item.path.name == "test_mysql_concurrency.py":
+            item.add_marker(pytest.mark.skip(reason="Real MySQL checks require --integration"))
