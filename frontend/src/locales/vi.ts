@@ -1,4 +1,5 @@
 export const vi = {
+  monitoring: {"sourceHint": "Chỉ số webcam (0–63), URL RTSP hoặc URL luồng HTTP(S).", "verifyAfterSave": "Lưu và bật camera, sau đó kiểm tra hình trực tiếp trên dashboard.", "saveFailed": "Không thể lưu camera. Kiểm tra URL nguồn và thử lại.", "viewerClock": "Giờ máy đang xem; chỉ hiện khi có hình mới", "noFrames": "Không có hình mới", "previousPage": "Trang camera trước", "nextPage": "Trang camera sau", "page": "Trang", "connectionLost": "Mất kết nối"},
   review: { requestFailed: "Không thể hoàn tất yêu cầu. Vui lòng thử lại.", unknownCamera: "Camera không xác định" },
   header: {
     title: "FIRE GUARD AI",

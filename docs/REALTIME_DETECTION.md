@@ -21,9 +21,35 @@ The first confirmed fire and smoke findings per job each enqueue one bot notific
 
 ## Cameras and settings
 
+`POST /cameras` and `PUT /cameras/{id}` accept `{name, source, is_active}` through
+the existing verified/unblocked HTTP Basic gate for user/admin. Source defaults
+to `"0"` and accepts webcam indices 0–63, RTSP/RTSPS, or HTTP(S) camera streams
+(including HLS and MJPEG). On PUT, omitting source preserves the current source.
+Unsupported protocols/local paths return 422. Saved
+sources survive restart; editing a source invalidates old capture/inference work
+after the database write succeeds. Network capture uses bounded FFmpeg open/read
+timeouts and reconnects on failure. A valid URL does not prove reachability: save,
+enable, and check the actual picture/status. The old simulated connection test
+has been removed. Stream URLs are reached by the backend host, not the viewer.
+
+Real HLS sources are decoded and analyzed on the backend, then displayed through
+the signed `/video_feed/{id}` stream. Browser-direct HLS remains a view-only demo
+feature requiring both mock-data and demo-camera flags. No demo boxes/scores are
+added to real feeds.
+
 Camera capture runs independently of model inference. A single model scheduler serializes callers and gives waiting camera requests priority over video requests. Camera inference reads the latest frame rather than building a frame queue. Slow snapshot storage and notifications run separately. Overlays and detection status expire after one second without a fresh analyzed capture.
 
 `WS /ws/detections` sends `{ "cameras": [...] }` up to 10 times per second. Camera records contain `camera_id`, `active`, `status`, `stale`, `detections`, and `confirmed`. Fresh records also include `frame_id`, `timestamp` (Unix time), and `latency_ms` (capture through inference). The dashboard clears detection badges when the connection or data becomes stale. Bounding boxes continue to appear on the existing camera MJPEG streams.
+
+Every record also includes `generation`, `capture_frame_id`, `frame_age_ms`
+(nullable before a capture), and `frame_fresh`. Capture is fresh while active and
+its newest frame is less than six seconds old; AI `stale` remains a separate
+one-second threshold. Clients hide the viewer clock when capture telemetry is
+missing/stale, an image errors, or a media token is unavailable. This indicates
+recent backend capture plus usable image transport, not a measured display
+latency or a timestamp embedded by the source camera. Expired authorization and
+transport loss clear badges and reconnect, including when refreshed tokens are
+unchanged. Missing camera stream IDs return 404 and removed/disabled feeds close.
 
 The AI settings page and both inference paths use:
 

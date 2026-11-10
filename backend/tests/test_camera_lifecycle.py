@@ -165,8 +165,9 @@ class CameraLifecycleTests(unittest.TestCase):
             second.release()
         self.capture.release.assert_called_once()
 
-    def test_all_configured_and_new_tiles_use_source_zero(self):
+    def test_configured_and_new_cameras_keep_their_sources(self):
         manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager._mutation_lock = threading.RLock()
         manager.cameras = {}
         database = Mock()
         database.get_all_db_cameras.return_value = [
@@ -176,9 +177,88 @@ class CameraLifecycleTests(unittest.TestCase):
         database.add_db_camera.return_value = 3
         with patch.dict(sys.modules, {'database': database}), patch.object(cm, 'Camera') as camera:
             manager.load_cameras_from_db()
-            self.assertEqual([call.args[1] for call in camera.call_args_list], ['0', '0'])
+            self.assertEqual([call.args[1] for call in camera.call_args_list], ['rtsp://old', '1'])
             manager.add_camera('rtsp://old', 'New', False)
-            database.add_db_camera.assert_called_once_with('New', '0', 0)
+            database.add_db_camera.assert_called_once_with('New', 'rtsp://old', 0)
+            database.update_db_camera.assert_not_called()
+
+    def test_source_update_rolls_back_on_database_failure(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager._mutation_lock = threading.RLock()
+        camera = self.camera()
+        manager.cameras = {camera.id: camera}
+        database = Mock()
+        with patch.dict(sys.modules, {'database': database}):
+            database.update_db_camera.side_effect = RuntimeError('unavailable')
+            with self.assertRaises(RuntimeError):
+                manager.update_camera(camera.id, 'New', True, source='1')
+            self.assertEqual(camera.source, '0')
+            self.assertFalse(camera.is_active)
+            database.update_db_camera.side_effect = None
+            manager.update_camera(camera.id, 'New', False, source='1')
+            self.assertEqual(camera.source, '1')
+            database.update_db_camera.assert_called_with(camera.id, 'New', '1', False)
+
+    def test_switch_source_during_read_drops_old_frame_and_reopens(self):
+        reading, finish_read, reopened = threading.Event(), threading.Event(), threading.Event()
+        old_capture = self.capture
+        next_capture = Mock()
+        next_capture.isOpened.return_value = True
+        next_capture.read.return_value = (False, None)
+
+        def read():
+            reading.set()
+            finish_read.wait(2)
+            return True, np.ones((2, 2, 3), dtype=np.uint8)
+
+        def open_capture(source, *args):
+            if source == 0:
+                return old_capture
+            reopened.set()
+            return next_capture
+
+        old_capture.read.side_effect = read
+        self.open_capture.side_effect = open_capture
+        camera = self.camera(active=True)
+        self.assertTrue(reading.wait(1))
+        camera.configure('Network camera', 'https://camera.example/live.m3u8', True)
+        finish_read.set()
+        self.assertTrue(reopened.wait(1))
+        self.assertIsNone(camera.last_frame)
+        old_capture.release.assert_called_once()
+        call = self.open_capture.call_args
+        self.assertEqual(call.args[0], 'https://camera.example/live.m3u8')
+        self.assertIn(cm.cv2.CAP_PROP_READ_TIMEOUT_MSEC, call.args[2])
+
+    def test_frame_freshness_does_not_depend_on_ai_and_stale_jpeg_is_hidden(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        camera = self.camera()
+        manager.cameras = {camera.id: camera}
+        with camera._state_lock:
+            camera.set_active(True)
+            camera._publish(np.zeros((2, 2, 3), dtype=np.uint8))
+            state = manager.detection_states()[0]
+            self.assertTrue(state['frame_fresh'])
+            self.assertTrue(state['stale'])  # No AI result yet, but capture is live.
+            self.assertIsNotNone(camera.get_jpeg())
+            camera.captured_at = time.monotonic() - 7
+            self.assertFalse(manager.detection_states()[0]['frame_fresh'])
+            self.assertIsNone(camera.get_jpeg())
+            camera.set_active(False)
+
+    def test_source_changed_during_jpeg_encoding_discards_old_picture(self):
+        camera = self.camera()
+        with camera._state_lock:
+            camera.set_active(True)
+            camera._publish(np.zeros((2, 2, 3), dtype=np.uint8))
+
+            def encode(*_args):
+                camera.configure('Other device', '1', True)
+                return True, np.array([1, 2, 3], dtype=np.uint8)
+
+            with patch.object(cm.cv2, 'imencode', side_effect=encode):
+                self.assertIsNone(camera.get_jpeg())
+            camera.set_active(False)
 
 
     def test_failed_camera_writes_preserve_live_state_and_allow_retry(self):

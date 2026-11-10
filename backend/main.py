@@ -40,6 +40,7 @@ from auth.stream_tokens import (STREAM_TOKEN_TTL_SECONDS, create_stream_token,
 from auth.upload import AuthenticatedUploadRoute, get_upload_user, UploadLimitMiddleware
 from cors_config import cors_options
 from camera_manager import CameraManager
+from camera_sources import CameraModel
 from detection import FireDetector
 from users.routes import router as users_router
 from notification_routes import router as notification_router
@@ -211,8 +212,12 @@ async def generate_camera_stream(camera_id: int, request: Request):
     last_id = -1
     next_auth = 0.0
     logger.info("[Stream %s] Client connected", camera_id)
+    camera = camera_manager.cameras.get(camera_id)
     try:
         while True:
+            if (camera is None or camera_manager.cameras.get(camera_id) is not camera
+                    or not camera.running or not camera.is_active):
+                break
             if await request.is_disconnected():
                 break
             if time.monotonic() >= next_auth:
@@ -248,6 +253,8 @@ async def generate_camera_stream(camera_id: int, request: Request):
 async def video_feed_default(request: Request, token: Optional[str] = Query(None)):
     """Default video feed for backwards compatibility (VideoFeed.tsx). A signed media token is required."""
     first_cam = next(iter(camera_manager.cameras.keys()), 1)
+    if first_cam not in camera_manager.cameras:
+        raise HTTPException(status_code=404, detail="Camera not found")
     logger.info("[Stream %s] Default stream requested", first_cam)
     return StreamingResponse(generate_camera_stream(first_cam, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
@@ -257,6 +264,8 @@ async def video_feed_default(request: Request, token: Optional[str] = Query(None
 @app.get("/video_feed/{camera_id}", dependencies=[Depends(require_stream_user)])
 async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str] = Query(None)):
     """Endpoint for grid view (CameraGrid.tsx). A signed media token is required."""
+    if camera_id not in camera_manager.cameras:
+        raise HTTPException(status_code=404, detail="Camera not found")
     logger.info("[Stream %s] Camera stream requested", camera_id)
     return StreamingResponse(generate_camera_stream(camera_id, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
@@ -266,17 +275,11 @@ async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str
 # ---------------------------------------------------------------------------
 # Cameras
 # ---------------------------------------------------------------------------
-class CameraModel(BaseModel):
-    source: str = "0"
-    name: str
-    is_active: bool = False
-
-
 @app.get("/cameras", dependencies=[Depends(get_current_user)])
 def get_cameras():
     """Get list of cameras with real-time status details."""
     cameras = []
-    for id, cam in camera_manager.cameras.items():
+    for id, cam in list(camera_manager.cameras.items()):
         cameras.append({
             "id": id,
             "name": cam.name,
@@ -290,7 +293,7 @@ def get_cameras():
 @app.post("/cameras", dependencies=[Depends(get_current_user)])
 def add_new_camera(cam: CameraModel):
     """Add a new camera."""
-    new_id = camera_manager.add_camera("0", cam.name, cam.is_active)
+    new_id = camera_manager.add_camera(cam.source, cam.name, cam.is_active)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
@@ -304,7 +307,8 @@ def delete_camera(camera_id: int):
 
 @app.put("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
 def update_camera(camera_id: int, cam: CameraModel):
-    if camera_manager.update_camera(camera_id, cam.name, cam.is_active):
+    source = cam.source if "source" in cam.model_fields_set else None
+    if camera_manager.update_camera(camera_id, cam.name, cam.is_active, source=source):
         return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 

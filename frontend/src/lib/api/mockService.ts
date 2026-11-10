@@ -627,6 +627,10 @@ export const setupMockService = () => {
       // including when other dashboard data is mocked.
       // NEXT_PUBLIC_API_URL may carry a prefix (e.g. https://host/api): match without it.
       const cameraPath = apiPathname(parsedUrl.pathname, API_URL);
+      // Mock dashboard data must never replace the signed-in identity payload.
+      if (/^\/users\/(me|profile|change-password)(?:\/|$)/.test(cameraPath)) {
+        return originalFetch(input, init);
+      }
       if (/^\/cameras(?:\/|$)/.test(cameraPath)) {
         // Opt-in demo: serve the hard-coded public cameras without a backend.
         if (DEMO_CAMERAS_ENABLED) return handleDemoCameras(parsedUrl, cameraPath, init);
