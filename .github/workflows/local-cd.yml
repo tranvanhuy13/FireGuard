@@ -17,7 +17,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  backend-checks:
+    uses: ./.github/workflows/backend-tests.yml
+  frontend-checks:
+    uses: ./.github/workflows/frontend-checks.yml
   deploy:
+    needs: [backend-checks, frontend-checks]
     runs-on: [self-hosted, linux, fireguard]
     steps:
       - uses: actions/checkout@v4
