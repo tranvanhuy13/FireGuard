@@ -1,5 +1,24 @@
 # Kết quả đối chiếu master và phân nhánh — 09/11/2026
 
+## Cập nhật PR #51 — 10/11/2026
+
+Đã kết hợp `origin/master` tại `cba1214` vào nhánh
+`refactor/project-review-integration` (head trước kết hợp: `772775b`). Git merge
+không có conflict văn bản. Bản tích hợp giữ giao diện live monitoring mới,
+`RecoveringCameraImage`, API lịch sử phân trang/status và migration
+`0003_event_camera`; chỉ cập nhật nhánh PR, không merge vào master hay triển khai.
+
+Xác minh lại trên bản kết hợp: backend offline đạt 127 tests và 44 subtests,
+7 integration tests được skip; TypeScript đạt; lint không có lỗi, còn 6 warning
+cũ; frontend unit đạt 24/24; Chrome với API/WS intercept đạt 2/2 regression tests
+(lịch sử qua 50 bản ghi, lọc/status và camera retry với token không đổi).
+Production build đạt, tạo đủ 18 trang; bước tải Google Fonts cần quyền truy cập
+mạng ngoài sandbox.
+TestClient và Chrome cần chạy ngoài sandbox để hoạt động trong môi trường này.
+Aikido MCP không khả dụng; chưa có kết quả SAST. Chưa chạy migration trên MySQL
+thật, camera vật lý, provider bot hay deployment. Trước khi triển khai backend,
+chạy `python -m alembic upgrade head` theo hợp đồng migration bên dưới.
+
 ## Mốc đối chiếu
 
 Đã fetch origin và kiểm tra `master = origin/master = b35a477`. So với mốc review `d1eca8e`, master thêm chỉnh giao diện lịch sử/HistoryModal/Button, chưa sửa các nguyên nhân R01–R14. Giữ nguyên chỉnh sửa ngoài phạm vi ở AGENTS.md và BUG-018_FIX_PLAN.md. Không push, merge vào master, deploy hay chạy migration trên dữ liệu thật.
