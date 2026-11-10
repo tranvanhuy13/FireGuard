@@ -116,6 +116,20 @@ Measure inference FPS and capture-to-display latency on the target hardware. Sep
 
 ## Documentation checks
 
+The review regressions additionally run with:
+
+```powershell
+# backend, offline services only
+.\venv\Scripts\python.exe -m pytest tests/test_api_security_registration.py tests/test_upload_limits.py tests/test_event_history.py tests/test_schema_readiness.py -q
+# frontend
+node --test tests/api_client.unit.cjs tests/dashboard_connection.unit.cjs
+```
+
+`frontend/tests/review_regressions.spec.ts` uses intercepted API/WS traffic and
+checks server-paged history, status updates and camera-image recovery with an
+unchanged token. Use the isolated frontend/API origins documented in
+[the review handover](../REVIEW_REFACTOR_PLAN.md#bàn-giao-bản-tích-hợp).
+
 For Markdown-only changes, verify relative links, referenced source paths, code-fence balance and `git diff --check`. Do not start cameras, modify databases or send notifications to validate prose.
 
 ## Notification permissions regression checks

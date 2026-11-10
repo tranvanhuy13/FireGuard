@@ -32,6 +32,8 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
 
+  const [statusError, setStatusError] = useState(false);
+
   const canManageAlerts = user?.role === "admin" || user?.role === "user";
 
   useEffect(() => {
@@ -89,11 +91,12 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
 
   const updateStatus = async (alert: Alert, status: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    setStatusError(false);
     if (alert.id) {
       const response = await fetch(`${API_URL}/alerts/${alert.id}/status`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }),
       }).catch(() => null);
-      if (!response?.ok) return;
+      if (!response?.ok) { setStatusError(true); return; }
     }
     const key = alert.id ? alert.id.toString() : alert.timestamp;
     setLocalStatuses(prev => ({ ...prev, [key]: status }));
@@ -118,6 +121,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
 
   return (
     <div className="flex flex-col h-full w-full bg-white">
+      {statusError && <p role="alert" className="p-3 text-red-600">{t.review.requestFailed}</p>}
       {selectedAlert && (
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
