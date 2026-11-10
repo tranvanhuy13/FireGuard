@@ -72,6 +72,7 @@ from users.routes import router as users_router
 from notification_routes import router as notification_router
 from video_analyzer import ALLOWED_EXT, MAX_UPLOAD_MB, UPLOAD_DIR, VideoAnalyzer
 from detection_rules import read_settings
+from event_routes import router as event_router
 
 # ---------------------------------------------------------------------------
 # Stream tokens (kept only so the frontend's /auth/stream-token call still works)
@@ -167,6 +168,7 @@ def get_snapshot(name: str):
 app.include_router(auth_router, prefix="/auth", tags=["auth"])
 app.include_router(users_router, prefix="/users", tags=["users"])
 app.include_router(notification_router)
+app.include_router(event_router)
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +507,10 @@ def get_alerts():
             "type": event["type"],
             "confidence": event["confidence"],
             "snapshot": event["snapshot_path"],
+            "status": event["status"],
+            "handled_by": event.get("handled_by"),
+            "camera_id": event.get("camera_id"),
+            "camera_name": event.get("camera_name"),
         })
     return {"alerts": formatted_alerts}
 
@@ -513,12 +519,6 @@ def get_alerts():
 def get_stats():
     """Get daily event statistics."""
     return {"stats": database.get_daily_stats()}
-
-
-@app.get("/history")
-def get_history(limit: int = 50, offset: int = 0):
-    """Get historical events with pagination."""
-    return {"events": database.get_all_events(limit, offset)}
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 export const vi = {
+  review: { requestFailed: "Không thể hoàn tất yêu cầu. Vui lòng thử lại.", unknownCamera: "Camera không xác định" },
   header: {
     title: "FIRE GUARD AI",
     subtitle: "Hệ thống Cảnh báo sớm & Phát hiện Hỏa hoạn Nâng cao",

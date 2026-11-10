@@ -4,6 +4,7 @@ import time
 import os
 import logging
 import queue
+import uuid
 from collections import namedtuple
 from detection_rules import read_settings, filter_detections, confirm_frame, draw_detections
 from inference_scheduler import InferenceScheduler
@@ -552,14 +553,16 @@ class CameraManager:
         return confirmed
 
     def _save_event(self, cam, cls_name, conf, frame):
+        camera_id, camera_name = cam.id, cam.name
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
-        filename = f"event_{timestamp_str}_{cam.id}_{cls_name}.jpg"
+        filename = f"event_{timestamp_str}_{camera_id}_{cls_name}_{uuid.uuid4().hex}.jpg"
         # Local copy is kept until notifications (which attach the file) are done
         filepath = storage.save_snapshot(filename, frame, keep_local=True)
 
         snapshot_url = f"/snapshots/{filename}"
         import database
-        event_id, timestamp = database.add_event(cls_name, conf, snapshot_url)
+        event_id, timestamp = database.add_event(cls_name, conf, snapshot_url,
+                                               camera_id=camera_id, camera_name=camera_name)
 
         now = time.monotonic()
         if now - cam.last_detection_log_time.get(cls_name, -1e9) >= DETECTION_LOG_INTERVAL_SECONDS:
@@ -574,14 +577,14 @@ class CameraManager:
                     "type": cls_name,
                     "confidence": conf,
                     "snapshot": snapshot_url,
-                    "camera_name": cam.name
+                    "camera_id": camera_id, "camera_name": camera_name, "status": "new"
                 })
             except Exception as e:
                 print(f"Error in alert callback: {e}")
 
         def notify():
             try:
-                notification.trigger_notifications(cls_name, conf, filepath)
+                notification.trigger_notifications(cls_name, conf, filepath, camera_name=camera_name)
             finally:
                 storage.discard_local(filepath)
 

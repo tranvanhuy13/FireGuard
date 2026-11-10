@@ -199,6 +199,23 @@ class CameraLifecycleTests(unittest.TestCase):
         manager._process_detections(camera, [], frame, settings)
         self.assertEqual(camera.detection_persistence, {"fire": 0, "smoke": 0})
 
+    def test_event_evidence_is_unique_and_notifications_preserve_source(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager.alert_callback = Mock()
+        camera = self.camera()
+        database = Mock()
+        database.add_event.return_value = (1, "2026-11-09 12:00:00")
+        frame = np.zeros((2, 2, 3), dtype=np.uint8)
+        with patch.dict(sys.modules, {"database": database}), patch.object(cm.threading, "Thread") as worker:
+            manager._save_event(camera, "fire", 0.9, frame)
+            first = cm.storage.save_snapshot.call_args.args[0]
+            worker.call_args.kwargs["target"]()
+            cm.notification.trigger_notifications.assert_called_with("fire", 0.9, cm.storage.save_snapshot.return_value,
+                                                                    camera_name=camera.name)
+            manager._save_event(camera, "fire", 0.9, frame)
+            self.assertNotEqual(first, cm.storage.save_snapshot.call_args.args[0])
+            self.assertEqual(database.add_event.call_args.kwargs, {"camera_id": camera.id, "camera_name": camera.name})
+
     def test_detection_metadata_and_overlay_expire(self):
         manager = cm.CameraManager.__new__(cm.CameraManager)
         camera = self.camera()
