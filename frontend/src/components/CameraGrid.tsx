@@ -6,7 +6,6 @@ import { startPolling } from "../lib/dashboardConnection";
 import { authFetch } from "../lib/api/authFetch";
 import { useLanguage } from "../context/LanguageContext";
 import { API_URL } from "../config";
-import { isMockData } from "../lib/api/client";
 import VideoAnalysisModal from "./VideoAnalysisModal";
 import CameraDetectionStatus, { useCameraDetections } from "./CameraDetectionStatus";
 import { useAuth } from "../context/AuthContext";
@@ -26,8 +25,8 @@ const LAYOUTS = [4, 9, 16, 25] as const;
 type LayoutSize = (typeof LAYOUTS)[number];
 
 /**
- * Plays a public HLS (.m3u8) stream directly in the browser (view only, no AI).
- * Camera sources that are not http(s) .m3u8 URLs keep using the backend MJPEG feed.
+ * Plays explicit demo HLS streams in the browser (view only, no AI).
+ * All real camera sources, including HLS, use the backend MJPEG/AI feed.
  */
 const RETRY_AFTER_MS = 15000;
 
@@ -38,6 +37,7 @@ const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
   onStatus: (camId: number, failed: boolean) => void;
   onFrame: (camId: number) => void;
 }) => {
+  const { t } = useLanguage();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -52,7 +52,7 @@ const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
     if (!failed) return;
     const timer = setTimeout(() => setAttempt(value => value + 1), RETRY_AFTER_MS);
     return () => clearTimeout(timer);
-  }, [failed]);
+  }, [failed, attempt]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -100,7 +100,7 @@ const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
       <video ref={videoRef} aria-label={label} className="w-full h-full object-cover bg-black" autoPlay muted playsInline />
       {failed && (
         <div className="absolute inset-0 flex items-center justify-center bg-black text-[#ff5252] text-xs font-semibold tracking-wide uppercase">
-          {"MẤT KẾT NỐI"}
+          {t.monitoring.connectionLost}
         </div>
       )}
     </div>
@@ -110,11 +110,11 @@ const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
 const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
   cameraData?: Camera[];
   onRefresh?: () => void;
-  /** Ids of cameras whose HLS stream is currently broken (so the dashboard KPIs can count them as down). */
+  /** Cameras without a fresh, usable stream must not count as running. */
   onStreamFailures?: (failedIds: number[]) => void;
 }) => {
-  const detections = useCameraDetections();
-  const { t } = useLanguage();
+  const detections = useCameraDetections(!DEMO_CAMERAS_ENABLED);
+  const { t, language } = useLanguage();
   const { user, can, streamToken, refreshStreamToken } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -153,11 +153,16 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
     setFrameAt(prev => (prev[camId] !== undefined && at - prev[camId] < 1000 ? prev : { ...prev, [camId]: at }));
   }, []);
 
+  const streamIsDown = (cam: Camera) => {
+    if (DEMO_CAMERAS_ENABLED) return !!streamFailed[cam.id] || (frameAt[cam.id] !== undefined && !isFrameFresh(frameAt[cam.id], nowMs));
+    return !streamToken || !!streamFailed[cam.id] || detections[cam.id]?.frame_fresh !== true;
+  };
+  const failedIds = cameras.filter(cam => cam.is_active && streamIsDown(cam)).map(cam => cam.id).sort((a, b) => a - b).join(",");
   useEffect(() => {
-    onStreamFailures?.(Object.keys(streamFailed).filter(id => streamFailed[Number(id)]).map(Number));
-  }, [streamFailed, onStreamFailures]);
+    onStreamFailures?.(failedIds ? failedIds.split(",").map(Number) : []);
+  }, [failedIds, onStreamFailures]);
 
-  const statusOf = (cam: Camera) => effectiveStatus(cam.is_active, cam.status, !!streamFailed[cam.id]);
+  const statusOf = (cam: Camera) => effectiveStatus(cam.is_active, cam.status, streamIsDown(cam));
 
   const fetchCameras = () => { if (onRefresh) onRefresh(); else polling.current?.retry(); };
 
@@ -167,11 +172,11 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
 
   // One shared clock for every tile's timestamp.
   useEffect(() => {
-    const tick = () => { setNow(new Date().toLocaleString("vi-VN")); setNowMs(Date.now()); };
+    const tick = () => { setNow(new Date().toLocaleString(language === "vi" ? "vi-VN" : "en-US")); setNowMs(Date.now()); };
     tick();
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [language]);
 
   useEffect(() => {
     if (onRefresh) return;
@@ -198,7 +203,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
     if (!newCamSource || !canManage) return;
 
     try {
-      await fetch(`${API_URL}/cameras`, {
+      const response = await fetch(`${API_URL}/cameras`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -206,6 +211,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
           name: newCamName || `Kamera ${cameras.length + 1}`,
         }),
       });
+      if (!response.ok) throw new Error(t.review.requestFailed);
       setIsAdding(false);
       setNewCamSource("0");
       setNewCamName("");
@@ -220,7 +226,8 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
     if (!canManage) return;
     if (!confirm(t.camera.confirmDelete)) return;
     try {
-      await fetch(`${API_URL}/cameras/${id}`, { method: "DELETE" });
+      const response = await fetch(`${API_URL}/cameras/${id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(t.review.requestFailed);
       fetchCameras();
     } catch (error) {
       console.error(error);
@@ -340,16 +347,16 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
               <button
                 onClick={() => setPage(currentPage - 1)}
                 disabled={currentPage === 0}
-                aria-label="Trang trước"
+                aria-label={t.monitoring.previousPage}
                 className="px-2 py-1 rounded bg-[#3b63ff]/50 hover:bg-[#5678ff] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ‹
               </button>
-              <span className="px-1 tabular-nums">Trang {currentPage + 1}/{totalPages}</span>
+              <span className="px-1 tabular-nums">{t.monitoring.page} {currentPage + 1}/{totalPages}</span>
               <button
                 onClick={() => setPage(currentPage + 1)}
                 disabled={currentPage >= totalPages - 1}
-                aria-label="Trang sau"
+                aria-label={t.monitoring.nextPage}
                 className="px-2 py-1 rounded bg-[#3b63ff]/50 hover:bg-[#5678ff] disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 ›
@@ -393,8 +400,8 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
               placeholder={t.camera.cameraSource}
               className="bg-gray-50 border border-gray-200 rounded px-3 py-2 text-navy-900 text-xs outline-none focus:border-sky-500"
               value={newCamSource}
-              readOnly
-              title="PC webcam (source 0)"
+              onChange={(e) => setNewCamSource(e.target.value)}
+              title={t.monitoring.sourceHint}
             />
           </div>
           <div className="flex justify-end gap-2">
@@ -487,7 +494,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
               </div>
             </div>
 
-            {cam.is_active && !isMockData && cam.status === "connected" && !isHlsSource(cam.source) && <CameraDetectionStatus state={detections[cam.id]} />}
+            {cam.is_active && !DEMO_CAMERAS_ENABLED && cam.status === "connected" && <CameraDetectionStatus state={detections[cam.id]} />}
 
             {!cam.is_active ? (
               <div className="w-full h-full flex flex-col items-center justify-center bg-[#071728] text-sky-200/50 text-xs gap-2">
@@ -520,39 +527,39 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
                 <div className="w-6 h-6 border-2 border-yellow-500/30 border-t-yellow-400 rounded-full animate-spin" />
                 <span className="font-semibold tracking-wide uppercase text-[10px]">{t.camera.connecting}</span>
               </div>
-            ) : isHlsSource(cam.source) ? (
+            ) : (DEMO_CAMERAS_ENABLED && isHlsSource(cam.source)) ? (
               <HlsVideo key={cam.source} src={cam.source} label={cam.name} camId={cam.id} onStatus={handleStreamStatus} onFrame={handleFrame} />
             ) : (
               <div className="relative w-full h-full bg-[#071728]">
                   {streamToken && <RecoveringCameraImage
-                  key={streamToken}
+                  key={`${cam.source}:${streamToken}`}
                     src={`${API_URL}/video_feed/${cam.id}?token=${encodeURIComponent(streamToken)}`}
                   alt={cam.name}
                     refreshToken={refreshStreamToken}
+                    onStatus={ready => handleStreamStatus(cam.id, !ready)}
                   />}
               </div>
             )}
 
             {/* Timestamp */}
             {(() => {
-              const hls = isHlsSource(cam.source);
+              const hls = (DEMO_CAMERAS_ENABLED && isHlsSource(cam.source));
               const lastFrame = frameAt[cam.id];
-              // The clock is only shown as "live" while the picture is really live; otherwise
-              // it is replaced by a warning (with the time of the last frame we received).
-              const live = cam.is_active && statusOf(cam) === "connected" && (!hls || isFrameFresh(lastFrame, nowMs));
+              // Show the viewer clock only with fresh capture telemetry and usable transport.
+              const live = cam.is_active && statusOf(cam) === "connected" && (hls ? isFrameFresh(lastFrame, nowMs) : !!streamToken && detections[cam.id]?.frame_fresh === true);
               const waiting = cam.is_active && cam.status === "connected" && hls && lastFrame === undefined && !streamFailed[cam.id];
               return (
                 <div
                   className={`absolute right-2.5 bottom-2.5 z-20 text-xs px-2 py-0.5 rounded pointer-events-none ${live ? "text-white bg-black/50" : "text-red-300 bg-black/70"}`}
-                  title={live ? "Giờ hệ thống của máy đang xem" : "Không có hình mới"}
+                  title={live ? t.monitoring.viewerClock : t.monitoring.noFrames}
                 >
                   {live
                     ? now
                     : !cam.is_active
-                      ? "Đã tắt"
+                      ? t.camera.inactive
                       : waiting
-                      ? "Đang tải…"
-                      : `Mất tín hiệu · ${lastFrame ? new Date(lastFrame).toLocaleTimeString("vi-VN") : "--:--:--"}`}
+                      ? t.camera.connecting
+                      : t.monitoring.noFrames}
                 </div>
               );
             })()}

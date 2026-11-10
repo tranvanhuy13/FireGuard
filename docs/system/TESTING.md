@@ -16,6 +16,11 @@ From `backend/`, run the offline suites:
 
 These suites isolate hardware/storage dependencies. Camera checks cover enable/disable, shared webcam leases, confirmation/cooldowns and stale state. Real-time checks cover settings, model scheduling, playback, cancellation, source retention and API handler contracts, including upload rejection before body reads and pause/resume slot handoff between videos. API handlers are exercised in-process with fake sockets; this is not a full network/browser test.
 
+Live source/capture regressions also run with `python -m pytest tests/test_camera_sources.py tests/test_camera_lifecycle.py tests/test_api_security_registration.py -q`.
+They cover source preservation/validation, changes during a blocked read, failed
+database writes, capture timeouts and independent capture/AI freshness. Devices,
+network streams and persistence are mocked.
+
 Use syntax compilation when appropriate:
 
 ```powershell
@@ -109,6 +114,15 @@ Optionally set `PLAYWRIGHT_CHANNEL=chrome` to use installed Chrome.
 Existing specs cover authentication, redirects, role gates and API security expectations. Read each spec before running it; older expectations can differ from current backend access rules. Confirm actual responses and intended policy before changing code or weakening a test.
 
 ## Manual feature validation
+
+`frontend/tests/live_monitoring.spec.ts` uses the isolated API/WS origins above
+to check real HLS via the backend feed, image errors/stale capture, and source
+editing with API validation failure. Run with real API/mock flags false and
+`BASE_URL` pointing to the isolated frontend. For its demo-only retry scenario,
+start a second frontend with `NEXT_PUBLIC_USE_MOCK_DATA=true`,
+`NEXT_PUBLIC_USE_MOCK_AUTH=false`, `NEXT_PUBLIC_USE_DEMO_CAMERAS=true` and a separate
+`FIREGUARD_NEXT_DIST_DIR`, then set `TEST_DEMO=1` when running that spec. Native HLS
+failures/time are simulated to prove repeated retries; no public camera is used.
 
 For detection changes, use smoke-only, fire-only, combined and negative footage with known labels. Check confirmation, missing-frame reset, source timestamps, and independent event cooldowns. Exercise uploaded-video pause/resume/restart/stop, reconnects and corrupt inputs. Run camera and video together to observe prioritization, then test camera disable/reconnect and stale overlays.
 

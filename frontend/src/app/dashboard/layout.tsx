@@ -165,13 +165,13 @@ export default function DashboardLayout({
             
             <Link href="/dashboard/profile" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
               <div className="text-right hidden sm:block">
-                <div className="text-sm font-semibold text-navy-900 dark:text-slate-100">{user.fullName}</div>
+                <div className="text-sm font-semibold text-navy-900 dark:text-slate-100">{user.fullName || user.username}</div>
                 <div className="text-xs text-gray-500 dark:text-slate-400 capitalize">
                   {user.role === 'admin' ? t.dashboard.roleAdmin : t.dashboard.roleUser}
                 </div>
               </div>
               <div className="w-9 h-9 rounded-full bg-sky-100 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 flex items-center justify-center font-bold text-sm overflow-hidden shadow-sm">
-                {(user as any).avatarUrl ? <img src={(user as any).avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : user.fullName.charAt(0).toUpperCase()}
+                {(user as any).avatarUrl ? <img src={(user as any).avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : (user.fullName || user.username || "?").charAt(0).toUpperCase()}
               </div>
             </Link>
           </div>

@@ -1,4 +1,5 @@
 export const en = {
+  monitoring: {"sourceHint": "Webcam index (0–63), RTSP URL, or HTTP(S) stream URL.", "verifyAfterSave": "Save and enable the camera, then check its live picture on the dashboard.", "saveFailed": "Unable to save camera. Check the source URL and try again.", "viewerClock": "Viewer system time; shown only while frames are fresh", "noFrames": "No fresh picture", "previousPage": "Previous camera page", "nextPage": "Next camera page", "page": "Page", "connectionLost": "Connection lost"},
   review: { requestFailed: "Unable to complete the request. Please try again.", unknownCamera: "Unknown camera" },
   header: {
     title: "FIRE GUARD AI",

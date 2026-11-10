@@ -6,12 +6,14 @@ import { WS_URL } from "../config";
 interface CameraDetection {
   camera_id: number; stale: boolean; confirmed: string[];
   detections: { class: string; confidence: number }[]; latency_ms?: number;
+  generation?: number; capture_frame_id?: number; frame_fresh?: boolean; frame_age_ms?: number | null;
 }
-export function useCameraDetections() {
+export function useCameraDetections(enabled = true) {
   const { streamToken, refreshStreamToken } = useAuth();
   const [states, setStates] = useState<Record<number, CameraDetection>>({});
+  const [stateToken, setStateToken] = useState<string | null>(null);
   useEffect(() => {
-    if (!streamToken) return;
+    if (!streamToken || !enabled) return;
     let disposed = false;
     let socket: WebSocket | null = null;
     let retry: ReturnType<typeof setTimeout> | undefined;
@@ -19,24 +21,29 @@ export function useCameraDetections() {
     const connect = () => {
       socket = new WebSocket(`${WS_URL}/ws/detections?token=${encodeURIComponent(streamToken)}`);
       socket.onmessage = (event) => {
-        if (disposed) return;
+        if (disposed || event.target !== socket) return;
         try {
           const data: { cameras: CameraDetection[] } = JSON.parse(event.data);
           receivedAt = Date.now();
+          setStateToken(streamToken);
           setStates(Object.fromEntries(data.cameras.map(camera => [camera.camera_id, camera])));
         } catch { setStates({}); }
       };
-      socket.onclose = (event) => {
-        if (!disposed && event.code === 1008) { setStates({}); void refreshStreamToken(); return; }
-        if (!disposed) { setStates({}); retry = setTimeout(connect, 1500); }
+      socket.onclose = async (event) => {
+        if (disposed || event.target !== socket) return;
+        setStates({});
+        if (event.code === 1008) {
+          try { await refreshStreamToken(); } catch { /* Retry the transport below. */ }
+        }
+        if (!disposed) retry = setTimeout(connect, 1500);
       };
-      socket.onerror = () => socket?.close();
+      socket.onerror = event => { if (!disposed && event.target === socket) socket?.close(); };
     };
     connect();
     const expiry = setInterval(() => { if (Date.now() - receivedAt > 1500) setStates({}); }, 500);
     return () => { disposed = true; clearTimeout(retry); clearInterval(expiry); socket?.close(); };
-  }, [streamToken, refreshStreamToken]);
-  return states;
+  }, [streamToken, refreshStreamToken, enabled]);
+  return streamToken && enabled && stateToken === streamToken ? states : {};
 }
 
 export default function CameraDetectionStatus({ state }: { state?: CameraDetection }) {

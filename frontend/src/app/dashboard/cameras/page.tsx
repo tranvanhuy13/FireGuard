@@ -27,13 +27,14 @@ export default function CamerasPage() {
 
   // Form State
   const [formData, setFormData] = useState({ name: '', source: '0', is_active: false });
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [testResult, setTestResult] = useState<'success'|'error'|null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const fetchCameras = async () => {
     try {
       setLoading(true);
       const res = await fetch(`${API_URL}/cameras`);
+      if (!res.ok) throw new Error(t.review.requestFailed);
       const data = await res.json();
       setCameras(data.cameras || []);
       setError(false);
@@ -100,6 +101,9 @@ export default function CamerasPage() {
   };
 
   const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSaveError('');
     try {
       const method = editingCamera ? 'PUT' : 'POST';
       const url = editingCamera ? `${API_URL}/cameras/${editingCamera.id}` : `${API_URL}/cameras`;
@@ -112,21 +116,16 @@ export default function CamerasPage() {
         setShowAddModal(false);
         setEditingCamera(null);
         setFormData({ name: '', source: '0', is_active: false });
-        setTestResult(null);
+        setSaveError('');
         fetchCameras();
+      } else {
+        setSaveError(t.monitoring.saveFailed);
       }
-    } catch (e) {
-      console.error(e);
+    } catch {
+      setSaveError(t.monitoring.saveFailed);
+    } finally {
+      setSaving(false);
     }
-  };
-
-  const handleTestConnection = () => {
-    setTestingConnection(true);
-    setTestResult(null);
-    setTimeout(() => {
-      setTestingConnection(false);
-      setTestResult(formData.source === '0' || formData.source.length > 5 ? 'success' : 'error');
-    }, 1000);
   };
 
   const filtered = cameras.filter(c => {
@@ -151,7 +150,7 @@ export default function CamerasPage() {
             <button onClick={() => setViewMode('table')} className={`px-3 py-1 text-sm rounded ${viewMode==='table'?'bg-white shadow':''}`}>Table</button>
           </div>
           {canManageCameras && (
-            <Button onClick={() => { setEditingCamera(null); setFormData({ name: '', source: '0', is_active: false }); setTestResult(null); setShowAddModal(true); }}>
+            <Button onClick={() => { setEditingCamera(null); setFormData({ name: '', source: '0', is_active: false }); setSaveError(''); setShowAddModal(true); }}>
               {t.pages.cameras.addCamera}
             </Button>
           )}
@@ -186,7 +185,7 @@ export default function CamerasPage() {
                   )}
                   {canManageCameras && (
                     <>
-                      <Button size="sm" variant="outline" className="flex-1 min-w-[60px]" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
+                      <Button size="sm" variant="outline" className="flex-1 min-w-[60px]" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setSaveError(''); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
                       <Button size="sm" variant="danger" className="flex-1 min-w-[60px]" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>
                     </>
                   )}
@@ -220,7 +219,7 @@ export default function CamerasPage() {
                         </Button>
                         {canManageCameras && (
                           <>
-                            <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setTestResult(null); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
+                            <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setSaveError(''); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>
                             <Button size="sm" variant="danger" onClick={() => setDeletingCamera(cam)}>{t.pages.cameras.delete}</Button>
                           </>
                         )}
@@ -247,20 +246,20 @@ export default function CamerasPage() {
                 <div>
                   <label className="block text-sm font-medium mb-1">{t.pages.cameras.source || 'Source URL'}</label>
                   <div className="flex gap-2">
-                    <Input value="0" readOnly title="PC webcam (source 0)" className="flex-1" />
-                    <Button variant="outline" onClick={handleTestConnection} disabled={testingConnection}>{testingConnection ? '...' : (t.pages.cameras.testConnection || 'Test')}</Button>
+                    <Input aria-label={t.pages.cameras.source} value={formData.source} onChange={e => setFormData({...formData, source: e.target.value})} title={t.monitoring.sourceHint} className="flex-1" />
                   </div>
-                  {testResult === 'success' && <p className="text-green-600 text-sm mt-1">Connection successful</p>}
-                  {testResult === 'error' && <p className="text-red-600 text-sm mt-1">Connection failed</p>}
+                  <p className="text-gray-500 text-sm mt-1">{t.monitoring.sourceHint}</p>
+                  <p className="text-gray-500 text-sm mt-1">{t.monitoring.verifyAfterSave}</p>
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   <input type="checkbox" id="is_active" checked={formData.is_active} onChange={e => setFormData({...formData, is_active: e.target.checked})} className="rounded text-blue-600 focus:ring-blue-500" />
                   <label htmlFor="is_active" className="text-sm font-medium">{t.pages.cameras.filterRunning || 'Active'}</label>
                 </div>
               </div>
+              {saveError && <p role="alert" className="text-red-600 mt-3">{saveError}</p>}
               <div className="mt-6 flex justify-end gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => setShowAddModal(false)}>{t.pages.common.cancel}</Button>
-                <Button onClick={handleSave} disabled={!formData.name || !formData.source}>{t.pages.common.saveSuccess ? 'Save' : 'Save'}</Button>
+                <Button onClick={handleSave} disabled={saving || !formData.name.trim() || !formData.source.trim()}>{t.pages.common.saveSuccess ? 'Save' : 'Save'}</Button>
               </div>
             </motion.div>
           </motion.div>

@@ -21,13 +21,24 @@ The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images 
 ## Camera processing
 
 1. `Camera` captures frames independently from inference and publishes its newest frame.
-2. `SharedWebcam` lets multiple enabled tiles share a physical device. Current camera-management operations normalize sources to the backend computer's webcam `0`.
+2. `SharedWebcam` lets enabled tiles using the same webcam index share that physical device. Sources preserve webcam indices 0–63 or RTSP/RTSPS/HTTP(S) URLs; local paths and other protocols are rejected. Network capture uses FFmpeg with five-second open/read timeouts. Authenticated camera operators control these backend-host sources, including cameras on its private network.
 3. `CameraManager` requests inference on available new frames, targeting at most 10 inferences per second per camera. Actual throughput depends on the model, hardware, and number of sources.
 4. `InferenceScheduler` permits one model call at a time; waiting camera requests take priority over uploaded-video requests.
 5. Shared rules filter and confirm fire/smoke detections. Overlays expire after one second without a fresh analyzed capture.
 6. Confirmed camera events are queued for snapshot/database work. Alerts are broadcast and notifications are dispatched separately from the capture path.
 
 Generation checks discard work from a camera session that has been disabled or replaced. Webcam leases are released when no enabled tile needs the device. The stream serves recent frames rather than accumulating a queue of old frames.
+
+Editing a source persists the database update before changing the live camera,
+invalidates in-flight reads/inference, and lets the capture thread release and
+reopen the source. Startup no longer rewrites saved sources to webcam 0. Invalid
+legacy sources are skipped with a camera-ID-only warning. JPEGs older than six
+seconds are withheld. WebSocket capture freshness is independent of AI results.
+Real HLS cameras use the authenticated backend MJPEG/AI path; only explicit demo
+cameras play HLS directly in the browser. The grid combines capture freshness
+with image errors/token availability before showing its clock or counting a
+camera as running. Losing telemetry hides the clock. The clock is viewer system
+time, not the frame's capture timestamp.
 
 Periodic snapshots run every 15 seconds per camera. Detection console messages are limited to once per 15 seconds per camera/class. These are separate from the configurable alarm-event cooldown and the notification module's channel cooldown.
 

@@ -65,3 +65,22 @@ def test_configured_cors_has_no_development_regex(monkeypatch):
     monkeypatch.setenv("CORS_ORIGINS", "https://example.com/path")
     with pytest.raises(ValueError):
         cors_options()
+
+
+def test_camera_routes_validate_and_forward_real_sources(app_module):
+    from auth.dependencies import get_current_user
+    app_module.app.dependency_overrides[get_current_user] = lambda: Mock(username='operator')
+    manager = app_module.camera_manager
+    manager.add_camera.return_value = 7
+    manager.update_camera.return_value = True
+    with TestClient(app_module.app) as client:
+        body = {'name': 'Gate', 'source': 'rtsp://camera.local/live', 'is_active': True}
+        assert client.post('/cameras', json=body).json()['id'] == 7
+        manager.add_camera.assert_called_once_with(body['source'], 'Gate', True)
+        body['source'] = 'https://camera.local/live.m3u8'
+        assert client.put('/cameras/7', json=body).status_code == 200
+        manager.update_camera.assert_called_once_with(7, 'Gate', True, source=body['source'])
+        assert client.put('/cameras/7', json={'name': 'Renamed', 'is_active': True}).status_code == 200
+        manager.update_camera.assert_called_with(7, 'Renamed', True, source=None)
+        assert client.post('/cameras', json={**body, 'source': 'file:///private'}).status_code == 422
+        assert manager.add_camera.call_count == 1
