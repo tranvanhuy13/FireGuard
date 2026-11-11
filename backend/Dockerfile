@@ -22,5 +22,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
-# Render cap cong qua bien PORT; chay local khong co PORT thi dung 8000
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
+# Apply migrations before API startup; stop if migration fails.
+# Render supplies PORT; local containers default to 8000.
+CMD ["sh", "-c", "python -m alembic upgrade head && exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
