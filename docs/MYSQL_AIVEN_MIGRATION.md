@@ -119,11 +119,16 @@ docker compose -f deploy/docker-compose.yml --env-file /opt/fireguard/.env run -
 docker compose -f deploy/docker-compose.yml --env-file /opt/fireguard/.env up -d
 ```
 
-Direct Docker/Render startup does not run migrations automatically. Use a release
-or pre-deploy command `python -m alembic upgrade head`, and mount the CA as a
-runtime file available to both migration and API processes. Separate DDL migration
-and DML application credentials where supported; workflows currently use the
-configured service account for the migration command.
+The backend Docker image runs `python -m alembic upgrade head` before starting
+Uvicorn and stops if migration fails. This also supports Render services without
+a pre-deploy command. Keep Render's Docker Command empty to use the image CMD;
+an existing override must run the migration before Uvicorn as well. Mount the CA
+as a runtime file available to both migration and API processes. The configured
+service account needs migration permissions when using this startup command.
+For multiple API instances, run migrations once in a release/pre-deploy step and
+override the Docker Command to start only Uvicorn, avoiding concurrent migrations.
+Separate DDL migration and DML application credentials where supported; workflows
+currently use the configured service account for the migration command.
 
 ### Render CA file setup
 
