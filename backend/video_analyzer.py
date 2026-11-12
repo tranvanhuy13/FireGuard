@@ -28,10 +28,11 @@ NOTIFICATION_ACTIVE = ("queued", "sending", "retrying")
 
 
 class VideoAnalyzer:
-    def __init__(self, detect_fn, get_setting, notify_fn=None):
+    def __init__(self, detect_fn, get_setting, notify_fn=None, alert_callback=None):
         self.detect = detect_fn
         self.get_setting = get_setting
         self.notify = notify_fn
+        self.alert_callback = alert_callback
         self._notifications = {channel: queue.PriorityQueue(maxsize=40) for channel in BOT_CHANNELS}
         self._notification_wake = {channel: threading.Event() for channel in BOT_CHANNELS}
         self._notification_threads = {}
@@ -65,7 +66,7 @@ class VideoAnalyzer:
         except OSError:
             pass
 
-    def submit(self, path, filename, sample_fps):
+    def submit(self, path, filename, sample_fps, *, owner_user_id=None):
         with self._lock:
             if self._closed:
                 raise ValueError("Analyzer is shutting down")
@@ -83,7 +84,15 @@ class VideoAnalyzer:
                 "verdict": None, "summary": {}, "events": [], "error": None,
                 "created_at": time.time(), "finished_at": None, "notifications": {},
                 "notification_pending": 0,
+                "owner_user_id": owner_user_id,
             }
+            if owner_user_id is not None:
+                import evidence
+                try:
+                    evidence.save_job(self.jobs[job_id])
+                except Exception:
+                    del self.jobs[job_id]
+                    raise
             control = {"cancel": threading.Event(), "paused": False, "path": path,
                        "wake": threading.Event(), "notification_pending": 0,
                        "notification_evidence": {}, "notification_tickets": {},
@@ -130,7 +139,8 @@ class VideoAnalyzer:
             if action == "restart":
                 # Replay leases the retained source; do not copy a 500 MB upload
                 # under the job lock or delete it while another run still uses it.
-                new_id = self.submit(control["path"], job["filename"], job["sample_fps"])
+                new_id = self.submit(control["path"], job["filename"], job["sample_fps"],
+                                     owner_user_id=job.get("owner_user_id"))
                 # Completed playback may still have queued bot work.
                 control["cancel"].set()
                 control["wake"].set()
@@ -148,6 +158,16 @@ class VideoAnalyzer:
         with self._lock:
             self.jobs[job_id].update(values)
             self.jobs[job_id]["revision"] += 1
+            job = self.jobs[job_id]
+            persist = job.get("owner_user_id") is not None and values.get("status") in FINISHED
+            if persist:
+                payload = copy.deepcopy({key: value for key, value in job.items() if key != "frame"})
+        if persist:
+            import evidence
+            try:
+                evidence.save_job(payload)
+            except Exception:
+                logger.warning("[Video %s] Metadata checkpoint failed", job_id)
 
     def _prune(self, preserve_path=None):
         while len(self.jobs) >= MAX_JOBS_KEPT:
@@ -160,7 +180,7 @@ class VideoAnalyzer:
             snapshots.update(item["snapshot"] for item in self._controls[old]["notification_evidence"].values())
             for snapshot in snapshots:
                 # Notified evidence must outlive job eviction so S3 links stay usable.
-                if snapshot not in self._controls[old]["notification_snapshots"]:
+                if self.jobs[old].get("owner_user_id") is None and snapshot not in self._controls[old]["notification_snapshots"]:
                     storage.delete_snapshot(snapshot)
             path = self._controls.pop(old)["path"]
             if path != preserve_path and not any(item["path"] == path for item in self._controls.values()):
@@ -288,6 +308,12 @@ class VideoAnalyzer:
             if not state or state["status"] not in ("failed", "disabled", "unconfigured"):
                 raise ValueError("Only failed, disabled or unconfigured channels may be retried")
             evidence = control["notification_evidence"][name]
+            if self.jobs[job_id].get("owner_user_id") is not None:
+                import evidence as registry
+                try:
+                    registry.require_snapshot(evidence["snapshot"], self.jobs[job_id]["owner_user_id"])
+                except Exception as error:
+                    raise ValueError("Notification image is expired or unavailable") from error
             self._ensure_notification_workers()
             pinned_here = not evidence["pinned"]
             if pinned_here:
@@ -353,6 +379,10 @@ class VideoAnalyzer:
                 logger.info("[Video %s] Notification %s/%s sending; attempt=%d",
                             job_id, name, channel, state["attempts"])
                 path = evidence["path"]
+                owner = self.jobs[job_id].get("owner_user_id")
+                if owner is not None:
+                    import evidence as registry
+                    registry.require_snapshot(evidence["snapshot"], owner)
                 if channel == "telegram":
                     path = storage.restore_snapshot(evidence["snapshot"]) or path
                 results = self.notify(
@@ -467,7 +497,22 @@ class VideoAnalyzer:
                         if notify:
                             storage.pin_snapshot(snapshot)
                         try:
-                            path = storage.save_snapshot(snapshot, annotated, keep_local=notify)
+                            owner = self.jobs[job_id].get("owner_user_id")
+                            scope = ({"owner_user_id": owner, "source_kind": "video", "source_id": job_id}
+                                     if owner is not None else {})
+                            path = storage.save_snapshot(snapshot, annotated, keep_local=notify, **scope)
+                            if owner is not None:
+                                import database
+                                event_id, detected_at = database.add_event(
+                                    name, confidence, f"/snapshots/{snapshot}", owner_user_id=owner,
+                                    source_kind="video", video_job_id=job_id, video_time=timestamp,
+                                    video_name=self.jobs[job_id]["filename"])
+                                if self.alert_callback:
+                                    self.alert_callback({"id": event_id, "timestamp": detected_at,
+                                        "type": name, "confidence": confidence, "status": "new",
+                                        "snapshot": f"/snapshots/{snapshot}", "owner_user_id": owner,
+                                        "source_kind": "video", "video_job_id": job_id,
+                                        "video_time": timestamp, "video_name": self.jobs[job_id]["filename"]})
                         except Exception:
                             if notify:
                                 storage.unpin_snapshot(snapshot)

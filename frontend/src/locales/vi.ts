@@ -242,6 +242,9 @@ export const vi = {
     toggleErrorNetwork: "Lỗi kết nối khi thay đổi trạng thái camera."
   },
   alerts: {
+    imageExpired: "Ảnh đã hết thời hạn lưu trữ",
+    imageUnavailable: "Ảnh chưa khả dụng",
+    videoSource: "Video",
     title: "Cảnh báo cháy",
     event: "Sự kiện",
     fireDetected: "Phát hiện lửa",

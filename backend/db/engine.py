@@ -137,7 +137,7 @@ def check_database():
         expected = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "migrations")).get_current_head()
         if [row[0] for row in version] != [expected]:
             raise RuntimeError("Database schema version mismatch; run alembic upgrade head")
-        for table in ("users", "events", "cameras", "settings", "notification_targets", "audit_log", "login_attempts"):
+        for table in ("users", "events", "cameras", "settings", "notification_targets", "audit_log", "login_attempts", "snapshots", "video_jobs"):
             conn.execute(f"SELECT 1 FROM {table} LIMIT 1")
         conn.execute("SELECT full_name, phone, avatar_url FROM users LIMIT 1")
         locks = conn.execute("SELECT name FROM transaction_locks").fetchall()

@@ -1,6 +1,6 @@
 /* eslint-disable */
 "use client";
-import { mediaUrl } from "@/lib/api/client";
+import EvidenceImage from "@/components/EvidenceImage";
 import { Download } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 export default function HistoryPage() {
   const { t } = useLanguage();
-  const { user, streamToken } = useAuth();
+  const { user } = useAuth();
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -200,7 +200,7 @@ export default function HistoryPage() {
             <motion.div initial={{y:50, opacity:0}} animate={{y:0, opacity:1}} exit={{y:50, opacity:0}} className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-lg p-6 max-w-lg w-full shadow-xl text-gray-900 dark:text-slate-100">
               <h2 className="text-xl font-bold mb-4 text-gray-900 dark:text-slate-100">{t.pages.history.detailsModal}</h2>
               <div className="space-y-4">
-                <img src={selectedAlert.snapshot ? mediaUrl(selectedAlert.snapshot, streamToken) : '/placeholder.png'} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 dark:bg-slate-800 rounded-md" />
+                <EvidenceImage snapshot={selectedAlert.snapshot} alt="Snapshot" className="w-full h-48 object-cover bg-gray-100 dark:bg-slate-800 rounded-md" />
                 <div className="grid grid-cols-2 gap-4">
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.time}</span> <span className="text-gray-900 dark:text-slate-100">{new Date(selectedAlert.timestamp).toLocaleString()}</span></div>
                   <div><span className="text-gray-500 dark:text-slate-400 block text-sm">{t.pages.history.camera}</span> <span className="text-gray-900 dark:text-slate-100">{selectedAlert.camera_name || (selectedAlert.camera_id != null ? `Cam ${selectedAlert.camera_id}` : t.review.unknownCamera)}</span></div>

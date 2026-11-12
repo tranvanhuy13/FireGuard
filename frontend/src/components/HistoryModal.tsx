@@ -1,8 +1,7 @@
 /* eslint-disable */
 "use client";
-import { mediaUrl } from "@/lib/api/client";
+import EvidenceImage from "@/components/EvidenceImage";
 
-import { useAuth } from "@/context/AuthContext";
 import React, { useEffect, useState } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { API_URL } from '../config';
@@ -21,7 +20,6 @@ interface HistoryModalProps {
 }
 
 const HistoryModal = ({ isOpen, onClose }: HistoryModalProps) => {
-  const { streamToken } = useAuth();
   const { t } = useLanguage();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(false);
@@ -167,8 +165,8 @@ const HistoryModal = ({ isOpen, onClose }: HistoryModalProps) => {
               {selectedSnapshot ? (
                 <div className="space-y-4 w-full">
                   <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm bg-gray-50 dark:bg-slate-800">
-                    <img 
-                      src={mediaUrl(selectedSnapshot, streamToken)}
+                    <EvidenceImage
+                      snapshot={selectedSnapshot}
                       alt="Preview" 
                       className="w-full h-auto object-cover"
                     />

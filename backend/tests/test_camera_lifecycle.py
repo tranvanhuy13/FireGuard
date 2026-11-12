@@ -133,7 +133,7 @@ class CameraLifecycleTests(unittest.TestCase):
         first_ready, second_ready = threading.Event(), threading.Event()
 
         def saved(filename, _frame):
-            (first_ready if 'cam_1.' in filename else second_ready).set()
+            (first_ready if 'cam_1_' in filename else second_ready).set()
 
         with patch.object(cm.storage, 'save_snapshot', side_effect=saved):
             first = self.camera(active=True)
@@ -171,8 +171,8 @@ class CameraLifecycleTests(unittest.TestCase):
         manager.cameras = {}
         database = Mock()
         database.get_all_db_cameras.return_value = [
-            {'id': 1, 'name': 'Gate', 'source': 'rtsp://old', 'is_active': 0},
-            {'id': 2, 'name': 'Lobby', 'source': '1', 'is_active': 0},
+            {'id': 1, 'name': 'Gate', 'source': 'rtsp://old', 'is_active': 0, 'owner_user_id': 1},
+            {'id': 2, 'name': 'Lobby', 'source': '1', 'is_active': 0, 'owner_user_id': 1},
         ]
         database.add_db_camera.return_value = 3
         with patch.dict(sys.modules, {'database': database}), patch.object(cm, 'Camera') as camera:
@@ -319,7 +319,7 @@ class CameraLifecycleTests(unittest.TestCase):
                                                                     camera_name=camera.name)
             manager._save_event(camera, "fire", 0.9, frame)
             self.assertNotEqual(first, cm.storage.save_snapshot.call_args.args[0])
-            self.assertEqual(database.add_event.call_args.kwargs, {"camera_id": camera.id, "camera_name": camera.name})
+            self.assertEqual(database.add_event.call_args.kwargs, {"camera_id": camera.id, "camera_name": camera.name, "owner_user_id": None})
 
     def test_detection_metadata_and_overlay_expire(self):
         manager = cm.CameraManager.__new__(cm.CameraManager)

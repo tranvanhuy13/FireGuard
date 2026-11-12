@@ -18,7 +18,7 @@ These are maintenance guidelines for changes to this repository. For current run
 - Keep periodic snapshot frequency, detection-log throttling, alarm-event cooldown and notification-channel cooldown conceptually separate.
 - Maintain independent fire/smoke confirmation and event cooldowns. Count a class once per frame, regardless of how many boxes it has.
 - Never add generated confidence values or fake fire/smoke boxes to real camera views. Keep explicitly mocked data within the mock service and existing mock flags.
-- Keep uploaded-video notifications in their own bounded queue and per-job deduplication; do not insert them into camera alarm history or consume camera notification cooldowns. Preserve cancellation, retained-source ownership and cleanup when changing video jobs.
+- Keep uploaded-video notifications in their own bounded queue and per-job deduplication. Persist video evidence with `source_kind='video'` for the combined Fire Alert feed, exclude it from camera history/statistics, and never consume camera notification cooldowns. Preserve cancellation, retained-source ownership and cleanup when changing video jobs.
 
 ## API and frontend
 

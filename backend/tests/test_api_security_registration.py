@@ -69,14 +69,15 @@ def test_configured_cors_has_no_development_regex(monkeypatch):
 
 def test_camera_routes_validate_and_forward_real_sources(app_module):
     from auth.dependencies import get_current_user
-    app_module.app.dependency_overrides[get_current_user] = lambda: Mock(username='operator')
+    app_module.app.dependency_overrides[get_current_user] = lambda: Mock(id=1, username='operator')
     manager = app_module.camera_manager
     manager.add_camera.return_value = 7
     manager.update_camera.return_value = True
     with TestClient(app_module.app) as client:
         body = {'name': 'Gate', 'source': 'rtsp://camera.local/live', 'is_active': True}
         assert client.post('/cameras', json=body).json()['id'] == 7
-        manager.add_camera.assert_called_once_with(body['source'], 'Gate', True)
+        manager.add_camera.assert_called_once_with(body['source'], 'Gate', True, owner_user_id=1)
+        manager.cameras = {7: SimpleNamespace(owner_user_id=1)}
         body['source'] = 'https://camera.local/live.m3u8'
         assert client.put('/cameras/7', json=body).status_code == 200
         manager.update_camera.assert_called_once_with(7, 'Gate', True, source=body['source'])

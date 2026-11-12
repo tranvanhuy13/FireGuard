@@ -93,8 +93,8 @@ def save_snapshot_async(camera, frame, generation):
         with camera._state_lock:
             if not camera.running or not camera.is_active or camera._generation != generation:
                 return
-            filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{camera.id}.jpg"
-        storage.save_snapshot(filename, img)
+            filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{camera.id}_{uuid.uuid4().hex}.jpg"
+        storage.save_snapshot(filename, img, **camera.evidence_scope())
         logger.info("[Cam %s] Periodic snapshot saved: %s", camera.id, filename)
 
     threading.Thread(target=task, args=(frame.copy(),), daemon=True).start()
@@ -109,7 +109,8 @@ class Camera:
     and can never slow the stream down.
     """
 
-    def __init__(self, id, source, name="Camera", is_active=True):
+    def __init__(self, id, source, name="Camera", is_active=True, owner_user_id=None):
+        self.owner_user_id = owner_user_id
         self.id = id
         self.source = source
         self.name = name
@@ -149,6 +150,11 @@ class Camera:
         self.thread.start()
 
     # ------------------------------------------------------------------ state
+    def evidence_scope(self):
+        if self.owner_user_id is None:
+            return {}
+        return {"owner_user_id": self.owner_user_id, "source_kind": "camera", "source_id": self.id}
+
     @property
     def running(self):
         return not self._stop.is_set()
@@ -394,20 +400,25 @@ class CameraManager:
                     continue
                 is_active = db_cam["is_active"] == 1
 
+                # Legacy cameras are retained but never capture until an operator assigns ownership.
+                if db_cam.get("owner_user_id") is None:
+                    continue
+
                 if cam_id in self.cameras:
                     self.cameras[cam_id].configure(name, source, is_active)
                 else:
-                    self.cameras[cam_id] = Camera(cam_id, source, name, is_active)
+                    self.cameras[cam_id] = Camera(cam_id, source, name, is_active, db_cam["owner_user_id"])
             print(f"Loaded {len(db_cams)} cameras from database.")
         except Exception as e:
             print(f"Error loading cameras from database: {e}")
 
-    def add_camera(self, source="0", name="Camera", is_active=False):
+    def add_camera(self, source="0", name="Camera", is_active=False, *, owner_user_id=None):
         import database
         source = normalize_source(source)
         with self._mutation_lock:
-            cam_id = database.add_db_camera(name, source, int(is_active))
-            self.cameras[cam_id] = Camera(cam_id, source, name, bool(is_active))
+            scope = {"owner_user_id": owner_user_id} if owner_user_id is not None else {}
+            cam_id = database.add_db_camera(name, source, int(is_active), **scope)
+            self.cameras[cam_id] = Camera(cam_id, source, name, bool(is_active), owner_user_id)
         return cam_id
 
     def remove_camera(self, camera_id):
@@ -595,12 +606,13 @@ class CameraManager:
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
         filename = f"event_{timestamp_str}_{camera_id}_{cls_name}_{uuid.uuid4().hex}.jpg"
         # Local copy is kept until notifications (which attach the file) are done
-        filepath = storage.save_snapshot(filename, frame, keep_local=True)
+        filepath = storage.save_snapshot(filename, frame, keep_local=True, **cam.evidence_scope())
 
         snapshot_url = f"/snapshots/{filename}"
         import database
         event_id, timestamp = database.add_event(cls_name, conf, snapshot_url,
-                                               camera_id=camera_id, camera_name=camera_name)
+                                               camera_id=camera_id, camera_name=camera_name,
+                                               owner_user_id=cam.owner_user_id)
 
         now = time.monotonic()
         if now - cam.last_detection_log_time.get(cls_name, -1e9) >= DETECTION_LOG_INTERVAL_SECONDS:
@@ -615,6 +627,7 @@ class CameraManager:
                     "type": cls_name,
                     "confidence": conf,
                     "snapshot": snapshot_url,
+                    "owner_user_id": cam.owner_user_id, "source_kind": "camera",
                     "camera_id": camera_id, "camera_name": camera_name, "status": "new"
                 })
             except Exception as e:

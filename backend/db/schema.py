@@ -37,6 +37,26 @@ users = table("users", identity(), sa.Column("username", sa.String(255), unique=
     sa.Column("is_blocked", sa.Integer, nullable=False, server_default="0"),
     sa.Column("full_name", sa.String(255)), sa.Column("phone", sa.String(32)), sa.Column("avatar_url", sa.Text().with_variant(LONGTEXT, "mysql")),
     sa.CheckConstraint("role IN ('user', 'admin')", name="users_role"))
+
+# Kept in sync with 0004; nullable legacy ownership deliberately grants nobody access.
+for owned in (cameras, events):
+    owned.append_column(sa.Column("owner_user_id", sa.Integer, sa.ForeignKey("users.id")))
+    sa.Index(f"{owned.name}_owner_id", owned.c.owner_user_id, owned.c.id)
+events.append_column(sa.Column("source_kind", sa.String(16), nullable=False, server_default="camera"))
+events.append_column(sa.Column("video_job_id", sa.String(32)))
+events.append_column(sa.Column("video_time", sa.Double))
+events.append_column(sa.Column("video_name", sa.Text))
+snapshots = table("snapshots", sa.Column("name", sa.String(191), primary_key=True),
+    sa.Column("owner_user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("source_kind", sa.String(16), nullable=False), sa.Column("source_id", sa.String(64), nullable=False),
+    sa.Column("created_at", sa.Double, nullable=False), sa.Column("expires_at", sa.Double, nullable=False),
+    sa.Column("deleted_at", sa.Double))
+sa.Index("snapshots_expiry", snapshots.c.deleted_at, snapshots.c.expires_at)
+video_jobs = table("video_jobs", sa.Column("sequence", sa.Integer, primary_key=True, autoincrement=True),
+    sa.Column("id", sa.String(32), nullable=False, unique=True),
+    sa.Column("owner_user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
+    sa.Column("payload", sa.Text, nullable=False))
+sa.Index("video_jobs_owner", video_jobs.c.owner_user_id, video_jobs.c.sequence)
 audit = table("audit_log", identity(), sa.Column("timestamp", sa.String(40), nullable=False),
     sa.Column("username", sa.String(255), nullable=False), sa.Column("role", sa.String(16), nullable=False),
     sa.Column("action", sa.String(255), nullable=False), sa.Column("target", sa.Text), sa.Column("detail", sa.Text))

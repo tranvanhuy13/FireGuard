@@ -5,6 +5,7 @@ from pathlib import Path
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
@@ -191,14 +192,14 @@ class NotificationRecoveryTests(unittest.TestCase):
         function = next(node for node in ast.parse(source).body if getattr(node, "name", None) == "video_analysis_updates")
         analyzer = Mock()
         analyzer.get.side_effect = [
-            {"id": "job", "revision": 1, "frame_id": 1, "status": "done", "notification_pending": 1},
-            {"id": "job", "revision": 2, "frame_id": 1, "status": "done", "notification_pending": 0},
+            {"id": "job", "revision": 1, "frame_id": 1, "status": "done", "owner_user_id": 1, "notification_pending": 1},
+            {"id": "job", "revision": 2, "frame_id": 1, "status": "done", "owner_user_id": 1, "notification_pending": 0},
         ]
         namespace = {"app": FastAPI(), "asyncio": asyncio, "WebSocket": WebSocket,
                      "WebSocketDisconnect": WebSocketDisconnect, "video_analyzer": analyzer,
                      "time": __import__("time"), "authorize_websocket": AsyncMock(return_value=True)}
         exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
-        socket = Mock(accept=AsyncMock(), send_json=AsyncMock(), close=AsyncMock(),
+        socket = Mock(state=SimpleNamespace(media_user=SimpleNamespace(id=1)), accept=AsyncMock(), send_json=AsyncMock(), close=AsyncMock(),
                       receive_text=AsyncMock(side_effect=asyncio.TimeoutError))
         asyncio.run(namespace["video_analysis_updates"](socket, "job"))
         self.assertEqual(socket.send_json.await_count, 2)
@@ -214,17 +215,18 @@ class NotificationRecoveryTests(unittest.TestCase):
             raise HTTPException(status_code=401)
         app = FastAPI()
         analyzer = Mock()
+        analyzer.get.return_value = {"id": "job", "owner_user_id": 1}
         analyzer.retry_notification.return_value = {"id": "job", "notification_pending": 1}
         source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8-sig")
         nodes = [node for node in ast.parse(source).body if getattr(node, "name", None) in
-                 {"RetryVideoNotification", "retry_video_notification"}]
+                 {"owned_job", "RetryVideoNotification", "retry_video_notification"}]
         namespace = {"app": app, "Depends": Depends, "BaseModel": BaseModel, "Literal": Literal,
                      "HTTPException": HTTPException, "get_current_user": authenticated, "video_analyzer": analyzer}
         exec(compile(ast.Module(body=nodes, type_ignores=[]), "main.py", "exec"), namespace)
         with TestClient(app) as client:
             payload = {"event_type": "fire", "channel": "telegram"}
             self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 401)
-            app.dependency_overrides[authenticated] = lambda: SimpleNamespace(role="user")
+            app.dependency_overrides[authenticated] = lambda: SimpleNamespace(id=1, role="user")
             self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 200)
             analyzer.retry_notification.assert_called_once_with("job", "fire", "telegram")
             analyzer.retry_notification.side_effect = KeyError("missing")
