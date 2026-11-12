@@ -20,6 +20,19 @@ The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images 
 
 ## Camera processing
 
+The dashboard camera wall retains the 4/9/16/25 layouts and pagination. Every
+authenticated supported role (`user` and `admin`) has a visible On/Off switch on
+each owned camera tile, including the dense layouts. Switching off still asks
+for confirmation, pending requests disable the switch, and failed updates restore
+the previous state. Camera capture, AI, freshness and ownership remain server-owned.
+
+On desktop, drag the separators to resize navigation, the alerts column, statistics
+and daily count panels; separators also support arrow keys, Shift for larger steps,
+and Home/End for bounds. Expand camera area hides surrounding dashboard panels
+without remounting the camera stream; Restore panels brings them back. Reset layout
+restores the dashboard panel proportions. Sizes are kept for the current mounted
+view only. Narrow screens use stacked panels and hide desktop-only separators.
+
 1. `Camera` captures frames independently from inference and publishes its newest frame.
 2. `SharedWebcam` lets enabled tiles using the same webcam index share that physical device. Sources preserve webcam indices 0–63 or RTSP/RTSPS/HTTP(S) URLs; local paths and other protocols are rejected. Network capture uses FFmpeg with five-second open/read timeouts. Authenticated camera operators control these backend-host sources, including cameras on its private network.
 3. `CameraManager` requests inference on available new frames, targeting at most 10 inferences per second per camera. Actual throughput depends on the model, hardware, and number of sources.

@@ -115,6 +115,14 @@ Existing specs cover authentication, redirects, role gates and API security expe
 
 ## Manual feature validation
 
+`frontend/tests/monitoring_layout.spec.ts` runs against the same isolated frontend
+and mocked API/WS origins below. It verifies user/admin On/Off controls across all
+four layouts, page 2, failed-toggle rollback, splitter pointer/keyboard interactions,
+camera-area expansion without replacing the stream image, and mobile overflow.
+Run `npx playwright test tests/monitoring_layout.spec.ts --project=chromium` with
+`BASE_URL` pointing to that frontend. It never enables a real camera. The resize
+case also saves `frontend/test-results/monitoring-layout.png` for visual inspection.
+
 `frontend/tests/live_monitoring.spec.ts` uses the isolated API/WS origins above
 to check real HLS via the backend feed, image errors/stale capture, and source
 editing with API validation failure. Run with real API/mock flags false and

@@ -260,7 +260,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
       ),
     );
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `${API_URL}/cameras/${id}/toggle?active=${active}`,
         {
           method: "POST",
@@ -433,8 +433,8 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
             className="relative bg-black border border-[#1f3251] overflow-hidden group min-h-0 min-w-0"
           >
             {/* Header bar (name + controls) */}
-            <div className="absolute left-0 top-0 right-0 z-20 h-8 flex items-center justify-between px-2.5 bg-black/45 text-white">
-              <div className="flex items-center gap-2 text-xs sm:text-sm min-w-0">
+            <div className="absolute left-0 top-0 right-0 z-40 h-8 flex items-center justify-between gap-1 px-1 bg-black/60 text-white">
+              <div className="flex flex-1 items-center gap-1 text-[10px] sm:text-xs min-w-0">
                 <span
                   className={`shrink-0 w-2 h-2 rounded-full ${
                     !cam.is_active
@@ -462,19 +462,25 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
                   <button
                     role="switch"
                     aria-checked={cam.is_active}
+                    aria-label={`${t.camera.power}: ${cam.name}`}
+                    aria-busy={!!toggling[cam.id]}
                     onClick={() => handleToggleCamera(cam.id, !cam.is_active)}
+                    onDoubleClick={event => event.stopPropagation()}
                     disabled={!!toggling[cam.id]}
-                    className="flex items-center gap-1.5 disabled:opacity-60"
-                    title={cam.is_active ? "Turn camera off" : "Turn camera on"}
+                    className="flex shrink-0 items-center gap-1 rounded border border-white/25 bg-black/70 px-1 py-1 hover:border-sky-300 focus-visible:outline-2 focus-visible:outline-sky-300 disabled:opacity-60"
+                    title={cam.is_active ? t.camera.turnOffCamera : t.camera.turnOnCamera}
                   >
                     <span className={`text-[10px] font-bold font-mono ${cam.is_active ? "text-green-400" : "text-gray-400"}`}>
                       {cam.is_active ? "ON" : "OFF"}
                     </span>
-                    <span className={`relative w-7 h-3.5 rounded-full transition-colors ${cam.is_active ? "bg-green-500" : "bg-gray-600"}`}>
-                      <span className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 bg-white rounded-full transition-transform ${cam.is_active ? "translate-x-3.5" : ""}`} />
+                    <span aria-hidden="true" className={`relative w-6 h-3 rounded-full transition-colors ${cam.is_active ? "bg-green-500" : "bg-gray-600"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-2 h-2 bg-white rounded-full transition-transform ${cam.is_active ? "translate-x-3" : ""}`} />
                     </span>
                   </button>
                 )}
+              </div>
+            </div>
+            <div className="absolute left-1 bottom-1 z-30 flex gap-1 rounded bg-black/60 px-1 py-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 max-sm:opacity-100">
                 {canManage && cam.id !== 1 && (
                   <button
                     onClick={() => handleDeleteCamera(cam.id)}
@@ -491,7 +497,6 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
                 >
                   ⛶
                 </button>
-              </div>
             </div>
 
             {cam.is_active && !DEMO_CAMERAS_ENABLED && cam.status === "connected" && <CameraDetectionStatus state={detections[cam.id]} />}

@@ -6,6 +6,7 @@ import AlertPanel, { Alert } from "@/components/AlertPanel";
 import StatsChart from "@/components/StatsChart";
 import HistoryModal from "@/components/HistoryModal";
 import SettingsModal from "@/components/SettingsModal";
+import ResizeHandle from "@/components/ResizeHandle";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -38,6 +39,13 @@ export default function Home() {
   const [failedStreamIds, setFailedStreamIds] = useState<number[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const workspaceRef = useRef<HTMLDivElement>(null);
+  const cameraColumnRef = useRef<HTMLDivElement>(null);
+  const alertColumnRef = useRef<HTMLDivElement>(null);
+  const [alertWidth, setAlertWidth] = useState(30);
+  const [statsHeight, setStatsHeight] = useState(26);
+  const [dailyHeight, setDailyHeight] = useState(22);
+  const [cameraFocus, setCameraFocus] = useState(false);
 
   // HTTP lifecycles deliberately do not depend on stream-token refreshes.
   useEffect(() => {
@@ -113,7 +121,7 @@ export default function Home() {
   const kpis = calculateDashboardKPIs(applyStreamFailures(cameras, failedStreamIds), alerts);
 
   return (
-    <div className="h-full flex flex-col relative">
+    <div className="h-full min-h-0 flex flex-col relative">
       <HistoryModal isOpen={isHistoryOpen} onClose={() => setIsHistoryOpen(false)} />
       <SettingsModal isOpen={isSettingsOpen && user?.role === "admin"} onClose={() => setIsSettingsOpen(false)} />
       
@@ -133,7 +141,7 @@ export default function Home() {
       )}
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <div className={`grid grid-cols-2 md:grid-cols-5 gap-3 mb-3 shrink-0 ${cameraFocus ? "hidden" : ""}`}>
         {[
           { label: t.dashboard.totalCameras, value: kpis.totalCameras.toString(), color: "text-navy-900" },
           { label: t.dashboard.activeCameras, value: kpis.activeCameras.toString(), color: "text-green-600" },
@@ -148,28 +156,42 @@ export default function Home() {
         ))}
       </div>
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-220px)] overflow-hidden">
-        {/* Video Feed Section - Takes 2/3 width */}
-        <div className="lg:col-span-2 h-full flex flex-col gap-6 overflow-hidden">
-          <div className="flex-1 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
+      <div className="mb-2 flex shrink-0 justify-end gap-2">
+        <button type="button" aria-pressed={cameraFocus} onClick={() => setCameraFocus(value => !value)}
+          className="rounded-lg border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50">
+          {cameraFocus ? t.dashboard.restorePanels : t.dashboard.expandCameras}
+        </button>
+        <button type="button" onClick={() => { setAlertWidth(30); setStatsHeight(26); setDailyHeight(22); setCameraFocus(false); }}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-50">
+          {t.dashboard.resetPanels}
+        </button>
+      </div>
+      <div ref={workspaceRef} data-testid="monitoring-workspace"
+        className="flex flex-1 min-h-[640px] lg:min-h-0 flex-col lg:flex-row overflow-hidden"
+        style={{ "--alert-width": `${alertWidth}%` } as React.CSSProperties}>
+        <div ref={cameraColumnRef} className="flex-1 min-w-0 lg:min-w-[300px] min-h-0 flex flex-col overflow-hidden">
+          <div id="live-camera-panel" data-testid="live-camera-panel" className="flex-1 min-h-[280px] lg:min-h-0 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
             <CameraGrid cameraData={cameras} onRefresh={retryCameras} onStreamFailures={setFailedStreamIds} />
           </div>
-          
-           {/* Bottom Stats Area (Under Video) */}
-           <div className="h-48 rounded-2xl bg-white border border-sky-100 overflow-hidden hidden lg:block shadow-sm">
+          <ResizeHandle orientation="horizontal" label={t.dashboard.resizeStats} value={statsHeight} min={12} max={45}
+            inverted onChange={setStatsHeight} containerRef={cameraColumnRef} controls="monitoring-stats"
+            className={`h-3 w-full shrink-0 ${cameraFocus ? "hidden" : "hidden lg:flex"}`} />
+           <div id="monitoring-stats" className={`shrink-0 rounded-2xl bg-white border border-sky-100 overflow-hidden ${cameraFocus ? "hidden" : "hidden lg:block"}`}
+             style={{ height: `${statsHeight}%` }}>
               <StatsChart />
            </div>
         </div>
-
-        {/* Sidebar / Alerts - Takes 1/3 width */}
-        <div className="h-full flex flex-col gap-6 overflow-hidden">
-          <div className="flex-1 min-h-0 bg-white border border-sky-100 shadow-sm rounded-2xl overflow-hidden">
+        <ResizeHandle orientation="vertical" label={t.dashboard.resizeAlerts} value={alertWidth} min={18} max={45}
+          inverted onChange={setAlertWidth} containerRef={workspaceRef} controls="monitoring-alerts"
+          className={`w-3 h-full shrink-0 ${cameraFocus ? "hidden" : "hidden lg:flex"}`} />
+        <div ref={alertColumnRef} className={`w-full lg:w-[var(--alert-width)] lg:min-w-[180px] lg:shrink-0 h-[480px] lg:h-full min-h-0 flex flex-col overflow-hidden ${cameraFocus ? "hidden" : ""}`}>
+          <div id="monitoring-alerts" className="flex-1 min-h-0 bg-white border border-sky-100 shadow-sm rounded-2xl overflow-hidden">
             <AlertPanel alerts={alerts} error={historyUnavailable && alerts.length === 0 && streamState !== "connected"} />
           </div>
-          
-          {/* Daily Count Widget */}
-          <div className="h-32 shrink-0 rounded-2xl bg-white border border-sky-100 shadow-sm p-4 flex flex-col justify-center items-center relative overflow-hidden group">
+          <ResizeHandle orientation="horizontal" label={t.dashboard.resizeDaily} value={dailyHeight} min={12} max={40}
+            inverted onChange={setDailyHeight} containerRef={alertColumnRef} controls="monitoring-daily"
+            className="flex h-3 w-full shrink-0" />
+          <div id="monitoring-daily" style={{ height: `${dailyHeight}%` }} className="min-h-[80px] shrink-0 rounded-2xl bg-white border border-sky-100 shadow-sm p-3 flex flex-col justify-center items-center relative overflow-hidden group">
             <div className="absolute inset-0 bg-gradient-to-br from-sky-50 to-white opacity-0 group-hover:opacity-100 transition-opacity" />
             <span className="text-4xl font-bold text-navy-900 mb-2 relative z-10">{alerts.filter(a => new Date(a.timestamp.replace(' ', 'T')).toDateString() === new Date().toDateString()).length}</span>
             <span className="text-xs text-gray-500 uppercase tracking-widest relative z-10">
