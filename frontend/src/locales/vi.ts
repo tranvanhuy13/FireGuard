@@ -218,6 +218,8 @@ export const vi = {
     }
   },
   camera: {
+    power: "Nguồn camera",
+    turnOffCamera: "Tắt camera",
     activeCameras: "Camera đang hoạt động",
     addCamera: "Thêm Camera",
     deleteVideo: "Xóa camera",
@@ -267,6 +269,15 @@ export const vi = {
     days30: "Hoạt động 30 ngày qua"
   },
   dashboard: {
+    resizeSidebar: "Đổi độ rộng thanh điều hướng",
+    closeNavigation: "Đóng điều hướng",
+    toggleNavigation: "Ẩn/hiện điều hướng",
+    resizeAlerts: "Đổi độ rộng khung cảnh báo",
+    resizeStats: "Đổi chiều cao khung thống kê",
+    resizeDaily: "Đổi chiều cao khung đếm hằng ngày",
+    expandCameras: "Mở rộng vùng camera",
+    restorePanels: "Hiện lại các khung",
+    resetPanels: "Đặt lại bố cục",
     networkOnline: "Có Internet",
     networkOfflineShort: "Mất Internet",
     networkOffline: "Mất kết nối Internet. Hệ thống sẽ kết nối lại khi có mạng.",

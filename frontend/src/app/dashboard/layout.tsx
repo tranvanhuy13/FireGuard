@@ -27,6 +27,7 @@ import { useLanguage } from '@/context/LanguageContext';
 import { Button } from '@/components/ui/Button';
 import { isMockData, isMockAuth } from '@/lib/api/client';
 import { setupMockService } from '@/lib/api/mockService';
+import ResizeHandle from '@/components/ResizeHandle';
 
 export default function DashboardLayout({
   children,
@@ -38,6 +39,8 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(256);
+  const shellRef = React.useRef<HTMLDivElement>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
 
@@ -90,13 +93,16 @@ export default function DashboardLayout({
   const visibleNavItems = navItems.filter(item => item.roles.includes(user.role));
 
   return (
-    <div className="min-h-screen bg-navy-50 dark:bg-slate-950 flex transition-colors duration-200">
-      <aside className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transition-all duration-300 flex flex-col ${sidebarOpen ? 'w-64' : 'w-20 -translate-x-full md:translate-x-0'}`}>
+    <div ref={shellRef} className="h-dvh overflow-hidden bg-navy-50 dark:bg-slate-950 flex transition-colors duration-200"
+      style={{ '--sidebar-width': `${sidebarOpen ? sidebarWidth : 80}px` } as React.CSSProperties}>
+      <aside id="dashboard-navigation" style={{ width: sidebarOpen ? sidebarWidth : 80 }} className={`fixed inset-y-0 left-0 z-40 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-800 transition-transform duration-200 flex flex-col ${sidebarOpen ? '' : '-translate-x-full md:translate-x-0'}`}>
         <div className="h-16 flex items-center justify-center border-b border-gray-200 dark:border-slate-800">
           <Logo iconOnly={!sidebarOpen} />
+          <button type="button" onClick={() => setSidebarOpen(false)} aria-label={t.dashboard.closeNavigation}
+            className="md:hidden absolute right-2 top-5 rounded p-1 text-slate-500 hover:bg-slate-100"><X className="h-4 w-4" /></button>
         </div>
         
-        <nav className="flex-1 py-6 px-3 flex flex-col gap-2">
+        <nav className="flex-1 min-h-0 overflow-y-auto py-6 px-3 flex flex-col gap-2">
           {visibleNavItems.map((item) => {
             const isActive = pathname === item.href;
             return (
@@ -116,12 +122,15 @@ export default function DashboardLayout({
             {sidebarOpen && <span className="font-medium">{t.dashboard.logout}</span>}
           </button>
         </div>
+        {sidebarOpen && <ResizeHandle orientation="vertical" label={t.dashboard.resizeSidebar} value={sidebarWidth}
+          min={200} max={360} onChange={setSidebarWidth} containerRef={shellRef} unit="pixels"
+          controls="dashboard-navigation" className="hidden md:flex absolute right-0 top-0 h-full w-2" />}
       </aside>
 
-      <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'md:ml-64' : 'md:ml-20'}`}>
-        <header className="h-16 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-8 z-30 sticky top-0 transition-colors">
+      <main className="flex-1 min-w-0 flex flex-col md:ml-[var(--sidebar-width)]">
+        <header className="h-16 shrink-0 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-6 z-30 sticky top-0 transition-colors">
           <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-gray-500 dark:text-slate-400 hover:text-navy-900 dark:hover:text-slate-100">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} aria-label={t.dashboard.toggleNavigation} aria-expanded={sidebarOpen} className="text-gray-500 dark:text-slate-400 hover:text-navy-900 dark:hover:text-slate-100">
               <Menu className="w-5 h-5" />
             </button>
             <h2 className="text-lg font-semibold text-navy-900 dark:text-slate-100 hidden sm:block">
@@ -178,7 +187,7 @@ export default function DashboardLayout({
         </header>
 
         {/* Page Content */}
-        <div className="flex-1 p-4 lg:p-8 overflow-auto bg-navy-50 dark:bg-slate-950 transition-colors">
+        <div className="flex-1 min-h-0 p-3 lg:p-4 overflow-auto bg-navy-50 dark:bg-slate-950 transition-colors">
           {children}
         </div>
       </main>

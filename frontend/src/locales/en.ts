@@ -218,6 +218,8 @@ export const en = {
     }
   },
   camera: {
+    power: "Camera power",
+    turnOffCamera: "Turn off camera",
     activeCameras: "Active Cameras",
     addCamera: "Add Camera",
     deleteVideo: "Delete Camera",
@@ -267,6 +269,15 @@ export const en = {
     days30: "Last 30 Days Activity"
   },
   dashboard: {
+    resizeSidebar: "Resize navigation sidebar",
+    closeNavigation: "Close navigation",
+    toggleNavigation: "Toggle navigation",
+    resizeAlerts: "Resize alerts panel",
+    resizeStats: "Resize statistics panel",
+    resizeDaily: "Resize daily count panel",
+    expandCameras: "Expand camera area",
+    restorePanels: "Restore panels",
+    resetPanels: "Reset layout",
     networkOnline: "Internet connected",
     networkOfflineShort: "Internet offline",
     networkOffline: "Internet connection lost. Reconnecting when the network returns.",
