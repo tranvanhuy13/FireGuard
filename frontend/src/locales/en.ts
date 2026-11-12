@@ -435,6 +435,11 @@ export const en = {
   },
   pages: {
     cameras: {
+      noOwnedCameras: 'No cameras assigned to your account',
+      legacyCameraHelp: 'Add a camera to start monitoring. If you used cameras before, contact an administrator to restore access to your existing cameras.',
+      noFilterMatches: 'No cameras match these filters.',
+      loadFailed: 'Unable to load cameras. Please retry.',
+      accessDenied: 'Your session or permissions could not be verified. Sign in again or contact an administrator.',
       title: "Cameras",
       searchPlaceholder: "Search cameras...",
       filterAll: "All Status",

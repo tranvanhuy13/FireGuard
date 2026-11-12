@@ -12,6 +12,8 @@ import { useAuth } from "../context/AuthContext";
 import { isHlsSource, DEMO_CAMERAS_ENABLED } from "../lib/demoCameras";
 import { pageCount, clampPage, pageSlice, effectiveStatus, isFrameFresh } from "../lib/cameraView";
 import RecoveringCameraImage from "./RecoveringCameraImage";
+import CameraEmptyState from "./CameraEmptyState";
+import type { LoadState } from "../lib/dashboardConnection";
 
 interface Camera {
   id: number;
@@ -107,8 +109,9 @@ const HlsVideo = ({ src, label, camId, onStatus, onFrame }: {
   );
 };
 
-const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
+const CameraGrid = ({ cameraData, onRefresh, onStreamFailures, cameraLoadState }: {
   cameraData?: Camera[];
+  cameraLoadState?: LoadState;
   onRefresh?: () => void;
   /** Cameras without a fresh, usable stream must not count as running. */
   onStreamFailures?: (failedIds: number[]) => void;
@@ -121,6 +124,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
   const [newCamSource, setNewCamSource] = useState("0");
   const [newCamName, setNewCamName] = useState("");
   const [loading, setLoading] = useState(true);
+  const [ownLoadState, setOwnLoadState] = useState<LoadState>("loading");
   const [layoutMode, setLayoutMode] = useState<LayoutSize>(4);
   const [page, setPage] = useState(0);
   const [now, setNow] = useState("");
@@ -182,7 +186,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
     if (onRefresh) return;
     const controller = startPolling<{ cameras: Camera[] }>({
       url: `${API_URL}/cameras`, interval: 3000, request: authFetch,
-      onState: state => { if (state !== "loading") setLoading(false); },
+      onState: state => { setOwnLoadState(state); if (state !== "loading") setLoading(false); },
       onData: data => {
         if (!Array.isArray(data.cameras)) throw new Error("Invalid cameras response");
         setCameras(data.cameras); setLoading(false);
@@ -297,7 +301,8 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
     }
   };
 
-  if (loading) {
+  const effectiveLoadState = cameraLoadState ?? ownLoadState;
+  if (loading || (cameras.length === 0 && effectiveLoadState === "loading")) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-transparent text-gray-400 text-sm gap-3 py-10 min-h-[300px]">
         <div className="w-8 h-8 border-2 border-sky-500/20 border-t-sky-500 rounded-full animate-spin"></div>
@@ -425,6 +430,16 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
         className="grid gap-1 flex-1 min-h-0 overflow-hidden p-1"
         style={{ gridTemplateColumns: `repeat(${side}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${side}, minmax(0, 1fr))` }}
       >
+        {cameras.length === 0 && (
+          <div className="col-span-full row-span-full flex flex-col justify-center gap-3">
+            {effectiveLoadState === "ready" ? <CameraEmptyState dark onAdd={canManage && !DEMO_CAMERAS_ENABLED ? () => setIsAdding(true) : undefined} /> : (
+              <div role="alert" className="rounded-xl border border-amber-500/40 p-6 text-center text-amber-100">
+                <p>{effectiveLoadState === "forbidden" ? t.pages.cameras.accessDenied : t.pages.cameras.loadFailed}</p>
+                <button type="button" onClick={fetchCameras} className="mt-3 rounded bg-sky-600 px-4 py-2 text-white">{t.pages.common.retry}</button>
+              </div>
+            )}
+          </div>
+        )}
         {itemsToRender.map((cam) => (
           <div
             key={cam.id}
@@ -572,7 +587,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
         ))}
 
         {/* Empty slots keep the grid shape */}
-        {Array.from({ length: emptySlots }, (_, i) => (
+        {Array.from({ length: cameras.length ? emptySlots : 0 }, (_, i) => (
           <div key={`empty-${i}`} className="bg-black border border-[#1f3251] min-h-0 min-w-0" />
         ))}
       </div>
