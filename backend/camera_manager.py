@@ -109,7 +109,7 @@ class Camera:
     and can never slow the stream down.
     """
 
-    def __init__(self, id, source, name="Camera", is_active=True, owner_user_id=None):
+    def __init__(self, id, source, name="Camera", is_active=False, owner_user_id=None):
         self.owner_user_id = owner_user_id
         self.id = id
         self.source = source

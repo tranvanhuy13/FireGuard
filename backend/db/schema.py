@@ -21,7 +21,7 @@ events = table("events", identity(), sa.Column("timestamp", sa.String(40), nulla
     sa.Column("camera_id", sa.Integer), sa.Column("camera_name", sa.Text))
 sa.Index("events_timestamp", events.c.timestamp)
 cameras = table("cameras", identity(), sa.Column("name", sa.Text, nullable=False),
-    sa.Column("source", sa.Text, nullable=False), sa.Column("is_active", sa.Integer, server_default="1"),
+    sa.Column("source", sa.Text, nullable=False), sa.Column("is_active", sa.Integer, server_default="0"),
     sa.Column("created_at", sa.String(40), nullable=False))
 settings = table("settings", sa.Column("key", sa.String(191), primary_key=True), sa.Column("value", sa.Text))
 targets = table("notification_targets", sa.Column("sequence", sa.Integer, primary_key=True, autoincrement=True),
