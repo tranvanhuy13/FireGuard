@@ -107,7 +107,7 @@ def get_all_settings():
         return {row[0]: row[1] for row in conn.execute("SELECT `key`, value FROM settings")}
 
 
-def add_db_camera(name, source, is_active=1, *, owner_user_id=None):
+def add_db_camera(name, source, is_active=0, *, owner_user_id=None):
     with get_connection() as conn:
         return conn.execute("INSERT INTO cameras (name, source, is_active, created_at, owner_user_id) VALUES (?, ?, ?, ?, ?)",
                             (name, source, int(is_active), datetime.now().strftime("%Y-%m-%d %H:%M:%S"), owner_user_id)).lastrowid
