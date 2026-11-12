@@ -130,10 +130,10 @@ class MySQLTests(unittest.TestCase):
             self.assertEqual(database.get_recent_events(1, owner_user_id=owner.id)[0]["timestamp"], timestamp)
             self.assertTrue(database.get_daily_stats(owner_user_id=owner.id))
             body = SimpleNamespace(channel="telegram", friendlyName="Nhóm", chatId=self.prefix, active=False)
-            target_id = targets.save_target("groups", body)["id"]
+            target_id = targets.save_target("groups", body, owner_user_id=owner.id)["id"]
             with self.assertRaises(IntegrityError):
-                targets.save_target("groups", body)
-            self.assertEqual(len(targets.list_targets()), 1)
+                targets.save_target("groups", body, owner_user_id=owner.id)
+            self.assertEqual(len(targets.list_targets(owner_user_id=owner.id)), 1)
             with self.assertRaises(ValueError):
                 with get_connection() as conn:
                     conn.execute("DELETE FROM settings WHERE `key`=?", (self.prefix,))
@@ -141,7 +141,7 @@ class MySQLTests(unittest.TestCase):
             self.assertEqual(database.get_setting(self.prefix), "updated")
         finally:
             if target_id:
-                targets.delete_target("groups", target_id)
+                targets.delete_target("groups", target_id, owner_user_id=owner.id)
             with get_connection() as conn:
                 conn.execute("DELETE FROM settings WHERE `key`=?", (self.prefix,))
                 if event_id:

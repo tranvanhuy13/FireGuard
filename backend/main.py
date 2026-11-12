@@ -586,7 +586,9 @@ def get_settings(current_user=Depends(get_current_user)):
     for key in masked_keys:
         if key in settings and settings[key]:
             settings[key] = "********"
-    return {"settings": settings}
+    bot_settings, bot_status = notification.configuration_status(current_user.id)
+    settings.update(bot_settings)
+    return {"settings": settings, "notification_status": bot_status}
 
 
 @app.post("/settings")
@@ -615,9 +617,9 @@ def save_setting(setting: SettingsModel, current_user=Depends(get_current_user))
 
 
 @app.post("/test-notification", dependencies=[Depends(require_admin)])
-def test_notification():
+def test_notification(current_user=Depends(get_current_user)):
     """Trigger a test notification."""
-    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True)
+    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True, owner_user_id=current_user.id)
     results = results if isinstance(results, dict) else {}
     sent = sum(result.get("status") == "sent" for result in results.values())
     status = "ok" if results and sent == len(results) else "partial" if sent else "error"

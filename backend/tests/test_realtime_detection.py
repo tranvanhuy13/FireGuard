@@ -113,7 +113,7 @@ class SettingsTests(unittest.TestCase):
         tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8-sig"))
         routes = ast.Module(body=[node for node in tree.body if getattr(node, "name", None) in names], type_ignores=[])
         self.namespace = dict(app=FastAPI(), HTTPException=HTTPException, BaseModel=BaseModel,
-                              notification=Mock(configuration_status=lambda: ({}, {})),
+                              notification=Mock(configuration_status=lambda owner_user_id=None: ({}, {})),
                               math=math, database=database, read_settings=read_settings,
                               Depends=Depends, get_current_user=lambda: None, log_action=Mock())
         exec(compile(routes, str(ROOT / "main.py"), "exec"), self.namespace)

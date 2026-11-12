@@ -54,15 +54,15 @@ const AccountCard = ({ item, isGroup, n, hasRole, onToggle, onEdit, onDelete, on
         </div>
       </div>
       <div className="flex items-center gap-3 self-end sm:self-auto">
-        {hasRole(['admin']) && (
+        {hasRole(['user', 'admin']) && (
           <button aria-label={n.active} aria-pressed={item.active} onClick={() => onToggle(item)} className={`w-11 h-6 rounded-full relative transition-colors ${item.active ? 'bg-sky-500' : 'bg-slate-300'}`}>
             <motion.div className="w-4 h-4 bg-white rounded-full absolute top-1 shadow-sm" animate={{ left: item.active ? '24px' : '4px' }} transition={{ type: "spring", stiffness: 500, damping: 30 }} />
           </button>
         )}
-        {hasRole(['admin']) && <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['admin'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
+        {hasRole(['user', 'admin']) && <Button variant="outline" size="sm" onClick={handleTest} disabled={testState !== 'idle' || !item.active || !hasRole(['user', 'admin'])} className={`px-3 py-1.5 text-sm ${testState === 'success' ? 'bg-emerald-500 hover:bg-emerald-600 text-white border-transparent' : testState === 'error' ? 'bg-red-500 hover:bg-red-600 text-white border-transparent' : ''}`}>
           {testState === 'loading' ? <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1 }} className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full" /> : testState === 'success' ? <CheckCircle2 className="w-4 h-4 text-white" /> : testState === 'error' ? <AlertCircle className="w-4 h-4 text-white" /> : n.test}
         </Button>}
-        {hasRole(['admin']) && (
+        {hasRole(['user', 'admin']) && (
           <>
             <button aria-label={n.edit} onClick={() => onEdit(item)} className="p-2 text-slate-400 hover:text-sky-600 transition-colors"><Edit2 className="w-4 h-4" /></button>
             <button aria-label={n.delete} onClick={() => onDelete(item)} className="p-2 text-slate-400 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -181,7 +181,8 @@ export default function NotificationsPage() {
 
   const canViewRecipients = hasRole(['user', 'admin']);
   const canAddRecipients = canViewRecipients;
-  const canManageRecipients = hasRole(['admin']);
+  const canManageRecipients = canViewRecipients;
+  const canManageSystem = hasRole(['admin']);
   useEffect(() => {
     setAccounts([]); setGroups([]);
     if (!canViewRecipients) { setLoadingRecipients(false); return; }
@@ -322,7 +323,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="max-w-6xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)]">
-      <SettingsModal isOpen={showSettings && canManageRecipients} onClose={() => setShowSettings(false)} />
+      <SettingsModal isOpen={showSettings && canManageSystem} onClose={() => setShowSettings(false)} />
       {loadingRecipients && <p role="status" className="mb-4 text-slate-500">{n.loadingRecipients}</p>}
       {pageError && <p role="alert" className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">{pageError}</p>}
       {pageMessage && <p role="status" className="mb-4 p-3 bg-emerald-50 text-emerald-700 rounded-lg">{pageMessage}</p>}
@@ -401,7 +402,7 @@ export default function NotificationsPage() {
               </div>
             )}
 
-            {activeTab === 'config' && canManageRecipients && <div className="space-y-4">
+            {activeTab === 'config' && canManageSystem && <div className="space-y-4">
               <p>{language === 'vi' ? 'Token và trạng thái bot được đọc từ cấu hình backend. Bạn có thể giữ token trong .env và quản lý chat ID tại Accounts/Groups.'
                 : 'Bot credentials and enabled flags come from the backend. Keep tokens in .env and manage chat IDs under Accounts/Groups.'}</p>
               <Button onClick={() => setShowSettings(true)}>{language === 'vi' ? 'Mở cấu hình bot' : 'Open bot settings'}</Button>

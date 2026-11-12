@@ -635,7 +635,7 @@ class CameraManager:
 
         def notify():
             try:
-                notification.trigger_notifications(cls_name, conf, filepath, camera_name=camera_name)
+                notification.trigger_notifications(cls_name, conf, filepath, camera_name=camera_name, owner_user_id=cam.owner_user_id)
             finally:
                 storage.discard_local(filepath)
 

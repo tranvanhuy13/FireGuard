@@ -30,7 +30,13 @@ async function setup(page: Page, role: 'user' | 'admin', failure?: number) {
       if (method === 'GET') body = { [kind]: lists[kind] || [] };
       else {
         mutations.push(method + ' ' + path);
-        if (method === 'POST' && lists[kind]) {
+        if (path.endsWith('/test')) body = { status: 'sent' };
+        else if (method === 'PUT') {
+          const updated: Record<string, unknown> = { ...route.request().postDataJSON(), id: path.split('/')[3] };
+          body = updated;
+          lists[kind] = lists[kind].map(item => item.id === updated.id ? updated : item);
+        } else if (method === 'DELETE') lists[kind] = lists[kind].filter(item => item.id !== path.split('/')[3]);
+        else if (method === 'POST' && lists[kind]) {
           body = { ...route.request().postDataJSON(), id: `new-${lists[kind].length}` };
           lists[kind].push(body as Record<string, unknown>); status = 201;
         }
@@ -42,11 +48,13 @@ async function setup(page: Page, role: 'user' | 'admin', failure?: number) {
   return { lists, mutations };
 }
 
-test('user views shared recipients, adds both channels and sees them after reload', async ({ page }) => {
+test('user manages owned recipients, adds both channels and sees them after reload', async ({ page }) => {
   const state = await setup(page, 'user');
   await page.goto('/dashboard/notifications');
   await expect(page.getByText('Existing Team')).toBeVisible();
-  await expect(page.getByRole('button', { name: /^(Test|Thử nghiệm|Kiểm tra|Edit|Sửa|Delete|Xóa)$/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Edit|Sửa)$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Delete|Xóa)$/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^(Test|Thử nghiệm|Kiểm tra)$/ })).toBeEnabled();
   await expect(page.getByRole('button', { name: /^(System Configuration|Cấu hình hệ thống)$/i })).toHaveCount(0);
   await page.getByRole('button', { name: /^(Add Account|Thêm tài khoản)$/ }).click();
   let dialog = page.getByRole('dialog');

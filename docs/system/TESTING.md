@@ -159,11 +159,11 @@ For Markdown-only changes, verify relative links, referenced source paths, code-
 `test_notification_permissions.py` mounts the real notification router using the
 main module's registration AST without importing main. It stubs database lookups,
 audit writes and bot delivery while exercising actual verified/blocked-account
-checks, user GET/POST, admin management, validation/conflicts, settings permissions
+checks, account-owned CRUD/test for both roles, validation/conflicts, settings permissions
 and the global test-delivery route. It never changes Aiven data or sends messages.
 
 `frontend/tests/notification_permissions.spec.ts` covers user Add/save/reload for
-both channels, hidden admin controls, retained admin controls and API error states.
+both channels, owned recipient management controls, admin-only system settings and API error states.
 Run `npx playwright test tests/notification_permissions.spec.ts --project=chromium`
 against a local frontend with real-API/mock-auth flags disabled. The spec intercepts
 all auth/notification/settings API requests; do not run against a production site.
@@ -182,3 +182,10 @@ Telegram photo fallback, provider rejection, rate limits and credential redactio
 No production database writes or messages are performed. Run camera/realtime and
 MySQL offline suites alongside this change. Actual Render network latency, CPU
 throughput and provider credential validity still require deployment checks.
+
+
+`test_owned_notifications.py` exercises the real recipient repository on disposable
+SQLite storage (never a runtime fallback), including cross-account CRUD denial,
+owner-scoped uniqueness/capacity, legacy quarantine, independent active flags and
+cooldowns, and delivery without legacy global destinations. Run it alongside
+`test_notification_permissions.py` and the camera/video notification suites.

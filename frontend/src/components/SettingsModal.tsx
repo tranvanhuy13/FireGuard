@@ -87,6 +87,7 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     try {
       // Save all settings one by one
       for (const [key, value] of Object.entries(settings)) {
+        if (key === "zalo_chat_id" || key === "telegram_chat_id") continue;
         const channel = key.startsWith("zalo_") ? "zalo" : key.startsWith("telegram_") ? "telegram" : null;
         if (channel && ["environment", "recipients"].includes(notificationStatus[channel]?.source[key.slice(channel.length + 1)])) continue;
         const res = await authFetch(`${API_URL}/settings`, {
@@ -240,8 +241,9 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="zalo_chat_id"
-                      disabled={["environment", "recipients"].includes(notificationStatus.zalo?.source.chat_id)}
+                      disabled
                       value={settings.zalo_chat_id}
+                      title={language === "vi" ? "Quản lý người nhận trong trang Thông báo" : "Manage recipients on the Notifications page"}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-sky-500 outline-none"
                     />
@@ -306,8 +308,9 @@ const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <input
                       type="text"
                       name="telegram_chat_id"
-                      disabled={["environment", "recipients"].includes(notificationStatus.telegram?.source.chat_id)}
+                      disabled
                       value={settings.telegram_chat_id}
+                      title={language === "vi" ? "Quản lý người nhận trong trang Thông báo" : "Manage recipients on the Notifications page"}
                       onChange={handleChange}
                       className="w-full bg-black/20 border border-white/10 rounded px-3 py-2 text-white text-sm focus:border-blue-500 outline-none"
                     />
