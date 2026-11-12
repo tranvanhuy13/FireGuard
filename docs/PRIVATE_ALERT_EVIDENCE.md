@@ -8,6 +8,7 @@ the existing S3 adapter. No Supabase Auth migration is required.
 
 - Every newly created camera and uploaded video is owned by the authenticated
   user's numeric ID. The server supplies this ID; clients cannot assign owners.
+  New cameras default to off. Account creation never starts a camera.
 - Both roles see only their own resources, including media feeds, detection
   sockets, video control/retry APIs, alerts, incident status and camera history.
 - Fire Alert combines camera and uploaded-video evidence using `source_kind`.
@@ -44,7 +45,9 @@ message after access returns HTTP 410. No signed URLs are persisted in MySQL.
 
 Back up the target MySQL database, verify the `MYSQL_*` settings/CA certificate,
 and deploy frontend and backend together. Do not use `alembic stamp head`: it
-would skip the actual schema changes. Revision: `0004_private_evidence`.
+would skip the actual schema changes. Revision: `0005_cameras_default_off`.
+Revision 0005 disables all existing cameras across all accounts once and changes
+the database default to off; cameras can subsequently be enabled explicitly.
 
 The migration adds columns/tables without removing existing application data.
 Existing cameras/events have NULL ownership because ownership cannot be inferred
@@ -75,7 +78,7 @@ Set-Location backend
 .\venv\Scripts\python.exe -m alembic current
 ```
 
-The final revision must be `0004_private_evidence (head)`. Restart the local API
+The final revision must be `0005_cameras_default_off (head)`. Restart the local API
 with your normal command. `.env.local` is loaded by the database configuration;
 never paste database credentials into these commands or commit them.
 
