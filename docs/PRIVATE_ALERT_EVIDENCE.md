@@ -151,3 +151,37 @@ After deploying, verify `/health/ready`, upload a test video under account A, an
 confirm A sees the evidence while B cannot retrieve the job, snapshot or signed
 URL. Use disposable evidence for a live Supabase check. Do not change production
 snapshot timestamps just to test retention.
+
+
+## Recovering legacy camera ownership
+
+The dashboard shows an account-specific empty state when a successful camera
+response contains no owned cameras, with Add Camera and a reminder to contact an
+administrator for old cameras. Loading, authorization/network failures and empty
+search results are different states. Old accounts have the same camera controls
+as new accounts once a camera has been assigned to them.
+
+Use the operator CLI from `backend/` to inspect unassigned cameras, then provide
+only independently verified camera-to-username mappings:
+
+```powershell
+.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras
+# Dry-run: prints target account IDs and camera names, never writes.
+.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME
+# Apply exactly the reviewed mapping.
+.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME --apply
+```
+
+The command requires active, unblocked accounts and refuses duplicate mappings,
+missing records and cameras that already have an owner. The whole apply operation
+is atomic; conditional writes reject a concurrent ownership change. Assigned
+cameras are kept OFF. Historical events and images are not transferred. This is
+an explicit data repair using the existing schema, not an automatic deploy-time
+migration. Restart every local/Render backend connected to this database after
+assignment so its in-memory camera manager reloads the owned cameras.
+
+`test_legacy_camera_assignment.py` validates dry-run, explicit owner assignment,
+OFF state, refusal to overwrite owners and rollback without production writes.
+`frontend/tests/legacy_camera_ownership.spec.ts` checks old user/admin empty
+states and Add actions, controls after assignment and separate filter/error states
+using mocked API traffic.

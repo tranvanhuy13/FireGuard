@@ -435,6 +435,11 @@ export const vi = {
   },
   pages: {
     cameras: {
+      noOwnedCameras: 'Tài khoản chưa có camera được gán',
+      legacyCameraHelp: 'Thêm camera để bắt đầu giám sát. Nếu đã sử dụng camera trước đây, liên hệ quản trị viên để khôi phục quyền truy cập camera cũ.',
+      noFilterMatches: 'Không có camera phù hợp với bộ lọc.',
+      loadFailed: 'Không tải được danh sách camera. Vui lòng thử lại.',
+      accessDenied: 'Không xác minh được phiên đăng nhập hoặc quyền truy cập. Hãy đăng nhập lại hoặc liên hệ quản trị viên.',
       title: "Camera",
       searchPlaceholder: "Tìm kiếm camera...",
       filterAll: "Tất cả trạng thái",

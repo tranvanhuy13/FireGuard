@@ -171,7 +171,7 @@ export default function Home() {
         style={{ "--alert-width": `${alertWidth}%` } as React.CSSProperties}>
         <div ref={cameraColumnRef} className="flex-1 min-w-0 lg:min-w-[300px] min-h-0 flex flex-col overflow-hidden">
           <div id="live-camera-panel" data-testid="live-camera-panel" className="flex-1 min-h-[280px] lg:min-h-0 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
-            <CameraGrid cameraData={cameras} onRefresh={retryCameras} onStreamFailures={setFailedStreamIds} />
+            <CameraGrid cameraLoadState={cameraState} cameraData={cameras} onRefresh={retryCameras} onStreamFailures={setFailedStreamIds} />
           </div>
           <ResizeHandle orientation="horizontal" label={t.dashboard.resizeStats} value={statsHeight} min={12} max={45}
             inverted onChange={setStatsHeight} containerRef={cameraColumnRef} controls="monitoring-stats"

@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { API_URL } from '@/config';
 import { authFetch } from '@/lib/api/authFetch';
+import CameraEmptyState from '@/components/CameraEmptyState';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function CamerasPage() {
@@ -19,6 +20,7 @@ export default function CamerasPage() {
   const [cameras, setCameras] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [accessError, setAccessError] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'grid'|'table'>('grid');
@@ -37,9 +39,12 @@ export default function CamerasPage() {
     try {
       setLoading(true);
       const res = await authFetch(`${API_URL}/cameras`);
+      setAccessError(res.status === 401 || res.status === 403);
       if (!res.ok) throw new Error(t.review.requestFailed);
-      const data = await res.json();
-      setCameras(data.cameras || []);
+      const payload = await res.json();
+      if (!Array.isArray(payload.cameras)) throw new Error(t.review.requestFailed);
+      setCameras(payload.cameras);
+
       setError(false);
     } catch (e) {
       setError(true);
@@ -144,7 +149,7 @@ export default function CamerasPage() {
   });
 
   if (loading && cameras.length === 0) return <div className="p-8"><div className="animate-pulse bg-gray-200 h-64 rounded-md"></div></div>;
-  if (error) return <div className="p-8 text-center"><p className="mb-4 text-red-500">{t.pages.common.error}</p><Button onClick={fetchCameras}>{t.pages.common.retry}</Button></div>;
+  if (error) return <div className="p-8 text-center"><p role="alert" className="mb-4 text-red-500">{accessError ? t.pages.cameras.accessDenied : t.pages.cameras.loadFailed}</p><Button onClick={fetchCameras}>{t.pages.common.retry}</Button></div>;
 
   return (
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
@@ -171,8 +176,10 @@ export default function CamerasPage() {
         </select>
       </div>
       
-      {filtered.length === 0 ? (
-        <div className="text-center p-12 text-gray-500">{t.pages.common.empty}</div>
+      {cameras.length === 0 ? (
+        <CameraEmptyState onAdd={canManageCameras ? () => { setEditingCamera(null); setFormData({ name: "", source: "0", is_active: false }); setSaveError(""); setShowAddModal(true); } : undefined} />
+      ) : filtered.length === 0 ? (
+        <div role="status" className="text-center p-12 text-gray-500">{t.pages.cameras.noFilterMatches}</div>
       ) : (
         viewMode === 'grid' ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
