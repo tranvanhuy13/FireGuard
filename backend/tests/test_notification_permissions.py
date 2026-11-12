@@ -53,6 +53,7 @@ class RecipientPermissionsTests(unittest.TestCase):
         exec(compile(ast.Module(body=registrations + settings_nodes, type_ignores=[]), "main.py", "exec"), namespace)
         self.database = namespace["database"]
         self.notification = namespace["notification"]
+        self.notification.configuration_status.return_value = ({}, {})
         self.client = TestClient(self.app)
         self.addCleanup(self.client.close)
         self.headers = {"Authorization": "Basic bWVtYmVyOnBhc3N3b3Jk"}
@@ -72,15 +73,26 @@ class RecipientPermissionsTests(unittest.TestCase):
         self.mocks[8].assert_not_called()
         self.mocks[9].assert_not_called()
 
-    def test_user_cannot_manage_or_test_existing_recipients(self):
-        for method, suffix in (("put", ""), ("delete", ""), ("post", "/test")):
-            for kind in ("accounts", "groups"):
-                with self.subTest(method=method, kind=kind):
-                    args = {"json": self.body()} if method == "put" else {}
-                    res = getattr(self.client, method)(f"/notifications/{kind}/saved{suffix}", headers=self.headers, **args)
-                    self.assertEqual(res.status_code, 403)
-        for index in (5, 6, 8, 9):
-            self.mocks[index].assert_not_called()
+    def test_user_manages_only_owned_recipients(self):
+        self.assertEqual(self.client.put("/notifications/accounts/saved", json=self.body(), headers=self.headers).status_code, 200)
+        self.mocks[5].assert_called_with("accounts", routes.TargetBody(**self.body()), "saved", owner_user_id=1)
+        self.assertEqual(self.client.post("/notifications/accounts/saved/test", headers=self.headers).status_code, 200)
+        self.mocks[4].assert_called_with("accounts", owner_user_id=1)
+        self.assertEqual(self.client.delete("/notifications/accounts/saved", headers=self.headers).status_code, 200)
+        self.mocks[6].assert_called_with("accounts", "saved", owner_user_id=1)
+
+    def test_foreign_recipients_hidden_for_both_roles(self):
+        for role in ("user", "admin"):
+            self.actor.role = role
+            self.mocks[4].return_value = []
+            self.mocks[5].side_effect = KeyError("foreign")
+            self.mocks[6].side_effect = KeyError("foreign")
+            self.assertEqual(self.client.get("/notifications/accounts", headers=self.headers).json(), {"accounts": []})
+            self.assertEqual(self.client.put("/notifications/accounts/foreign", json=self.body(), headers=self.headers).status_code, 404)
+            self.assertEqual(self.client.delete("/notifications/accounts/foreign", headers=self.headers).status_code, 404)
+            self.assertEqual(self.client.post("/notifications/accounts/foreign/test", headers=self.headers).status_code, 404)
+        self.mocks[8].assert_not_called()
+        self.mocks[9].assert_not_called()
 
     def test_anonymous_blocked_unverified_and_invalid_role_rejected(self):
         self.assertEqual(self.client.get("/notifications/accounts").status_code, 401)

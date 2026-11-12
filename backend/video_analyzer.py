@@ -389,7 +389,7 @@ class VideoAnalyzer:
                     name, evidence["confidence"], path or evidence["snapshot"],
                     context={"job_id": job_id, "filename": filename, "video_time": evidence["timestamp"]},
                     cancelled=cancel, channels=(channel,), request_attempts=1,
-                    recipient_results=recipient_results)
+                    recipient_results=recipient_results, owner_user_id=owner)
                 result = results.get(channel)
                 if not isinstance(result, dict) or "status" not in result:
                     raise ValueError("Invalid notification result")

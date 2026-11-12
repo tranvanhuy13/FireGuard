@@ -28,7 +28,8 @@ targets = table("notification_targets", sa.Column("sequence", sa.Integer, primar
     sa.Column("id", sa.String(32), nullable=False, unique=True), sa.Column("kind", sa.String(16), nullable=False),
     sa.Column("channel", sa.String(16), nullable=False), sa.Column("friendly_name", sa.String(120), nullable=False),
     sa.Column("chat_id", sa.String(128), nullable=False), sa.Column("active", sa.Integer, nullable=False),
-    sa.UniqueConstraint("channel", "chat_id", name="notification_channel_chat"))
+    sa.Column("owner_user_id", sa.Integer, sa.ForeignKey("users.id")),
+    sa.UniqueConstraint("owner_user_id", "channel", "chat_id", name="notification_owner_channel_chat"))
 users = table("users", identity(), sa.Column("username", sa.String(255), unique=True),
     sa.Column("email", sa.String(320), unique=True), sa.Column("hashed_password", sa.Text),
     sa.Column("is_active", sa.Integer, server_default="0"), sa.Column("otp", sa.String(32)),

@@ -1,4 +1,4 @@
-"""Shared destinations: users may view/add; admins manage and test delivery."""
+"""Authenticated accounts manage and test only their own destinations."""
 import re
 from sqlalchemy.exc import IntegrityError
 from typing import Literal
@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
-from auth.dependencies import get_current_user, require_admin
+from auth.dependencies import get_current_user
 from auth.audit import log_action
 import notification
 import notification_targets as targets
@@ -33,13 +33,13 @@ class TargetBody(BaseModel):
 
 
 @router.get("/{kind}")
-def list_recipients(kind: Kind):
-    return {kind: targets.list_targets(kind)}
+def list_recipients(kind: Kind, current_user=Depends(get_current_user)):
+    return {kind: targets.list_targets(kind, owner_user_id=current_user.id)}
 
 
 def persist(kind, body, target_id, current_user):
     try:
-        result = targets.save_target(kind, body, target_id)
+        result = targets.save_target(kind, body, target_id, owner_user_id=current_user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Recipient not found") from exc
     except IntegrityError as exc:
@@ -56,14 +56,14 @@ def create_recipient(kind: Kind, body: TargetBody, current_user=Depends(get_curr
 
 
 @router.put("/{kind}/{target_id}")
-def update_recipient(kind: Kind, target_id: str, body: TargetBody, current_user=Depends(require_admin)):
+def update_recipient(kind: Kind, target_id: str, body: TargetBody, current_user=Depends(get_current_user)):
     return persist(kind, body, target_id, current_user)
 
 
 @router.delete("/{kind}/{target_id}")
-def delete_recipient(kind: Kind, target_id: str, current_user=Depends(require_admin)):
+def delete_recipient(kind: Kind, target_id: str, current_user=Depends(get_current_user)):
     try:
-        targets.delete_target(kind, target_id)
+        targets.delete_target(kind, target_id, owner_user_id=current_user.id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Recipient not found") from exc
     log_action(current_user, "notification.recipient.delete", target_id)
@@ -71,8 +71,8 @@ def delete_recipient(kind: Kind, target_id: str, current_user=Depends(require_ad
 
 
 @router.post("/{kind}/{target_id}/test")
-def test_recipient(kind: Kind, target_id: str, current_user=Depends(require_admin)):
-    target = next((item for item in targets.list_targets(kind) if item["id"] == target_id), None)
+def test_recipient(kind: Kind, target_id: str, current_user=Depends(get_current_user)):
+    target = next((item for item in targets.list_targets(kind, owner_user_id=current_user.id) if item["id"] == target_id), None)
     if target is None:
         raise HTTPException(status_code=404, detail="Recipient not found")
     if not target["active"]:

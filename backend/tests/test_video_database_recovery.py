@@ -101,12 +101,12 @@ class SettingsRecoveryTests(unittest.TestCase):
 
 
 class NotificationRecoveryTests(unittest.TestCase):
-    def config(self, channel):
+    def config(self, channel, owner_user_id=None):
         return {"enabled": True, "configured": True, "token": "test-token", "chat_id": "-123456",
                 "targets": [{"id": "recipient", "chatId": "-123456"}], "saved_targets": True}
 
     def test_one_channel_config_failure_does_not_block_other_channel(self):
-        def config(channel):
+        def config(channel, owner_user_id=None):
             if channel == "zalo":
                 raise disconnect()
             return self.config(channel)
@@ -239,11 +239,11 @@ class NotificationRecoveryTests(unittest.TestCase):
         function = next(node for node in ast.parse(source).body if getattr(node, "name", None) == "test_notification")
         function.decorator_list = []
         bot = Mock()
-        namespace = {"notification": bot}
+        namespace = {"notification": bot, "Depends": lambda dependency: None, "get_current_user": Mock()}
         exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
         for states, expected in ((("failed", "failed"), "error"), (("sent", "failed"), "partial"), (("sent", "sent"), "ok")):
             bot.trigger_notifications.return_value = dict(zip(("zalo", "telegram"), ({"status": state} for state in states)))
-            result = namespace["test_notification"]()
+            result = namespace["test_notification"](SimpleNamespace(id=7))
             self.assertEqual(result["status"], expected)
             self.assertEqual(set(result["channels"]), {"zalo", "telegram"})
         self.assertTrue(bot.trigger_notifications.call_args.kwargs["bypass_cooldown"])

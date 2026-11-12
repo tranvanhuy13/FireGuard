@@ -316,7 +316,7 @@ class CameraLifecycleTests(unittest.TestCase):
             first = cm.storage.save_snapshot.call_args.args[0]
             worker.call_args.kwargs["target"]()
             cm.notification.trigger_notifications.assert_called_with("fire", 0.9, cm.storage.save_snapshot.return_value,
-                                                                    camera_name=camera.name)
+                                                                    camera_name=camera.name, owner_user_id=camera.owner_user_id)
             manager._save_event(camera, "fire", 0.9, frame)
             self.assertNotEqual(first, cm.storage.save_snapshot.call_args.args[0])
             self.assertEqual(database.add_event.call_args.kwargs, {"camera_id": camera.id, "camera_name": camera.name, "owner_user_id": None})

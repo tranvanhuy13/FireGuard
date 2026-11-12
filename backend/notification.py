@@ -29,24 +29,22 @@ def setting(key):
     return str(get_setting(key) or "").strip()
 
 
-def channel_config(channel):
+def channel_config(channel, owner_user_id=None):
     token = setting(f"{channel}_bot_token")
-    chat_id = setting(f"{channel}_chat_id")
-    saved = list_targets(channel=channel)
-    targets = [item for item in saved if item["active"]] if saved else (
-        [{"id": "default", "chatId": chat_id}] if chat_id else [])
+    saved = list_targets(channel=channel, owner_user_id=owner_user_id)
+    targets = [item for item in saved if item["active"]]
+    # Recipient switches are account-owned; admin settings control bot availability.
     flag = setting(f"{channel}_enabled").lower()
-    # Explicit false is authoritative; otherwise credentials enable a new channel.
-    enabled = flag in ("true", "1", "yes", "on") if flag else bool(token and targets)
+    enabled = flag in ("true", "1", "yes", "on") if flag else bool(token)
     return {"token": token, "chat_id": targets[0]["chatId"] if targets else "", "enabled": enabled,
             "targets": targets, "saved_targets": bool(saved), "configured": bool(token and targets)}
 
 
-def configuration_status():
+def configuration_status(owner_user_id=None):
     """Admin-only effective settings; never return raw tokens."""
     settings, status = {}, {}
     for channel in CHANNELS:
-        config = channel_config(channel)
+        config = channel_config(channel, owner_user_id)
         settings.update({
             f"{channel}_bot_token": "********" if config["token"] else "",
             f"{channel}_chat_id": config["chat_id"],
@@ -58,8 +56,7 @@ def configuration_status():
             "source": {suffix: "environment" if (os.getenv(f"{channel}_{suffix}".upper()) or "").strip()
                        else "database" for suffix in ("bot_token", "chat_id", "enabled")},
         }
-        if config["saved_targets"]:
-            status[channel]["source"]["chat_id"] = "recipients"
+        status[channel]["source"]["chat_id"] = "recipients"
         status[channel]["target_count"] = len(config["targets"])
     return settings, status
 
@@ -259,7 +256,7 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, 
 
 def trigger_notifications(event_type, confidence, snapshot_path=None, *, context=None,
                           cancelled=None, bypass_cooldown=False, camera_name=None,
-                          channels=None, request_attempts=3, recipient_results=None):
+                          channels=None, request_attempts=3, recipient_results=None, owner_user_id=None):
     """Return per-channel outcomes; video deduplication is owned by its job queue."""
     body = (f"WARNING!\n\nThe system detected {event_type} with {confidence * 100:.1f}% confidence."
             f"\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -275,7 +272,7 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
         if channels is not None and channel not in channels:
             continue
         try:
-            config = channel_config(channel)
+            config = channel_config(channel, owner_user_id)
         except SQLAlchemyError:
             results[channel] = {"status": "failed", "reason": "configuration_unavailable", "http_status": 503,
                                 "description": "Notification configuration temporarily unavailable"}
@@ -293,7 +290,7 @@ def trigger_notifications(event_type, confidence, snapshot_path=None, *, context
         if cancelled is not None and cancelled.is_set():
             results[channel] = {"status": "cancelled"}
             continue
-        key = f"camera:{channel}"
+        key = f"camera:{owner_user_id}:{channel}"
         use_cooldown = not context and not bypass_cooldown
         with _delivery_lock:
             if use_cooldown and (key in _in_flight or time.monotonic() - last_notification.get(key, -1e9) < NOTIFICATION_COOLDOWN):

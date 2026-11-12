@@ -7,9 +7,10 @@ The backend is the authority for account roles. Frontend controls are only a use
 | View cameras, live video, detections, alerts, history, statistics and snapshots | Yes | Yes |
 | Enable/disable cameras | Yes | Yes |
 | Upload/analyze video and control playback | Yes | Yes |
-| Send global or recipient-specific test notifications | No | Yes |
-| View/add shared Zalo and Telegram recipients | Yes | Yes |
-| Edit/delete/enable existing recipients | No | Yes |
+| Send tests to own recipients | Yes | Yes |
+| Use system test endpoint (own recipients only) | No | Yes |
+| View/add own Zalo and Telegram recipients | Yes | Yes |
+| Edit/delete/enable own recipients | Yes | Yes |
 | Read/change the shared alarm sound preference | Yes | Yes |
 | Add, edit or delete cameras | Yes | Yes |
 | Read masked system settings and update AI/notification configuration | No | Yes |
@@ -47,7 +48,7 @@ Admins can use the real frontend Users page or these HTTP Basic endpoints:
 
 ## Scope and verification
 
-This implements authorization for all existing backend operations and real account administration. Notification accounts/groups use authenticated `/notifications/accounts` and `/notifications/groups` APIs. Both roles can list/create; editing, deleting, enabling/disabling existing rows and test delivery require admin. They persist destinations in the detection database; enabled destinations are used by camera/video alerts with server-side bot credentials. Legacy mock rules are not applied to alert routing and their tab is hidden on the real recipients page. The existing branch's `PATCH /alerts/{id}/status` and `GET /audit-log` APIs are preserved, with `user`/`admin` permissions replacing legacy viewer/operator roles. `PUT /alerts/{id}` and `PUT /users/{id}/role` remain supported for compatibility. The audit-log frontend screen still uses its existing mock integration.
+This implements authorization for all existing backend operations and real account administration. Notification accounts/groups use authenticated `/notifications/accounts` and `/notifications/groups` APIs. Both roles can list/create/edit/delete/enable/test only their own destinations. Owner-scoped recipients are used by camera/video alerts with server-side bot credentials. Legacy mock rules are not applied to alert routing and their tab is hidden on the real recipients page. The existing branch's `PATCH /alerts/{id}/status` and `GET /audit-log` APIs are preserved, with `user`/`admin` permissions replacing legacy viewer/operator roles. `PUT /alerts/{id}` and `PUT /users/{id}/role` remain supported for compatibility. The audit-log frontend screen still uses its existing mock integration.
 
 For authorization changes, verify anonymous rejection, role boundaries, account blocking, media expiry/revocation and legacy migration using disposable accounts and fake camera/storage/video services. Both roles must be able to add, edit and delete cameras; system configuration and user administration remain admin-only. Run the existing offline suites from `backend/`: `python -m unittest discover -s tests -p test_camera_lifecycle.py` and `python -m unittest discover -s tests -p test_realtime_detection.py`.
 
@@ -85,20 +86,17 @@ first. Only verified, unblocked admins can access it; ordinary users receive 403
 and missing credentials receive 401. Limit is clamped to 1–500 and offset to 0+.
 The real audit-log screen consumes this endpoint; its mock API is separate.
 
-## Shared notification recipient permissions
+## Account-owned notification recipient permissions
 
-Verified, unblocked `user` and `admin` accounts may GET/POST
-`/notifications/accounts` and `/notifications/groups`. PUT/DELETE on an existing
-recipient and POST `/{id}/test` require admin. Saving/importing a recipient never
-sends a test message. Audit records identify the user performing each save.
+Verified, unblocked users and admins may list/create/edit/delete/test only their
+own recipients. Foreign and NULL-owner legacy rows are hidden (404 on access).
+The owner comes from authentication and cannot be supplied by a client.
+Migration 0006 adds the owner foreign key and account/channel/chat uniqueness.
+The 20-recipient channel limit applies per account. Saving/importing never sends
+a test message or changes global channel availability.
 
-Recipients are shared system destinations, not private per-user subscriptions.
-An active new recipient participates in system alert delivery and retains the
-existing persisted-channel enable behavior; explicit environment flags still win.
-Existing global uniqueness and 20-recipient-per-channel limits apply to both roles.
-No ownership columns or schema migration are added.
-
-Bot tokens, channel settings and other system settings remain admin-only through
-`/settings`; regular users can only read/change `alarm_sound_enabled`.
-`POST /test-notification` also requires admin. The frontend exposes Add and Import
-to both roles and reserves management/test/configuration controls for admins.
+Bot tokens and global channel availability remain admin-only through `/settings`;
+regular users can only read/change `alarm_sound_enabled`. The system
+`POST /test-notification` still requires admin and uses that admin's own list.
+The frontend exposes recipient management/test to both roles and reserves
+system configuration controls for admins. See [rollout](ACCOUNT_NOTIFICATIONS.md).

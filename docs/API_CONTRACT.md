@@ -427,7 +427,7 @@ Hiện tại các tính năng sau chưa có API trên backend. Khi sử dụng c
 - **Cần Backend bổ sung (khuyến nghị):**
   - `PUT /settings`: Nhận một JSON object chứa nhiều cấu hình cùng lúc để giảm số lượng request HTTP.
 
-### 2.9. Shared Zalo / Telegram notification recipients
+### 2.9. Account-owned Zalo / Telegram notification recipients
 
 These endpoints are registered in the backend and persist to MySQL.
 
@@ -435,16 +435,18 @@ These endpoints are registered in the backend and persist to MySQL.
 | --- | --- | --- |
 | `GET /notifications/{kind}` | Yes | Yes |
 | `POST /notifications/{kind}` | Yes | Yes |
-| `PUT /notifications/{kind}/{id}` | No | Yes |
-| `DELETE /notifications/{kind}/{id}` | No | Yes |
-| `POST /notifications/{kind}/{id}/test` | No | Yes |
+| `PUT /notifications/{kind}/{id}` | Own only | Own only |
+| `DELETE /notifications/{kind}/{id}` | Own only | Own only |
+| `POST /notifications/{kind}/{id}/test` | Own only | Own only |
 
 `kind` is `accounts` or `groups`. Create/update body:
 `{"channel":"telegram","friendlyName":"Team","chatId":"-123456","active":true}`.
-Channels are `zalo` or `telegram`; recipient lists are shared across users.
+Channels are `zalo` or `telegram`; recipient lists and all CRUD/test operations
+are scoped to the authenticated account. Foreign or unassigned IDs return 404.
+Ownership is derived from authentication, never from the request body.
 Creation returns 201 with the saved recipient. Listing returns
 `{"accounts":[...]}` or `{"groups":[...]}`. Invalid input returns 422; duplicate
-channel/chat ID or the 20-per-channel capacity limit returns 409. Missing/invalid
+channel/chat ID or the 20-per-channel capacity limit within one account returns 409. Missing/invalid
 credentials return 401, blocked/unverified users or insufficient roles return 403.
 Saving never sends a test message. Rules APIs remain unimplemented.
 
