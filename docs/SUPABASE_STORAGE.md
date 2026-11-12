@@ -58,9 +58,12 @@ Docker Command to `python storage_smoke.py --start-backend`: it runs the check,
 then replaces its process with the normal Uvicorn backend. Restore the empty
 Docker Command after checking the deploy logs to avoid testing on every startup.
 
-Free storage and egress are limited; check current usage in Supabase. Periodic
-snapshot retention does not remove event/video notification evidence. Monitor
-total usage and clean up that evidence intentionally when no longer needed.
+Free storage and egress are limited; check current usage in Supabase. Registered
+camera, periodic and video evidence now expires seven days after capture; hourly
+maintenance removes remote/local copies, including notified evidence. Dashboard
+links are signed for at most five minutes after account ownership checks.
+See [private evidence and deployment](PRIVATE_ALERT_EVIDENCE.md) for migration,
+legacy ownership, cleanup guarantees and optional independent scheduling.
 Existing local snapshots are not automatically migrated by changing these
 variables, and ephemeral Render files may already have been lost.
 

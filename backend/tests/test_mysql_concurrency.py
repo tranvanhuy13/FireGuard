@@ -121,13 +121,14 @@ class MySQLTests(unittest.TestCase):
             self.assertEqual(database.get_setting(self.prefix), "tiếng Việt")
             database.set_setting(self.prefix, "updated")
             self.assertEqual(database.get_setting(self.prefix), "updated")
-            camera_id = database.add_db_camera("Test", "0", 0)
+            owner = self.user()
+            camera_id = database.add_db_camera("Test", "0", 0, owner_user_id=owner.id)
             database.update_db_camera(camera_id, "Updated", "0", 1)
             self.assertTrue(any(row["id"] == camera_id and row["name"] == "Updated" for row in database.get_all_db_cameras()))
-            event_id, timestamp = database.add_event("fire", 0.98)
+            event_id, timestamp = database.add_event("fire", 0.98, owner_user_id=owner.id)
             self.assertTrue(database.update_event_status(event_id, "confirmed", self.prefix))
-            self.assertEqual(database.get_recent_events(1)[0]["timestamp"], timestamp)
-            self.assertTrue(database.get_daily_stats())
+            self.assertEqual(database.get_recent_events(1, owner_user_id=owner.id)[0]["timestamp"], timestamp)
+            self.assertTrue(database.get_daily_stats(owner_user_id=owner.id))
             body = SimpleNamespace(channel="telegram", friendlyName="Nhóm", chatId=self.prefix, active=False)
             target_id = targets.save_target("groups", body)["id"]
             with self.assertRaises(IntegrityError):

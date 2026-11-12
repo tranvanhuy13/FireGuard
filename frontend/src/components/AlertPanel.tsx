@@ -1,6 +1,5 @@
-/* eslint-disable */
 "use client";
-import { mediaUrl } from "@/lib/api/client";
+import EvidenceImage from "./EvidenceImage";
 
 import React, { useEffect, useState } from "react";
 import { useLanguage } from "../context/LanguageContext";
@@ -16,6 +15,9 @@ export interface Alert {
   snapshot?: string;
   status?: string;
   camera_name?: string;
+  source_kind?: "camera" | "video";
+  video_name?: string;
+  video_time?: number;
 }
 
 interface AlertPanelProps {
@@ -25,7 +27,7 @@ interface AlertPanelProps {
 
 const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
   const { t } = useLanguage();
-  const { user, streamToken } = useAuth();
+  const { user } = useAuth();
   const [isSoundEnabled, setIsSoundEnabled] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
@@ -137,7 +139,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
             
             <div className="bg-gray-100 flex items-center justify-center relative w-full h-64">
               {selectedAlert.snapshot ? (
-                <img src={mediaUrl(selectedAlert.snapshot, streamToken)} alt="Event Snapshot" className="w-full h-full object-cover" />
+                <EvidenceImage snapshot={selectedAlert.snapshot} alt="Event Snapshot" className="w-full h-full object-cover" />
               ) : (
                 <div className="text-gray-400">No Image Available</div>
               )}
@@ -158,7 +160,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                 </div>
                 <div>
                   <span className="block text-gray-500 text-xs uppercase tracking-wider mb-1">Camera</span>
-                  <span className="font-medium text-gray-900">{selectedAlert.camera_name || "Unknown Camera"}</span>
+                  <span className="font-medium text-gray-900">{selectedAlert.source_kind === "video" ? `${t.alerts.videoSource}: ${selectedAlert.video_name} (${(selectedAlert.video_time ?? 0).toFixed(1)}s)` : selectedAlert.camera_name || t.review.unknownCamera}</span>
                 </div>
                 <div>
                   <span className="block text-gray-500 text-xs uppercase tracking-wider mb-1">Status</span>
@@ -281,7 +283,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                 onClick={() => setSelectedAlert(alert)}
               >
                 {alert.snapshot ? (
-                  <img src={mediaUrl(alert.snapshot, streamToken)} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" />
+                  <EvidenceImage snapshot={alert.snapshot} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" />
                 ) : (
                   <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${alert.type === "fire" ? "bg-red-50 text-red-500" : "bg-yellow-50 text-yellow-600"}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -303,7 +305,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                   </div>
                   
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="text-[10px] text-gray-600 truncate">{alert.camera_name || "Camera"}</span>
+                    <span className="text-[10px] text-gray-600 truncate">{alert.source_kind === "video" ? `${t.alerts.videoSource}: ${alert.video_name} (${(alert.video_time ?? 0).toFixed(1)}s)` : alert.camera_name || t.review.unknownCamera}</span>
                     <span className="text-[10px] font-medium text-gray-500">&bull;</span>
                     <span className="text-[10px] text-gray-600">
                       {t.alerts.confidence}: {(alert.confidence * 100).toFixed(0)}%

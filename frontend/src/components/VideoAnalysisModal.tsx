@@ -1,8 +1,9 @@
 "use client";
+import EvidenceImage from "@/components/EvidenceImage";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { getAuthHeader, mediaUrl } from "../lib/api/client";
+import { getAuthHeader } from "../lib/api/client";
 import { API_URL, WS_URL } from "../config";
 import { authFetch } from "../lib/api/authFetch";
 import { useLanguage } from "../context/LanguageContext";
@@ -298,7 +299,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
             </div>}
             {events.length > 0 && <div><h3 className="text-sm mb-2">Detection timeline — select an event to view its evidence</h3>
               <div className="flex gap-3 overflow-x-auto pb-2">{events.map((event, index) => <button key={index} onClick={() => setLightbox(event)} className="shrink-0 w-36 text-left rounded-lg overflow-hidden border border-white/15">
-                <img src={mediaUrl(event.snapshot, streamToken)} alt={`${event.class} evidence`} className="w-full h-20 object-cover" />
+                <EvidenceImage snapshot={event.snapshot} alt={`${event.class} evidence`} className="w-full h-20 object-cover" />
                 <span className="block p-2 text-xs">{formatTime(event.time)} · {event.class} {(event.confidence * 100).toFixed(0)}%</span>
               </button>)}</div>
             </div>}
@@ -309,7 +310,7 @@ export default function VideoAnalysisModal({ isOpen, onClose }: { isOpen: boolea
         </footer>
       </section>
       {lightbox && <button className="fixed inset-0 z-[60] bg-black/95 p-6 flex flex-col items-center justify-center" onClick={() => setLightbox(null)} aria-label="Close evidence image">
-        <img src={mediaUrl(lightbox.snapshot, streamToken)} alt={`${lightbox.class} at ${formatTime(lightbox.time)}`} className="max-w-full max-h-[80vh] object-contain" />
+        <EvidenceImage snapshot={lightbox.snapshot} alt={`${lightbox.class} at ${formatTime(lightbox.time)}`} className="max-w-full max-h-[80vh] object-contain" />
         <span className="text-white mt-3">{formatTime(lightbox.time)} · {lightbox.class} · click to close</span>
       </button>}
     </div>

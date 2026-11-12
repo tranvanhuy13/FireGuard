@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import math
+import json
 import os
 import time
 import uuid
@@ -15,7 +16,7 @@ from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, File, Form, HTTPException, Query,
                      Request, UploadFile, WebSocket, WebSocketDisconnect)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, RedirectResponse
 from pydantic import BaseModel
 
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 import database
 import notification
 import storage
+import evidence
 from auth.dependencies import get_current_user, require_admin
 from auth.database import get_connection as get_auth_connection
 from auth.routes import router as auth_router
@@ -60,6 +62,7 @@ async def lifespan(app: FastAPI):
     global main_loop
     main_loop = asyncio.get_running_loop()
     camera_manager.alert_callback = broadcast_alert
+    video_analyzer.alert_callback = broadcast_alert
     try:
         yield
     finally:
@@ -110,13 +113,32 @@ video_analyzer = VideoAnalyzer(camera_manager.detect, database.get_setting, noti
 
 # Snapshots require account media credentials or a scoped notification signature.
 # They may live in MinIO / GCS instead of on disk, so they are served by a route.
-@app.get("/snapshots/{name}", dependencies=[Depends(require_snapshot_user)])
-def get_snapshot(name: str):
+@app.get("/snapshots/{name}")
+def get_snapshot(name: str, current_user=Depends(require_snapshot_user)):
+    # Worker credentials are scoped to this exact filename; account tokens also
+    # require ownership. Unregistered legacy objects are never exposed.
+    row = evidence.find(name)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Snapshot not found")
+    if current_user is not None:
+        evidence.require_snapshot(name, current_user.id)
+    elif row["expires_at"] <= time.time() or row["deleted_at"] is not None:
+        raise HTTPException(status_code=410, detail="Snapshot expired")
+    url = storage.snapshot_public_url(name, expires_in=max(1, min(300, int(row["expires_at"] - time.time()))))
+    if url:
+        return RedirectResponse(url, headers={"Cache-Control": "no-store"})
     data = storage.read_snapshot(name)
     if data is None:
         raise HTTPException(status_code=404, detail="Snapshot not found")
     return Response(data, media_type="image/jpeg",
-                    headers={"Cache-Control": "private, max-age=86400"})
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/snapshot-access/{name}")
+def snapshot_access(name: str, current_user=Depends(get_current_user)):
+    url, ttl = storage.private_snapshot_url(name, current_user.id)
+    return Response(content=json.dumps({"url": url, "expires_in": ttl}),
+                    media_type="application/json", headers={"Cache-Control": "no-store"})
 
 
 # Authentication / account routes (signup + OTP + /users/me)
@@ -143,8 +165,11 @@ class ConnectionManager:
 
     async def broadcast(self, message: dict):
         for connection in list(self.active_connections):
+            if message.get("owner_user_id") != connection.state.media_user.id:
+                continue
             try:
-                await connection.send_json(message)
+                payload = {key: value for key, value in message.items() if key != "owner_user_id"}
+                await asyncio.wait_for(connection.send_json(payload), timeout=5)
             except Exception:
                 pass
 
@@ -221,7 +246,8 @@ async def generate_camera_stream(camera_id: int, request: Request):
             if await request.is_disconnected():
                 break
             if time.monotonic() >= next_auth:
-                if not await asyncio.to_thread(stream_is_authorized, request.query_params.get("token")):
+                user = await asyncio.to_thread(stream_is_authorized, request.query_params.get("token"), return_user=True)
+                if not user or camera.owner_user_id != user.id:
                     break
                 next_auth = time.monotonic() + 30
 
@@ -249,10 +275,11 @@ async def generate_camera_stream(camera_id: int, request: Request):
         logger.info("[Stream %s] Client disconnected after %s frames", camera_id, frames_sent)
 
 
-@app.get("/video_feed", dependencies=[Depends(require_stream_user)])
-async def video_feed_default(request: Request, token: Optional[str] = Query(None)):
+@app.get("/video_feed")
+async def video_feed_default(request: Request, token: Optional[str] = Query(None), current_user=Depends(require_stream_user)):
     """Default video feed for backwards compatibility (VideoFeed.tsx). A signed media token is required."""
-    first_cam = next(iter(camera_manager.cameras.keys()), 1)
+    first_cam = next((key for key, camera in list(camera_manager.cameras.items())
+                      if camera.owner_user_id == current_user.id), None)
     if first_cam not in camera_manager.cameras:
         raise HTTPException(status_code=404, detail="Camera not found")
     logger.info("[Stream %s] Default stream requested", first_cam)
@@ -261,11 +288,10 @@ async def video_feed_default(request: Request, token: Optional[str] = Query(None
                              headers=STREAM_HEADERS)
 
 
-@app.get("/video_feed/{camera_id}", dependencies=[Depends(require_stream_user)])
-async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str] = Query(None)):
+@app.get("/video_feed/{camera_id}")
+async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str] = Query(None), current_user=Depends(require_stream_user)):
     """Endpoint for grid view (CameraGrid.tsx). A signed media token is required."""
-    if camera_id not in camera_manager.cameras:
-        raise HTTPException(status_code=404, detail="Camera not found")
+    owned_camera(camera_id, current_user.id)
     logger.info("[Stream %s] Camera stream requested", camera_id)
     return StreamingResponse(generate_camera_stream(camera_id, request),
                              media_type="multipart/x-mixed-replace; boundary=frame",
@@ -275,11 +301,27 @@ async def video_feed_by_id(camera_id: int, request: Request, token: Optional[str
 # ---------------------------------------------------------------------------
 # Cameras
 # ---------------------------------------------------------------------------
-@app.get("/cameras", dependencies=[Depends(get_current_user)])
-def get_cameras():
+def owned_camera(camera_id, user_id):
+    camera = camera_manager.cameras.get(camera_id)
+    if camera is None or camera.owner_user_id != user_id:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    return camera
+
+
+def owned_job(job_id, user_id):
+    job = video_analyzer.get(job_id)
+    if job is None or job.get("owner_user_id") != user_id:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+    return job
+
+
+@app.get("/cameras")
+def get_cameras(current_user=Depends(get_current_user)):
     """Get list of cameras with real-time status details."""
     cameras = []
     for id, cam in list(camera_manager.cameras.items()):
+        if cam.owner_user_id != current_user.id:
+            continue
         cameras.append({
             "id": id,
             "name": cam.name,
@@ -290,32 +332,35 @@ def get_cameras():
     return {"cameras": cameras}
 
 
-@app.post("/cameras", dependencies=[Depends(get_current_user)])
-def add_new_camera(cam: CameraModel):
+@app.post("/cameras")
+def add_new_camera(cam: CameraModel, current_user=Depends(get_current_user)):
     """Add a new camera."""
-    new_id = camera_manager.add_camera(cam.source, cam.name, cam.is_active)
+    new_id = camera_manager.add_camera(cam.source, cam.name, cam.is_active, owner_user_id=current_user.id)
     return {"status": "ok", "id": new_id, "message": "Camera added"}
 
 
-@app.delete("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def delete_camera(camera_id: int):
+@app.delete("/cameras/{camera_id}")
+def delete_camera(camera_id: int, current_user=Depends(get_current_user)):
     """Remove a camera."""
+    owned_camera(camera_id, current_user.id)
     if camera_manager.remove_camera(camera_id):
         return {"status": "ok", "message": "Camera removed"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
-@app.put("/cameras/{camera_id}", dependencies=[Depends(get_current_user)])
-def update_camera(camera_id: int, cam: CameraModel):
+@app.put("/cameras/{camera_id}")
+def update_camera(camera_id: int, cam: CameraModel, current_user=Depends(get_current_user)):
+    owned_camera(camera_id, current_user.id)
     source = cam.source if "source" in cam.model_fields_set else None
     if camera_manager.update_camera(camera_id, cam.name, cam.is_active, source=source):
         return {"status": "ok", "message": "Camera updated"}
     raise HTTPException(status_code=404, detail="Camera not found")
 
 
-@app.post("/cameras/{camera_id}/toggle", dependencies=[Depends(get_current_user)])
-def toggle_camera(camera_id: int, active: bool):
+@app.post("/cameras/{camera_id}/toggle")
+def toggle_camera(camera_id: int, active: bool, current_user=Depends(get_current_user)):
     """Enable or disable a camera."""
+    owned_camera(camera_id, current_user.id)
     if camera_manager.toggle_camera(camera_id, active):
         return {"status": "ok", "message": f"Camera {'enabled' if active else 'disabled'}"}
     raise HTTPException(status_code=404, detail="Camera not found")
@@ -325,7 +370,7 @@ def toggle_camera(camera_id: int, active: bool):
 # Video upload analysis (requires: pip install python-multipart)
 # ---------------------------------------------------------------------------
 @upload_router.post("/video-analysis", dependencies=[Depends(get_upload_user)])
-def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5)):
+def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Form(5), current_user=Depends(get_upload_user)):
     """Upload a video; it is analysed in the background with the live-camera model."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
@@ -356,10 +401,13 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
         raise
 
     try:
-        job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps)
+        job_id = video_analyzer.submit(tmp_path, file.filename, sample_fps, owner_user_id=current_user.id)
     except ValueError as error:
         os.remove(tmp_path)
         raise HTTPException(status_code=429, detail=str(error)) from error
+    except Exception:
+        os.remove(tmp_path)
+        raise
     logger.info("[Video %s] Queued '%s' (%.1f MB, %s fps)", job_id, file.filename, size / 1e6, sample_fps)
     return {"job_id": job_id}
 
@@ -367,23 +415,28 @@ def upload_video_for_analysis(file: UploadFile = File(...), sample_fps: int = Fo
 app.include_router(upload_router)
 
 
-@app.get("/video-analysis", dependencies=[Depends(get_current_user)])
-def list_video_analyses():
+@app.get("/video-analysis")
+def list_video_analyses(current_user=Depends(get_current_user)):
     """Recent video analysis jobs (newest first)."""
-    return {"jobs": video_analyzer.list()}
+    live = [job for job in video_analyzer.list() if job.get("owner_user_id") == current_user.id]
+    live_ids = {job["id"] for job in live}
+    return {"jobs": live + [job for job in evidence.archived_jobs(current_user.id) if job["id"] not in live_ids]}
 
 
-@app.get("/video-analysis/{job_id}", dependencies=[Depends(get_current_user)])
-def get_video_analysis(job_id: str):
+@app.get("/video-analysis/{job_id}")
+def get_video_analysis(job_id: str, current_user=Depends(get_current_user)):
     """Progress and result of one video analysis job."""
     job = video_analyzer.get(job_id)
     if job is None:
+        job = next(iter(evidence.archived_jobs(current_user.id, job_id)), None)
+    if job is None or job.get("owner_user_id") != current_user.id:
         raise HTTPException(status_code=404, detail="Analysis job not found")
     return job
 
 
-@app.post("/video-analysis/{job_id}/cancel", dependencies=[Depends(get_current_user)])
-def cancel_video_analysis(job_id: str):
+@app.post("/video-analysis/{job_id}/cancel")
+def cancel_video_analysis(job_id: str, current_user=Depends(get_current_user)):
+    owned_job(job_id, current_user.id)
     if video_analyzer.cancel(job_id):
         return {"status": "ok", "message": "Cancelling"}
     raise HTTPException(status_code=404, detail="Job not found or already finished")
@@ -401,6 +454,7 @@ class RetryVideoNotification(BaseModel):
 @app.post("/video-analysis/{job_id}/notifications/retry")
 def retry_video_notification(job_id: str, body: RetryVideoNotification,
                              current_user=Depends(get_current_user)):
+    owned_job(job_id, current_user.id)
     try:
         return video_analyzer.retry_notification(job_id, body.event_type, body.channel)
     except KeyError as error:
@@ -409,8 +463,9 @@ def retry_video_notification(job_id: str, body: RetryVideoNotification,
         raise HTTPException(status_code=409, detail=str(error)) from error
 
 
-@app.post("/video-analysis/{job_id}/playback", dependencies=[Depends(get_current_user)])
-def control_video_playback(job_id: str, control: PlaybackControl):
+@app.post("/video-analysis/{job_id}/playback")
+def control_video_playback(job_id: str, control: PlaybackControl, current_user=Depends(get_current_user)):
+    owned_job(job_id, current_user.id)
     try:
         return {"job_id": video_analyzer.playback(job_id, control.action)}
     except KeyError as error:
@@ -433,7 +488,7 @@ async def video_analysis_updates(websocket: WebSocket, job_id: str):
                     return
                 next_auth = time.monotonic() + 30
             job = video_analyzer.get(job_id, include_frame=True)
-            if job is None:
+            if job is None or job.get("owner_user_id") != websocket.state.media_user.id:
                 await websocket.close(code=1008, reason="Analysis job not found")
                 return
             if job["revision"] != revision:
@@ -467,7 +522,11 @@ async def camera_detection_updates(websocket: WebSocket):
                 if not await authorize_websocket(websocket):
                     return
                 next_auth = time.monotonic() + 30
-            await asyncio.wait_for(websocket.send_json({"cameras": camera_manager.detection_states()}), timeout=5)
+            states = camera_manager.detection_states()
+            cameras = dict(list(camera_manager.cameras.items()))
+            states = [state for state in states if cameras.get(state["camera_id"]) is not None
+                      and cameras[state["camera_id"]].owner_user_id == websocket.state.media_user.id]
+            await asyncio.wait_for(websocket.send_json({"cameras": states}), timeout=5)
             await asyncio.sleep(0.1)
     except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
         return
@@ -476,9 +535,9 @@ async def camera_detection_updates(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 # Alerts, stats, history
 # ---------------------------------------------------------------------------
-@app.get("/alerts", dependencies=[Depends(get_current_user)])
-def get_alerts():
-    events = database.get_recent_events(limit=50)
+@app.get("/alerts")
+def get_alerts(current_user=Depends(get_current_user)):
+    events = database.get_recent_events(limit=50, owner_user_id=current_user.id)
     formatted_alerts = []
     for event in events:
         formatted_alerts.append({
@@ -491,14 +550,17 @@ def get_alerts():
             "handled_by": event.get("handled_by"),
             "camera_id": event.get("camera_id"),
             "camera_name": event.get("camera_name"),
+            "source_kind": event.get("source_kind", "camera"),
+            "video_name": event.get("video_name"), "video_time": event.get("video_time"),
+            "video_job_id": event.get("video_job_id"),
         })
     return {"alerts": formatted_alerts}
 
 
-@app.get("/stats", dependencies=[Depends(get_current_user)])
-def get_stats():
+@app.get("/stats")
+def get_stats(current_user=Depends(get_current_user)):
     """Get daily event statistics."""
-    return {"stats": database.get_daily_stats()}
+    return {"stats": database.get_daily_stats(owner_user_id=current_user.id)}
 
 
 # ---------------------------------------------------------------------------

@@ -250,7 +250,7 @@ class PlaybackTests(unittest.TestCase):
         import asyncio
         # Exercise the real route handlers in-process: no production database,
         # webcam, notifications, or network sockets are opened by these tests.
-        names = {"PlaybackControl", "control_video_playback", "video_analysis_updates", "get_video_analysis", "cancel_video_analysis"}
+        names = {"owned_job", "PlaybackControl", "control_video_playback", "video_analysis_updates", "get_video_analysis", "cancel_video_analysis"}
         tree = ast.parse((ROOT / "main.py").read_text(encoding="utf-8-sig"))
         routes = ast.Module(body=[node for node in tree.body if getattr(node, "name", None) in names], type_ignores=[])
         namespace = dict(app=FastAPI(), WebSocket=WebSocket, WebSocketDisconnect=WebSocketDisconnect,
@@ -260,15 +260,16 @@ class PlaybackTests(unittest.TestCase):
                          authorize_websocket=AsyncMock(return_value=True))
         exec(compile(routes, str(ROOT / "main.py"), "exec"), namespace)
         job_id = self.submit(20)
-        self.assertEqual(namespace["get_video_analysis"](job_id)["id"], job_id)
+        user = type("User", (), {"id": None})()
+        self.assertEqual(namespace["get_video_analysis"](job_id, user)["id"], job_id)
         control_type = namespace["PlaybackControl"]
         with self.assertRaises(ValidationError):
             control_type(action="seek")
         with self.assertRaises(HTTPException) as missing:
-            namespace["control_video_playback"]("missing", control_type(action="pause"))
+            namespace["control_video_playback"]("missing", control_type(action="pause"), user)
         self.assertEqual(missing.exception.status_code, 404)
-        namespace["control_video_playback"](job_id, control_type(action="pause"))
-        websocket = Mock(accept=AsyncMock(), send_json=AsyncMock(),
+        namespace["control_video_playback"](job_id, control_type(action="pause"), user)
+        websocket = Mock(state=type("State", (), {"media_user": user})(), accept=AsyncMock(), send_json=AsyncMock(),
                          receive_text=AsyncMock(side_effect=WebSocketDisconnect()), close=AsyncMock())
         async def immediate_wait(awaitable, timeout):
             return await awaitable
@@ -279,9 +280,9 @@ class PlaybackTests(unittest.TestCase):
         update = websocket.send_json.call_args.args[0]
         self.assertEqual(update["id"], job_id)
         self.assertIn("frame_id", update)
-        result = namespace["control_video_playback"](job_id, control_type(action="restart"))
+        result = namespace["control_video_playback"](job_id, control_type(action="restart"), user)
         self.assertNotEqual(result["job_id"], job_id)
-        self.assertEqual(namespace["cancel_video_analysis"](result["job_id"])["status"], "ok")
+        self.assertEqual(namespace["cancel_video_analysis"](result["job_id"], user)["status"], "ok")
 
 
 if __name__ == "__main__":

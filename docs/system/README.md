@@ -17,6 +17,7 @@ The root [AGENTS.md](../../AGENTS.md) is the discoverable entry point for coding
 
 - [MySQL/Aiven migration](../MYSQL_AIVEN_MIGRATION.md): configuration, schema, legacy import, deployment and verification.
 - [Supabase Storage](../SUPABASE_STORAGE.md): private file storage, Render configuration and verification.
+- [Private alert evidence](../PRIVATE_ALERT_EVIDENCE.md): account ownership, seven-day retention, local/Docker migration and rollout.
 
 ## Existing references
 

@@ -85,13 +85,17 @@ class _MinioStore:
         for obj in self.client.list_objects(self.bucket, prefix=SNAPSHOT_PREFIX + "periodic_", recursive=True):
             yield obj.object_name, obj.last_modified.timestamp(), obj.size
 
+    def list_snapshots(self):
+        for obj in self.client.list_objects(self.bucket, prefix=SNAPSHOT_PREFIX, recursive=True):
+            yield obj.object_name, obj.last_modified.timestamp(), obj.size
+
     def download(self, key, path):
         self.client.fget_object(self.bucket, key, path)
 
     def stat(self, key):
         return self.client.stat_object(self.bucket, key)
 
-    def snapshot_url(self, key):
+    def snapshot_url(self, key, expires_in=None, expires_at=None):
         from minio import Minio
 
         # Sign with the external host itself; rewriting a signed URL breaks it.
@@ -101,9 +105,15 @@ class _MinioStore:
                 or endpoint.fragment or endpoint.path not in ("", "/")):
             raise ValueError("S3_PUBLIC_ENDPOINT must be an http(s) S3 API origin without a path")
         seconds = int(os.getenv("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        if expires_in is not None:
+            seconds = min(seconds, expires_in)
         if not 1 <= seconds <= 604800:
             raise ValueError("S3_SNAPSHOT_URL_TTL_SECONDS must be between 1 and 604800")
         self.stat(key)  # A signed URL alone does not prove that upload succeeded.
+        if expires_at is not None:
+            seconds = min(seconds, int(expires_at - time.time()))
+            if seconds < 1:
+                raise ValueError("Snapshot expired")
         signer = Minio(
             endpoint.netloc,
             access_key=os.environ["S3_ACCESS_KEY"],
@@ -132,10 +142,17 @@ class _GcsStore:
             return None
 
     def delete(self, key):
-        self.bucket.blob(key).delete()
+        try:
+            self.bucket.blob(key).delete()
+        except self._not_found:
+            pass
 
     def list_periodic(self):
         for blob in self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX + "periodic_"):
+            yield blob.name, blob.updated.timestamp(), blob.size or 0
+
+    def list_snapshots(self):
+        for blob in self.bucket.list_blobs(prefix=SNAPSHOT_PREFIX):
             yield blob.name, blob.updated.timestamp(), blob.size or 0
 
     def download(self, key, path):
@@ -193,7 +210,7 @@ def _write_local(name, data):
     return path
 
 
-def save_snapshot(name, img, keep_local=False):
+def save_snapshot(name, img, keep_local=False, *, owner_user_id=None, source_kind=None, source_id=None):
     """
     Encode `img` as JPEG and store it as snapshot `name`.
     keep_local=True also leaves a copy on disk (needed by notifications that
@@ -204,6 +221,10 @@ def save_snapshot(name, img, keep_local=False):
         logger.error("[Storage] Could not encode snapshot %s", name)
         return None
     data = buf.tobytes()
+
+    if owner_user_id is not None:
+        import evidence
+        evidence.register(name, owner_user_id, source_kind, source_id)
 
     path = _write_local(name, data) if keep_local or not enabled() else None
     if enabled():
@@ -267,16 +288,90 @@ def discard_local(path):
             logger.warning("[Storage] Keeping local snapshot %s; remote copy not confirmed", os.path.basename(path))
 
 
-def snapshot_public_url(name):
+def snapshot_public_url(name, expires_in=None):
     """Return an externally reachable, expiring S3 link for an uploaded snapshot."""
     if not S3_ENDPOINT:
         return None
     try:
-        return _get_store().snapshot_url(SNAPSHOT_PREFIX + os.path.basename(name))
+        import evidence
+        row = evidence.find(os.path.basename(name))
+        if row is None or row["deleted_at"] is not None or row["expires_at"] <= time.time():
+            return None
+        remaining = max(1, int(row["expires_at"] - time.time()))
+        expires_in = min(expires_in or 300, remaining, 300)
+        return _get_store().snapshot_url(SNAPSHOT_PREFIX + os.path.basename(name),
+                                         expires_in=expires_in, expires_at=row["expires_at"])
     except Exception:
         # Do not log signed URLs or credentials returned by providers.
         logger.warning("[Storage] S3 snapshot link unavailable for %s; check upload and public endpoint configuration", os.path.basename(name))
         return None
+
+
+def private_snapshot_url(name, user_id):
+    import evidence
+    row = evidence.require_snapshot(name, user_id)
+    ttl = max(1, min(300, int(row["expires_at"] - time.time())))
+    url = snapshot_public_url(name, expires_in=ttl)
+    if url is None:
+        return None, ttl
+    return url, ttl
+
+
+def cleanup_evidence(now=None):
+    """Delete remote and local copies before acknowledging deletion; retry failures."""
+    import evidence
+    removed = 0
+    with _maintenance_lock:
+        for row in evidence.expired(RETENTION_BATCH_SIZE, now):
+            name = row["name"]
+            try:
+                # Retention is a hard limit, including evidence pinned by bot work.
+                if enabled():
+                    _get_store().delete(SNAPSHOT_PREFIX + name)
+                path = local_path(name)
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+                evidence.mark_deleted(name)
+                removed += 1
+            except Exception:
+                logger.warning("[Storage] Evidence deletion failed; retrying later: %s", name)
+    return removed
+
+
+def cleanup_unregistered(now=None):
+    """Reclaim old pre-migration/orphan captures, never models or arbitrary objects."""
+    import evidence
+    cutoff = (time.time() if now is None else now) - evidence.RETENTION_SECONDS
+    managed = re.compile(r"(?:event_[\w-]+|video_[\w-]+|periodic_[\w-]+)\.jpg", re.ASCII)
+    removed = 0
+    def eligible(name, modified):
+        return modified < cutoff and managed.fullmatch(name) and evidence.find(name) is None
+    with _maintenance_lock:
+        for entry in os.scandir(SNAPSHOT_DIR):
+            if removed >= RETENTION_BATCH_SIZE:
+                break
+            if not entry.is_file(follow_symlinks=False) or not eligible(entry.name, entry.stat().st_mtime):
+                continue
+            try:
+                os.remove(entry.path)
+                removed += 1
+            except OSError:
+                logger.warning("[Storage] Legacy local cleanup failed: %s", entry.name)
+        if enabled():
+            for key, modified, _ in _get_store().list_snapshots():
+                if removed >= RETENTION_BATCH_SIZE:
+                    break
+                name = key.removeprefix(SNAPSHOT_PREFIX)
+                if not key.startswith(SNAPSHOT_PREFIX) or not eligible(name, modified):
+                    continue
+                try:
+                    _get_store().delete(key)
+                    removed += 1
+                except Exception:
+                    logger.warning("[Storage] Legacy remote cleanup failed: %s", name)
+    return removed
 
 
 def ensure_model(path):
@@ -300,6 +395,12 @@ def _sync_pending():
         path = os.path.join(SNAPSHOT_DIR, name)
         # Fresh files may still be in use (e.g. attached to a notification being sent)
         if not name.endswith(".jpg") or now - os.path.getmtime(path) < SYNC_INTERVAL_SECONDS:
+            continue
+        import evidence
+        row = evidence.find(name)
+        if row and (row["expires_at"] <= now or row["deleted_at"] is not None):
+            continue  # Never resurrect expired evidence after a failed delete/upload.
+        if row is None and now - os.path.getmtime(path) >= evidence.RETENTION_SECONDS:
             continue
         with open(path, "rb") as f:
             data = f.read()
@@ -383,7 +484,8 @@ def start_sync():
                 if time.monotonic() >= next_cleanup:
                     removed = 0
                     try:
-                        removed, _ = cleanup_periodic()
+                        removed = cleanup_evidence()
+                        removed += cleanup_unregistered()
                     except Exception as exc:
                         logger.warning("[Storage] Retention failed, retrying later: %s", exc)
                     delay = SYNC_INTERVAL_SECONDS if removed >= RETENTION_BATCH_SIZE else RETENTION_INTERVAL_SECONDS

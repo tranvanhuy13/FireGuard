@@ -60,13 +60,13 @@ def require_snapshot_user(name: str, token: str | None = Query(None), db=Depends
     return verify_stream_token(token, db)
 
 
-def stream_is_authorized(token):
+def stream_is_authorized(token, *, return_user=False):
     # A fresh connection reflects account blocking/password changes during streams.
     from .database import get_connection
     db = get_connection()
     try:
-        verify_stream_token(token, db)
-        return True
+        user = verify_stream_token(token, db)
+        return user if return_user else True
     except HTTPException:
         return False
     finally:
@@ -75,7 +75,9 @@ def stream_is_authorized(token):
 
 async def authorize_websocket(websocket):
     import asyncio
-    if await asyncio.to_thread(stream_is_authorized, websocket.query_params.get("token")):
+    user = await asyncio.to_thread(stream_is_authorized, websocket.query_params.get("token"), return_user=True)
+    if user:
+        websocket.state.media_user = user
         return True
     await websocket.close(code=1008, reason="Authentication required")
     return False

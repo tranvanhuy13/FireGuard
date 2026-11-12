@@ -20,7 +20,7 @@ def event_database():
     with engine.begin() as conn:
         conn.execute(metadata.tables["events"].insert(), [
             {"timestamp": "2026-11-09 12:00:00", "type": "fire", "confidence": 0.9,
-             "camera_id": i, "camera_name": f"Gate {i}"} for i in range(1, 66)])
+             "owner_user_id": 1, "camera_id": i, "camera_name": f"Gate {i}"} for i in range(1, 66)])
     with patch("database.get_connection", side_effect=lambda: Connection(engine.connect())):
         yield
     engine.dispose()
@@ -50,7 +50,7 @@ def test_status_endpoint_persists_actor_and_validates_contract(event_database):
     app.dependency_overrides[get_db] = lambda: None
     with patch("event_routes.log_action"), TestClient(app) as client:
         assert client.patch("/alerts/1/status", json={"status": "confirmed"}).status_code == 401
-        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(username="reviewer")
+        app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(id=1, username="reviewer")
         assert client.patch("/alerts/1/status", json={"status": "confirmed", "handler": "forged"}).status_code == 422
         assert client.patch("/alerts/1/status", json={"status": "invalid"}).status_code == 422
         assert client.patch("/alerts/999/status", json={"status": "confirmed"}).status_code == 404

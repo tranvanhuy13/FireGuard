@@ -52,6 +52,12 @@ class S3UrlStoreTests(unittest.TestCase):
         self.store.delete(key)
         self.stub.assert_no_pending_responses()
 
+    def test_retention_deadline_is_rechecked_after_object_verification(self):
+        self.stub.add_response("head_object", {}, {"Bucket": "fireguard", "Key": "snapshots/expired.jpg"})
+        with patch("s3_url_store.time.time", return_value=200):
+            with self.assertRaisesRegex(ValueError, "Snapshot expired"):
+                self.store.snapshot_url("snapshots/expired.jpg", expires_in=300, expires_at=100)
+
     def test_missing_object_is_none_but_denied_is_an_error(self):
         self.stub.add_client_error("get_object", "NoSuchKey", http_status_code=404)
         self.assertIsNone(self.store.get("missing"))

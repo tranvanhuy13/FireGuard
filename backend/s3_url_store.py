@@ -1,5 +1,6 @@
 """S3 storage for full endpoint URLs, including Supabase's API path."""
 import os
+import time
 from urllib.parse import urlsplit
 
 
@@ -65,6 +66,12 @@ class S3UrlStore:
             for item in page.get("Contents", []):
                 yield item["Key"], item["LastModified"].timestamp(), item["Size"]
 
+    def list_snapshots(self):
+        pages = self.client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix="snapshots/")
+        for page in pages:
+            for item in page.get("Contents", []):
+                yield item["Key"], item["LastModified"].timestamp(), item["Size"]
+
     def download(self, key, path):
         # Avoid a multipart/parallel download for the startup model.
         response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -86,12 +93,18 @@ class S3UrlStore:
     def stat(self, key):
         return self.client.head_object(Bucket=self.bucket, Key=key)
 
-    def snapshot_url(self, key):
+    def snapshot_url(self, key, expires_in=None, expires_at=None):
         public = endpoint_url(os.environ.get("S3_PUBLIC_ENDPOINT", "").strip())
         seconds = int(os.environ.get("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        if expires_in is not None:
+            seconds = min(seconds, expires_in)
         if not 1 <= seconds <= 604800:
             raise ValueError("S3_SNAPSHOT_URL_TTL_SECONDS must be between 1 and 604800")
         self.stat(key)
+        if expires_at is not None:
+            seconds = min(seconds, int(expires_at - time.time()))
+            if seconds < 1:
+                raise ValueError("Snapshot expired")
         # Sign the public endpoint, including its API path; never rewrite the URL.
         signer = self._client(public)
         try:

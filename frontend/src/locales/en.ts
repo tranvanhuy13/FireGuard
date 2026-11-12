@@ -242,6 +242,9 @@ export const en = {
     toggleErrorNetwork: "Connection error while changing camera status."
   },
   alerts: {
+    imageExpired: "Image retention expired",
+    imageUnavailable: "Image unavailable",
+    videoSource: "Video",
     title: "Fire Alerts",
     event: "Event",
     fireDetected: "Fire Detected",
