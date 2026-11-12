@@ -7,12 +7,15 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import { API_URL } from '@/config';
+import { authFetch } from '@/lib/api/authFetch';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export default function CamerasPage() {
   const { t } = useLanguage();
   const { user, can } = useAuth();
   const canManageCameras = can("add_camera");
+  const canToggleCameras = can("toggle_camera");
+  const [toggling, setToggling] = useState<Record<number, boolean>>({});
   const [cameras, setCameras] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -33,7 +36,7 @@ export default function CamerasPage() {
   const fetchCameras = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`${API_URL}/cameras`);
+      const res = await authFetch(`${API_URL}/cameras`);
       if (!res.ok) throw new Error(t.review.requestFailed);
       const data = await res.json();
       setCameras(data.cameras || []);
@@ -46,10 +49,11 @@ export default function CamerasPage() {
   };
 
   useEffect(() => {
-    fetchCameras();
-  }, []);
+    if (user) fetchCameras();
+  }, [user?.id]);
 
   const handleToggle = async (cam: any) => {
+    if (!canToggleCameras || toggling[cam.id]) return;
     const nextActive = !cam.is_active;
     if (cam.is_active) {
       const confirmMsg = t.pages.cameras.confirmTurnOffCamera || "Tắt camera sẽ ngừng phát hiện cháy ở camera này. Bạn có chắc không?";
@@ -58,11 +62,12 @@ export default function CamerasPage() {
       }
     }
 
+    setToggling(previous => ({ ...previous, [cam.id]: true }));
     // Optimistic update
     setCameras(prev => prev.map(c => c.id === cam.id ? { ...c, is_active: nextActive } : c));
 
     try {
-      const res = await fetch(`${API_URL}/cameras/${cam.id}/toggle?active=${nextActive}`, {
+      const res = await authFetch(`${API_URL}/cameras/${cam.id}/toggle?active=${nextActive}`, {
         method: 'POST'
       });
 
@@ -84,13 +89,14 @@ export default function CamerasPage() {
       alert(t.pages.cameras.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.");
     } finally {
       fetchCameras();
+      setToggling(previous => ({ ...previous, [cam.id]: false }));
     }
   };
 
   const handleDelete = async () => {
     if (!deletingCamera) return;
     try {
-      const res = await fetch(`${API_URL}/cameras/${deletingCamera.id}`, { method: 'DELETE' });
+      const res = await authFetch(`${API_URL}/cameras/${deletingCamera.id}`, { method: 'DELETE' });
       if (res.ok) {
         setDeletingCamera(null);
         fetchCameras();
@@ -107,7 +113,7 @@ export default function CamerasPage() {
     try {
       const method = editingCamera ? 'PUT' : 'POST';
       const url = editingCamera ? `${API_URL}/cameras/${editingCamera.id}` : `${API_URL}/cameras`;
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
@@ -178,9 +184,9 @@ export default function CamerasPage() {
                 </div>
                 <div className="text-sm text-gray-500 mb-4 break-all flex-1">{cam.source}</div>
                 <div className="mt-auto pt-4 border-t flex flex-wrap gap-2">
-                  {user && (
-                    <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} className="flex-1 min-w-[80px]" onClick={() => handleToggle(cam)}>
-                      {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
+                  {canToggleCameras && (
+                    <Button role="switch" aria-checked={!!cam.is_active} aria-label={`${t.camera.power}: ${cam.name}`} aria-busy={!!toggling[cam.id]} disabled={!!toggling[cam.id]} size="sm" variant={cam.is_active ? 'secondary' : 'primary'} className="flex-1 min-w-[80px]" onClick={() => handleToggle(cam)}>
+                      {cam.is_active ? "ON" : "OFF"} · {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
                     </Button>
                   )}
                   {canManageCameras && (
@@ -214,9 +220,9 @@ export default function CamerasPage() {
                     </td>
                     {user && (
                       <td className="p-4 flex gap-2 justify-end">
-                        <Button size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)}>
-                          {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
-                        </Button>
+                        {canToggleCameras && <Button role="switch" aria-checked={!!cam.is_active} aria-label={`${t.camera.power}: ${cam.name}`} aria-busy={!!toggling[cam.id]} disabled={!!toggling[cam.id]} size="sm" variant={cam.is_active ? 'secondary' : 'primary'} onClick={() => handleToggle(cam)}>
+                          {cam.is_active ? "ON" : "OFF"} · {cam.is_active ? t.pages.cameras.toggleOff : t.pages.cameras.toggleOn}
+                        </Button>}
                         {canManageCameras && (
                           <>
                             <Button size="sm" variant="outline" onClick={() => { setEditingCamera(cam); setFormData({ name: cam.name, source: cam.source, is_active: cam.is_active }); setSaveError(''); setShowAddModal(true); }}>{t.pages.cameras.edit || 'Edit'}</Button>

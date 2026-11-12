@@ -58,3 +58,29 @@ check owner isolation, cross-account duplicate chats, quarantined legacy rows,
 independent active flags/cooldowns and delivery without a global fallback.
 API tests check user/admin isolation and explicit single-recipient testing.
 Camera/video suites check owner propagation. They do not send real bot messages.
+
+
+## Camera test account without saved images
+
+An operator can create an active `user` account without an email using:
+
+```powershell
+Set-Location D:\python\FireGuard\AI-fire-detection\backend
+.\venv\Scripts\python.exe -m scripts.provision_camera_test_account camtest
+```
+
+The password is prompted securely and stored as a bcrypt hash. Provisioning refuses
+an existing username and does not reset any existing password. This explicit
+operator flow creates an already-active account without signup/OTP email.
+It stores `camera_snapshots_enabled_user_<id>=false` in the existing settings
+table, so no schema migration is required for this policy.
+
+Updated backend code must be running on local/Render before using this account.
+The account uses the same DB identity on both backends. Camera event and periodic
+images are not JPEG-encoded, registered, written to disk or uploaded. Existing
+pending camera files belonging to an opted-out owner are skipped by background
+upload. Event metadata and live in-memory camera streams continue normally;
+bot alerts are text-only with no image attachment or snapshot URL. The policy
+is camera-specific: uploaded-video behavior is unchanged. It does not delete
+historical images. Policy reads bypass the settings cache and fail closed if the
+DB is unavailable. Only admins/operators can change this setting.

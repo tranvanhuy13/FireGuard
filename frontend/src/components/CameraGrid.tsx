@@ -141,7 +141,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
   };
 
   const canManage = can("add_camera");
-  const canToggle = !!user;
+  const canToggle = can("toggle_camera");
   const canAnalyze = user?.role === "admin" || user?.role === "user";
 
   const handleStreamStatus = useCallback((camId: number, failed: boolean) => {
@@ -467,7 +467,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures }: {
                     onClick={() => handleToggleCamera(cam.id, !cam.is_active)}
                     onDoubleClick={event => event.stopPropagation()}
                     disabled={!!toggling[cam.id]}
-                    className="flex shrink-0 items-center gap-1 rounded border border-white/25 bg-black/70 px-1 py-1 hover:border-sky-300 focus-visible:outline-2 focus-visible:outline-sky-300 disabled:opacity-60"
+                    className="flex shrink-0 items-center gap-1 rounded border border-white/25 bg-slate-900 px-2 py-1 ring-1 ring-sky-400/50 hover:border-sky-300 focus-visible:outline-2 focus-visible:outline-sky-300 disabled:opacity-60"
                     title={cam.is_active ? t.camera.turnOffCamera : t.camera.turnOnCamera}
                   >
                     <span className={`text-[10px] font-bold font-mono ${cam.is_active ? "text-green-400" : "text-gray-400"}`}>

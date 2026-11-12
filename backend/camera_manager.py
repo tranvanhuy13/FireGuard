@@ -94,6 +94,8 @@ def save_snapshot_async(camera, frame, generation):
             if not camera.running or not camera.is_active or camera._generation != generation:
                 return
             filename = f"periodic_{time.strftime('%Y%m%d_%H%M%S')}_cam_{camera.id}_{uuid.uuid4().hex}.jpg"
+        if not storage.camera_snapshots_allowed(camera.owner_user_id, "camera"):
+            return
         storage.save_snapshot(filename, img, **camera.evidence_scope())
         logger.info("[Cam %s] Periodic snapshot saved: %s", camera.id, filename)
 
@@ -606,9 +608,10 @@ class CameraManager:
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
         filename = f"event_{timestamp_str}_{camera_id}_{cls_name}_{uuid.uuid4().hex}.jpg"
         # Local copy is kept until notifications (which attach the file) are done
-        filepath = storage.save_snapshot(filename, frame, keep_local=True, **cam.evidence_scope())
+        save_image = storage.camera_snapshots_allowed(cam.owner_user_id, "camera")
+        filepath = storage.save_snapshot(filename, frame, keep_local=True, **cam.evidence_scope()) if save_image else None
 
-        snapshot_url = f"/snapshots/{filename}"
+        snapshot_url = f"/snapshots/{filename}" if save_image else None
         import database
         event_id, timestamp = database.add_event(cls_name, conf, snapshot_url,
                                                camera_id=camera_id, camera_name=camera_name,
@@ -637,6 +640,7 @@ class CameraManager:
             try:
                 notification.trigger_notifications(cls_name, conf, filepath, camera_name=camera_name, owner_user_id=cam.owner_user_id)
             finally:
-                storage.discard_local(filepath)
+                if filepath is not None:
+                    storage.discard_local(filepath)
 
         threading.Thread(target=notify, daemon=True).start()
