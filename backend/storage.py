@@ -210,12 +210,29 @@ def _write_local(name, data):
     return path
 
 
+def camera_snapshots_allowed(owner_user_id, source_kind):
+    """Fresh account policy; a failed policy read must never persist a camera image."""
+    if source_kind != "camera" or owner_user_id is None:
+        return True
+    from db.engine import read_rows
+    from sqlalchemy.exc import SQLAlchemyError
+    try:
+        rows = read_rows("SELECT value FROM settings WHERE `key`=?",
+                         (f"camera_snapshots_enabled_user_{int(owner_user_id)}",))
+    except SQLAlchemyError:
+        logger.warning("[Storage] Camera snapshot skipped: account policy unavailable")
+        return False
+    return not rows or str(rows[0]["value"]).lower() in ("true", "1", "yes", "on")
+
+
 def save_snapshot(name, img, keep_local=False, *, owner_user_id=None, source_kind=None, source_id=None):
     """
     Encode `img` as JPEG and store it as snapshot `name`.
     keep_local=True also leaves a copy on disk (needed by notifications that
     attach the file). Returns the local path when one was written, else None.
     """
+    if not camera_snapshots_allowed(owner_user_id, source_kind):
+        return None
     ok, buf = cv2.imencode(".jpg", img)
     if not ok:
         logger.error("[Storage] Could not encode snapshot %s", name)
@@ -398,6 +415,8 @@ def _sync_pending():
             continue
         import evidence
         row = evidence.find(name)
+        if row and not camera_snapshots_allowed(row["owner_user_id"], row["source_kind"]):
+            continue
         if row and (row["expires_at"] <= now or row["deleted_at"] is not None):
             continue  # Never resurrect expired evidence after a failed delete/upload.
         if row is None and now - os.path.getmtime(path) >= evidence.RETENTION_SECONDS:

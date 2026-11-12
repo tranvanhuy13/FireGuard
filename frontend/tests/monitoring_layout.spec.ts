@@ -92,6 +92,24 @@ for (const role of ['user', 'admin'] as const) {
   });
 }
 
+for (const role of ['user', 'admin'] as const) {
+  test(`${role} sees and operates camera power in grid and table management views`, async ({ page }) => {
+    const api = await mockDashboard(page, role);
+    await page.goto('/dashboard/cameras');
+    const power = page.getByRole('switch', { name: 'Camera power: Camera 1', exact: true });
+    await expect(power).toBeVisible();
+    await expect(power).not.toBeChecked();
+    await power.click();
+    await expect(power).toBeChecked();
+    await page.getByRole('button', { name: /table/i }).click();
+    await expect(power).toBeVisible();
+    page.once('dialog', dialog => dialog.accept());
+    await power.click();
+    await expect(power).not.toBeChecked();
+    expect(api.toggles).toEqual([true, false]);
+  });
+}
+
 test('splitters expand the camera area, support keyboard and preserve the stream', async ({ page }) => {
   const api = await mockDashboard(page, 'user', true);
   const camera = page.getByTestId('live-camera-panel');
