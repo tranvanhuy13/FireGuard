@@ -1,7 +1,8 @@
-"""Operator-only, email-free test account with camera image persistence disabled.
+"""Operator-only test account with camera/video image persistence disabled.
 
 Run from backend: python -m scripts.provision_camera_test_account camtest
 Password is prompted securely. Never stores or prints plaintext passwords.
+For an existing account: python -m scripts.provision_camera_test_account camtest --disable-images
 """
 import argparse
 import getpass
@@ -25,6 +26,22 @@ def provision(username, password):
         user_id = result.lastrowid
         conn.execute("INSERT INTO settings (`key`,value) VALUES (?, 'false')",
                      (f"camera_snapshots_enabled_user_{user_id}",))
+        conn.execute("INSERT INTO settings (`key`,value) VALUES (?, 'false')",
+                     (f"snapshots_enabled_user_{user_id}",))
+    return user_id
+
+
+def disable_images(username):
+    """Idempotently opt an existing account out without changing its credentials."""
+    with get_connection() as conn:
+        conn.begin_serialized()
+        row = conn.execute("SELECT id FROM users WHERE username=?", (username.strip(),)).fetchone()
+        if row is None:
+            raise ValueError("Account not found; no policy was changed")
+        user_id = row["id"]
+        for prefix in ("snapshots_enabled_user_", "camera_snapshots_enabled_user_"):
+            conn.execute("INSERT INTO settings (`key`,value) VALUES (?, 'false') "
+                         "ON DUPLICATE KEY UPDATE value='false'", (f"{prefix}{user_id}",))
     return user_id
 
 
@@ -32,10 +49,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("username")
     parser.add_argument("--password-stdin", action="store_true", help="Read password from stdin for operator automation")
+    parser.add_argument("--disable-images", action="store_true", help="Disable camera/video images for an existing account without resetting its password")
     args = parser.parse_args()
+    if args.disable_images:
+        user_id = disable_images(args.username)
+        print(f"Disabled camera/video snapshots for {args.username} (id={user_id}); credentials unchanged")
+        return
     password = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else getpass.getpass("Password: ")
     user_id = provision(args.username, password)
-    print(f"Created active user {args.username} (id={user_id}), no email, camera snapshots disabled")
+    print(f"Created active user {args.username} (id={user_id}), no email, camera/video snapshots disabled")
 
 
 if __name__ == "__main__":

@@ -60,7 +60,7 @@ API tests check user/admin isolation and explicit single-recipient testing.
 Camera/video suites check owner propagation. They do not send real bot messages.
 
 
-## Camera test account without saved images
+## Test account without saved images
 
 An operator can create an active `user` account without an email using:
 
@@ -72,15 +72,27 @@ Set-Location D:\python\FireGuard\AI-fire-detection\backend
 The password is prompted securely and stored as a bcrypt hash. Provisioning refuses
 an existing username and does not reset any existing password. This explicit
 operator flow creates an already-active account without signup/OTP email.
-It stores `camera_snapshots_enabled_user_<id>=false` in the existing settings
-table, so no schema migration is required for this policy.
+It stores `snapshots_enabled_user_<id>=false` and the legacy
+`camera_snapshots_enabled_user_<id>=false` in the existing settings table, so no
+schema migration is required. For an existing account, run the operator command
+below; it changes only those settings, leaving credentials and roles unchanged:
+
+```powershell
+.\venv\Scripts\python.exe -m scripts.provision_camera_test_account camtest --disable-images
+```
 
 Updated backend code must be running on local/Render before using this account.
 The account uses the same DB identity on both backends. Camera event and periodic
 images are not JPEG-encoded, registered, written to disk or uploaded. Existing
 pending camera files belonging to an opted-out owner are skipped by background
 upload. Event metadata and live in-memory camera streams continue normally;
-bot alerts are text-only with no image attachment or snapshot URL. The policy
-is camera-specific: uploaded-video behavior is unchanged. It does not delete
-historical images. Policy reads bypass the settings cache and fail closed if the
-DB is unavailable. Only admins/operators can change this setting.
+bot alerts are text-only with no image attachment or snapshot URL. The global
+opt-out also covers uploaded-video evidence and pending upload synchronization.
+Video detections and event metadata remain available with null snapshot URLs;
+the evidence thumbnail list stays empty. Live camera streams and video previews
+remain in memory. Uploaded source videos still use the existing temporary-file
+playback lifecycle; this policy concerns snapshot images, not video upload storage.
+Text-only video notifications support retry without restoring an attachment.
+The old camera-only flag remains supported for accounts without the global opt-out.
+It does not delete historical images. Policy reads bypass the settings cache and
+fail closed if the DB is unavailable. Only admins/operators can change this setting.
