@@ -173,6 +173,46 @@ class PlaybackTests(unittest.TestCase):
         self.assertNotIn("frame", self.analyzer.get(job_id))
         self.assertTrue(all(call.kwargs["background"] for call in self.detector.call_args_list))
 
+    def test_opt_out_video_keeps_preview_and_text_alerts_without_images(self):
+        registry, database = Mock(), Mock()
+        database.add_event.return_value = (1, 'now')
+        notify = Mock(return_value={channel: {"status": "sent"} for channel in video.BOT_CHANNELS})
+        self.analyzer.notify = notify
+        with patch.object(video.storage, 'camera_snapshots_allowed', return_value=False), \
+             patch.dict(sys.modules, {'evidence': registry, 'database': database}):
+            job_id = self.analyzer.submit(self.source(4), 'sample.avi', 10, owner_user_id=9)
+            job = wait_for(lambda: (j if (j := self.analyzer.get(job_id, True))["status"] == "done"
+                                   and not j['notification_pending'] else None))
+            self.assertTrue(job['frame'])
+            self.assertEqual(set(job['summary']), {'fire', 'smoke'})
+            self.assertEqual(job['events'], [])
+            self.assertEqual(notify.call_count, 4)
+            self.assertTrue(all(call.args[2] is None for call in notify.call_args_list))
+            self.assertTrue(all(call.args[2] is None for call in database.add_event.call_args_list))
+            video.storage.save_snapshot.assert_not_called()
+            video.storage.pin_snapshot.assert_not_called()
+            video.storage.restore_snapshot.assert_not_called()
+            registry.require_snapshot.assert_not_called()
+
+    def test_text_only_video_notification_can_retry_without_attachment(self):
+        registry, database = Mock(), Mock()
+        database.add_event.return_value = (1, 'now')
+        notify = Mock(return_value={channel: {"status": "unconfigured"} for channel in video.BOT_CHANNELS})
+        self.analyzer.notify = notify
+        with patch.object(video.storage, 'camera_snapshots_allowed', return_value=False), \
+             patch.dict(sys.modules, {'evidence': registry, 'database': database}):
+            job_id = self.analyzer.submit(self.source(3), 'sample.avi', 10, owner_user_id=9)
+            wait_for(lambda: self.analyzer.get(job_id)['status'] == 'done'
+                     and not self.analyzer.get(job_id)['notification_pending'])
+            notify.return_value = {channel: {"status": "sent"} for channel in video.BOT_CHANNELS}
+            self.analyzer.retry_notification(job_id, 'fire', 'telegram')
+            wait_for(lambda: self.analyzer.get(job_id)['notifications']['fire']['telegram']['status'] == 'sent')
+            self.assertIsNone(notify.call_args.args[2])
+            video.storage.pin_snapshot.assert_not_called()
+            video.storage.unpin_snapshot.assert_not_called()
+            video.storage.restore_snapshot.assert_not_called()
+            registry.require_snapshot.assert_not_called()
+
     def test_pause_resume_restart_and_cancel(self):
         job_id = self.submit(20)
         wait_for(lambda: self.analyzer.get(job_id)["frames_analyzed"] >= 2)

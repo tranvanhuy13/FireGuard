@@ -211,16 +211,22 @@ def _write_local(name, data):
 
 
 def camera_snapshots_allowed(owner_user_id, source_kind):
-    """Fresh account policy; a failed policy read must never persist a camera image."""
-    if source_kind != "camera" or owner_user_id is None:
+    """Fresh all-source opt-out, with the legacy camera-only policy as fallback."""
+    if owner_user_id is None:
         return True
     from db.engine import read_rows
     from sqlalchemy.exc import SQLAlchemyError
     try:
         rows = read_rows("SELECT value FROM settings WHERE `key`=?",
+                         (f"snapshots_enabled_user_{int(owner_user_id)}",))
+        if rows and str(rows[0]["value"]).lower() not in ("true", "1", "yes", "on"):
+            return False
+        if source_kind != "camera":
+            return True
+        rows = read_rows("SELECT value FROM settings WHERE `key`=?",
                          (f"camera_snapshots_enabled_user_{int(owner_user_id)}",))
     except SQLAlchemyError:
-        logger.warning("[Storage] Camera snapshot skipped: account policy unavailable")
+        logger.warning("[Storage] Snapshot skipped: account policy unavailable")
         return False
     return not rows or str(rows[0]["value"]).lower() in ("true", "1", "yes", "on")
 

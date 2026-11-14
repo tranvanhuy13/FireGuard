@@ -177,7 +177,8 @@ class VideoAnalyzer:
             if old is None:
                 return
             snapshots = {os.path.basename(event["snapshot"]) for event in self.jobs[old]["events"]}
-            snapshots.update(item["snapshot"] for item in self._controls[old]["notification_evidence"].values())
+            snapshots.update(item["snapshot"] for item in self._controls[old]["notification_evidence"].values()
+                             if item["snapshot"])
             for snapshot in snapshots:
                 # Notified evidence must outlive job eviction so S3 links stay usable.
                 if self.jobs[old].get("owner_user_id") is None and snapshot not in self._controls[old]["notification_snapshots"]:
@@ -261,7 +262,9 @@ class VideoAnalyzer:
             "attempts": previous.get("attempts", 0),
         }
         if result["status"] == "sent" or any(item.get("status") == "sent" for item in result.get("recipients", {}).values()):
-            control["notification_snapshots"].add(control["notification_evidence"][name]["snapshot"])
+            snapshot = control["notification_evidence"][name]["snapshot"]
+            if snapshot:
+                control["notification_snapshots"].add(snapshot)
         self._notification_changed(job_id)
         self._release_notification_snapshot(job_id, name)
         logger.info("[Video %s] Notification %s/%s: %s, attempt=%d",
@@ -279,12 +282,13 @@ class VideoAnalyzer:
         with self._lock:
             control = self._controls[job_id]
             if control["cancel"].is_set() or self._closed:
-                storage.unpin_snapshot(snapshot)
+                if snapshot:
+                    storage.unpin_snapshot(snapshot)
                 return
             self._ensure_notification_workers()
             control["notification_evidence"][name] = {
                 "confidence": confidence, "timestamp": timestamp, "snapshot": snapshot,
-                "path": path, "pinned": True,
+                "path": path, "pinned": bool(snapshot),
             }
             states = self.jobs[job_id]["notifications"].setdefault(name, {})
             # Initialize both channels before either can finish and release the image.
@@ -308,14 +312,15 @@ class VideoAnalyzer:
             if not state or state["status"] not in ("failed", "disabled", "unconfigured"):
                 raise ValueError("Only failed, disabled or unconfigured channels may be retried")
             evidence = control["notification_evidence"][name]
-            if self.jobs[job_id].get("owner_user_id") is not None:
+            owner = self.jobs[job_id].get("owner_user_id")
+            if owner is not None and evidence["snapshot"] and storage.camera_snapshots_allowed(owner, "video"):
                 import evidence as registry
                 try:
                     registry.require_snapshot(evidence["snapshot"], self.jobs[job_id]["owner_user_id"])
                 except Exception as error:
                     raise ValueError("Notification image is expired or unavailable") from error
             self._ensure_notification_workers()
-            pinned_here = not evidence["pinned"]
+            pinned_here = bool(evidence["snapshot"]) and not evidence["pinned"]
             if pinned_here:
                 storage.pin_snapshot(evidence["snapshot"])
                 evidence["pinned"] = True
@@ -380,10 +385,13 @@ class VideoAnalyzer:
                             job_id, name, channel, state["attempts"])
                 path = evidence["path"]
                 owner = self.jobs[job_id].get("owner_user_id")
-                if owner is not None:
+                if not storage.camera_snapshots_allowed(owner, "video"):
+                    path = None
+                    evidence["snapshot"] = None
+                if owner is not None and evidence["snapshot"]:
                     import evidence as registry
                     registry.require_snapshot(evidence["snapshot"], owner)
-                if channel == "telegram":
+                if channel == "telegram" and evidence["snapshot"]:
                     path = storage.restore_snapshot(evidence["snapshot"]) or path
                 results = self.notify(
                     name, evidence["confidence"], path or evidence["snapshot"],
@@ -493,33 +501,35 @@ class VideoAnalyzer:
                     gap = max(2.0, (duration or 0) / MAX_SNAPSHOTS)
                     notify = self.notify is not None and name not in control["notification_evidence"]
                     if notify or (len(events) < MAX_SNAPSHOTS and timestamp - last_snap.get(name, -1e9) >= gap):
-                        snapshot = f"video_{job_id}_{int(timestamp * 1000)}_{name}.jpg"
-                        if notify:
+                        owner = self.jobs[job_id].get("owner_user_id")
+                        save_image = storage.camera_snapshots_allowed(owner, "video")
+                        snapshot = f"video_{job_id}_{int(timestamp * 1000)}_{name}.jpg" if save_image else None
+                        snapshot_url = f"/snapshots/{snapshot}" if snapshot else None
+                        if notify and snapshot:
                             storage.pin_snapshot(snapshot)
                         try:
-                            owner = self.jobs[job_id].get("owner_user_id")
                             scope = ({"owner_user_id": owner, "source_kind": "video", "source_id": job_id}
                                      if owner is not None else {})
-                            path = storage.save_snapshot(snapshot, annotated, keep_local=notify, **scope)
+                            path = storage.save_snapshot(snapshot, annotated, keep_local=notify, **scope) if snapshot else None
                             if owner is not None:
                                 import database
                                 event_id, detected_at = database.add_event(
-                                    name, confidence, f"/snapshots/{snapshot}", owner_user_id=owner,
+                                    name, confidence, snapshot_url, owner_user_id=owner,
                                     source_kind="video", video_job_id=job_id, video_time=timestamp,
                                     video_name=self.jobs[job_id]["filename"])
                                 if self.alert_callback:
                                     self.alert_callback({"id": event_id, "timestamp": detected_at,
                                         "type": name, "confidence": confidence, "status": "new",
-                                        "snapshot": f"/snapshots/{snapshot}", "owner_user_id": owner,
+                                        "snapshot": snapshot_url, "owner_user_id": owner,
                                         "source_kind": "video", "video_job_id": job_id,
                                         "video_time": timestamp, "video_name": self.jobs[job_id]["filename"]})
                         except Exception:
-                            if notify:
+                            if notify and snapshot:
                                 storage.unpin_snapshot(snapshot)
                             raise
                         if notify:
                             self._queue_notification(job_id, name, confidence, timestamp, snapshot, path)
-                        if len(events) < MAX_SNAPSHOTS:
+                        if snapshot and len(events) < MAX_SNAPSHOTS:
                             events.append({"time": timestamp, "class": name, "confidence": confidence,
                                            "snapshot": f"/snapshots/{snapshot}"})
                         last_snap[name] = timestamp
