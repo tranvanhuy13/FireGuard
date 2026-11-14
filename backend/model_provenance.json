@@ -1,0 +1,21 @@
+{
+  "checkpoint": "best.pt",
+  "architecture": "YOLO26n",
+  "classes": ["fire", "smoke"],
+  "sha256": "d2b0be214f45fa01d2044b960c3cb4da4bf65c06a89cf0a1967b0d40e8db4b98",
+  "origin": "externally pretrained evaluation checkpoint",
+  "source": "https://huggingface.co/seawsurf/fire_yolo",
+  "training_arguments_source": "https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml",
+  "published_dataset": "FASDD_CV-derived",
+  "dataset_source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
+  "published_dataset_images_approximate": 95000,
+  "dataset_size_note": "Total dataset size, not verified training split size.",
+  "published_training_configuration": {
+    "epochs_configured": 100,
+    "imgsz": 640,
+    "batch": 256,
+    "patience": 30
+  },
+  "project_retraining_completed": false,
+  "validation_note": "Checkpoint loaded with both required classes; sampled video inference and focused offline tests passed during preparation. Live camera-to-notification acceptance is pending."
+}
