@@ -11,6 +11,16 @@ This branch updates the fire/smoke detection checkpoint for evaluation and prepa
 
 The existing Ultralytics detector interface and class-specific confirmation rules remain in use. Restart the backend to load a changed checkpoint.
 
+## Published training data
+
+The checkpoint configuration points to `FASDD_CV-3/data.yaml`, a FASDD_CV-derived dataset. Its published dataset card describes approximately 95,000 images: 12,500 fire-only, 23,300 smoke-only, 20,100 with both, and 39,100 background images. These are rounded dataset totals, not verified counts of images used for training.
+
+FASDD includes varied lighting, near/far views, indoor/outdoor scenes and confusing non-fire/non-smoke examples. The specific training split manifest for this checkpoint has not been verified; the original paper's split must not be assumed to be the checkpoint's split. No evidence has been verified that this checkpoint was additionally trained on D-Fire, Pyro-SDIS or the project's v2 dataset.
+
+Published training settings: YOLO26n initialization, configured 100 epochs, image size 640, batch 256, patience 30, 12 workers. A configured epoch limit is not proof that every epoch completed.
+
+Sources: [dataset card](https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv), [training arguments](https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml), and [FASDD paper](https://doi.org/10.1080/10095020.2024.2347922).
+
 ## Retraining and acceptance plan
 
 1. Preserve the v2 checkpoint and dataset manifests as the baseline.
