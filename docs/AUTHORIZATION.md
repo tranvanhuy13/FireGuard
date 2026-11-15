@@ -54,6 +54,8 @@ For authorization changes, verify anonymous rejection, role boundaries, account 
 
 ## Password and OTP edge cases
 
+Registration and password-reset OTPs expire after 300 seconds (5 minutes), matching the frontend countdown and the lifetime stated in OTP emails. Reset-code verification returns only the remaining lifetime in `expires_in`; it does not extend the code's expiry. The resend cooldown remains 60 seconds and is separate from code expiry.
+
 Signup/reset allow special characters in passwords. Passwords must contain at least 8 characters and at most 72 UTF-8 bytes (bcrypt input limit); NUL is rejected. Passwords are never trimmed or silently truncated. Username validation remains alphanumeric. The existing frontend strength checklist remains in place. `PASSWORD_TOO_LONG` and `PASSWORD_INVALID` return 400.
 
 Registration and password recovery share a five-attempt OTP limit. A SQLite write transaction serializes code checks and updates. Wrong guesses 1–4 return 400; the fifth invalidates the code and returns 429. Further requests remain 429 until a new code is successfully issued. The expiry timestamp is retained as the sent-time anchor so invalidating a code does not bypass the existing 60-second resend cooldown. Correct registration verification activates the account and clears the code/counter. Lockout is scoped to the OTP challenge, not the permanent account-blocking flag.

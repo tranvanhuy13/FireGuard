@@ -40,7 +40,7 @@ export default function ResetPasswordPage() {
 
   // Phase 1 (OTP) states
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [otpTimeLeft, setOtpTimeLeft] = useState(120);
+  const [otpTimeLeft, setOtpTimeLeft] = useState(300);
   const [isOtpExpired, setIsOtpExpired] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendCount, setResendCount] = useState(0);
@@ -53,7 +53,7 @@ export default function ResetPasswordPage() {
   const [showOtpSuccessBadge, setShowOtpSuccessBadge] = useState(false);
 
   // Phase 2 (New Password) states
-  const [tokenTimeLeft, setTokenTimeLeft] = useState(600); // 10 minutes default
+  const [tokenTimeLeft, setTokenTimeLeft] = useState(300); // 5 minutes default
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -288,12 +288,12 @@ export default function ResetPasswordPage() {
       setOtpError("");
       await authApi.forgotPassword(email);
 
-      const newExpiresAt = Date.now() + 120 * 1000;
+      const newExpiresAt = Date.now() + 300 * 1000;
       sessionStorage.setItem("resetExpiresAt", newExpiresAt.toString());
       sessionStorage.setItem("resetAttempts", "5");
       sessionStorage.removeItem("resetLockedUntil");
 
-      setOtpTimeLeft(120);
+      setOtpTimeLeft(300);
       setIsOtpExpired(false);
       setAttemptsLeft(5);
       setLockedMinutes(null);

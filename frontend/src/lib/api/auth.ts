@@ -441,9 +441,9 @@ export const api = {
               return reject(new ApiError("INVALID_OTP", 400, { remainingAttempts: attempts }));
             }
 
-            resolve({ expiresIn: 600 });
+            resolve({ expiresIn: 300 });
           } else {
-            resolve({ expiresIn: 600 });
+            resolve({ expiresIn: 300 });
           }
         }, 500);
       });

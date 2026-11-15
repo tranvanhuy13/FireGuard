@@ -92,8 +92,8 @@ export default function ForgotPasswordPage() {
 
       await authApi.forgotPassword(email.trim());
 
-      // Save only email and expiresAt (120 seconds) to sessionStorage
-      const expiresAt = Date.now() + 120 * 1000;
+      // Save only email and expiresAt (300 seconds) to sessionStorage
+      const expiresAt = Date.now() + 300 * 1000;
       sessionStorage.setItem("resetEmail", email.trim());
       sessionStorage.setItem("resetExpiresAt", expiresAt.toString());
       sessionStorage.setItem("resetAttempts", "5");

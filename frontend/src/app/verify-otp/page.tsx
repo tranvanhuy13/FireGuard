@@ -21,7 +21,7 @@ function VerifyOtpContent() {
   const [target, setTarget] = useState<string>("");
 
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(300);
   const [isExpired, setIsExpired] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -42,21 +42,18 @@ function VerifyOtpContent() {
 
     let expiresAtStr = sessionStorage.getItem("otpExpiresAt");
     
-    if (!expiresAtStr || parseInt(expiresAtStr) < Date.now()) {
-      const newExpiresAt = Date.now() + 120 * 1000;
+    if (!expiresAtStr) {
+      const newExpiresAt = Date.now() + 300 * 1000;
       sessionStorage.setItem("otpExpiresAt", newExpiresAt.toString());
       expiresAtStr = newExpiresAt.toString();
     }
     
-    const expiresAt = parseInt(expiresAtStr);
-
     const updateTimer = () => {
+      const expiresAt = Number(sessionStorage.getItem("otpExpiresAt"));
       const now = Date.now();
       const diff = Math.max(0, Math.floor((expiresAt - now) / 1000));
       setTimeLeft(diff);
-      if (diff <= 0) {
-        setIsExpired(true);
-      }
+      setIsExpired(diff <= 0);
     };
 
     updateTimer();
@@ -83,9 +80,9 @@ function VerifyOtpContent() {
       setIsLocked(false);
       submittedRef.current = null;
       setResendWait(60);
-      const newExpiresAt = Date.now() + 120 * 1000;
+      const newExpiresAt = Date.now() + 300 * 1000;
       sessionStorage.setItem("otpExpiresAt", newExpiresAt.toString());
-      setTimeLeft(120);
+      setTimeLeft(300);
       setIsExpired(false);
       setOtp(["", "", "", "", "", ""]);
       inputRefs.current[0]?.focus();
@@ -284,7 +281,7 @@ function VerifyOtpContent() {
               <div className="relative w-12 h-12">
                 <svg className="w-full h-full transform -rotate-90">
                   <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" className="text-gray-200" />
-                  <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray={125.6} strokeDashoffset={125.6 - (125.6 * timeLeft) / 120} className="text-sky-500 transition-all duration-1000 linear" />
+                  <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="4" fill="transparent" strokeDasharray={125.6} strokeDashoffset={125.6 - (125.6 * timeLeft) / 300} className="text-sky-500 transition-all duration-1000 linear" />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-navy-900">
                   {minutes}:{seconds.toString().padStart(2, '0')}
