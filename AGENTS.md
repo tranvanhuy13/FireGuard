@@ -13,7 +13,7 @@ Preserve unrelated working-tree changes. Prefer the current checkout; create or 
 
 Do not include secrets, runtime databases, uploaded videos, or generated snapshots in changes. Preserve tracked model weights unless the task explicitly changes the model. Keep local overrides in `backend/.env.local`, which must remain ignored by Git and excluded from Docker builds.
 
-Detection rules belong in `backend/detection_rules.py`; model serialization belongs in `backend/inference_scheduler.py`. Preserve camera priority, cancellation, generation checks, and the separation between uploaded-video results and camera notifications. Do not add simulated detection boxes or confidence values to real camera views.
+Detection rules belong in `backend/app/detection/rules.py`; model serialization belongs in `backend/app/detection/scheduler.py`. Preserve camera priority, cancellation, generation checks, and the separation between uploaded-video results and camera notifications. Do not add simulated detection boxes or confidence values to real camera views.
 
 Use the focused offline tests for camera/detection work. Full backend pytest runs have database and startup side effects; inspect the testing guide first. For frontend code, run TypeScript and relevant lint checks. Documentation-only changes need link/path checks rather than application startup.
 

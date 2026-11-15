@@ -45,7 +45,7 @@ Run the offline regression from `backend/`:
 ```
 
 For the live check, use the deployed backend's Shell or an environment with the
-same S3 variables and run `python storage_smoke.py`. Without importing `main`, it uploads a uniquely named disposable
+same S3 variables and run `python -m scripts.diagnostics.storage_smoke`. Without importing `main`, it uploads a uniquely named disposable
 object under `snapshots/`, HEAD it, read it back, and compare the bytes. Generate
 a signed URL and download it without credentials to verify external access,
 then deletes only that disposable object. It does not log the keys or signed URL.
@@ -54,7 +54,7 @@ backend health check alone does not prove storage works. Do not trigger bot
 notifications or change production users to test storage.
 
 Render Free has no interactive Shell. For a deployment check, temporarily set
-Docker Command to `python storage_smoke.py --start-backend`: it runs the check,
+Docker Command to `python -m scripts.diagnostics.storage_smoke --start-backend`: it runs the check,
 then replaces its process with the normal Uvicorn backend. Restore the empty
 Docker Command after checking the deploy logs to avoid testing on every startup.
 

@@ -12,9 +12,9 @@ Hai fixture `autouse=True` trong cùng tệp áp dụng cho toàn thư mục. Đ
 
 Ba module import `main` ngay khi collection, có thể khởi động dịch vụ:
 
-- `backend/tests/test_all_apis.py`
-- `backend/tests/test_health_and_auth.py`
-- `backend/tests/test_notifications.py`
+- `backend/tests/integration/test_all_apis.py`
+- `backend/tests/integration/test_health_and_auth.py`
+- `backend/tests/integration/test_notifications.py`
 
 `test_mysql_concurrency.py` là bộ unittest dùng MySQL thật có điều kiện riêng; cần giữ cả cờ bật và kiểm tra hậu tố `_test`. `test_mysql_persistence.py` dùng SQLite tạm cho kiểm thử ngoại tuyến có chủ đích, không phải cơ chế thay MySQL của ứng dụng.
 
@@ -54,7 +54,7 @@ Giữ các tệp test tại đường dẫn hiện có để giảm thay đổi 
 
 ### 4. Kiểm thử hồi quy cho chính test harness
 
-Thêm `backend/tests/test_test_harness.py`. Chạy pytest trong tiến trình con có timeout và môi trường được kiểm soát, không kế thừa thông tin DB thật. Chỉ chạy các test con an toàn được chỉ định; không để test harness gọi lại chính nó vô hạn.
+Thêm `backend/tests/unit/test_test_harness.py`. Chạy pytest trong tiến trình con có timeout và môi trường được kiểm soát, không kế thừa thông tin DB thật. Chỉ chạy các test con an toàn được chỉ định; không để test harness gọi lại chính nó vô hạn.
 
 | Tình huống | Kết quả cần đạt |
 | --- | --- |

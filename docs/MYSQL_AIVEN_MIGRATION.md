@@ -56,7 +56,7 @@ retrying; never drop production tables to make a retry pass.
 For a NEW empty installation only, optionally seed default settings and Camera 1:
 
 ```powershell
-.\venv\Scripts\python.exe -m scripts.seed_mysql
+.\venv\Scripts\python.exe -m scripts.provisioning.seed_mysql
 ```
 
 Seeding is idempotent. Do not seed before importing legacy data: the importer
@@ -74,8 +74,8 @@ intentionally refuses nonempty application tables.
 5. Run the default rollback-only rehearsal, then explicitly commit:
 
 ```powershell
-.\venv\Scripts\python.exe -m scripts.migrate_sqlite_to_mysql --operational-db D:/backups/fire_guard.db --auth-db D:/backups/auth.db
-.\venv\Scripts\python.exe -m scripts.migrate_sqlite_to_mysql --operational-db D:/backups/fire_guard.db --auth-db D:/backups/auth.db --apply
+.\venv\Scripts\python.exe -m scripts.migration.migrate_sqlite_to_mysql --operational-db D:/backups/fire_guard.db --auth-db D:/backups/auth.db
+.\venv\Scripts\python.exe -m scripts.migration.migrate_sqlite_to_mysql --operational-db D:/backups/fire_guard.db --auth-db D:/backups/auth.db --apply
 ```
 
 Sources are opened read-only. The importer preserves IDs and compares imported

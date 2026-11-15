@@ -6,12 +6,12 @@ Trạng thái: đã sửa mã nguồn trên nhánh `fix/bug-015-auth-timing`; ki
 
 Tệp `test_3110_bug.xlsx`, vùng `Sheet1!A16:K16`, mô tả lỗi dò tìm tài khoản qua chênh lệch thời gian phản hồi, có mức độ nghiêm trọng và độ ưu tiên trung bình. Số liệu khoảng 0,5 ms so với 200 ms là ghi nhận trong báo cáo, không phải kết quả đo khi lập kế hoạch này. Cột H mô tả tác động của cuộc tấn công thay vì hành vi mong đợi. Mục tiêu là thực hiện lượng công việc kiểm tra mật khẩu tương đương giữa tài khoản không tồn tại và tài khoản tồn tại nhưng sai mật khẩu.
 
-Hai luồng bị ảnh hưởng trong `backend/auth/dependencies.py`:
+Hai luồng bị ảnh hưởng trong `backend/app/auth/dependencies.py`:
 
 - `authenticate_user` trả về trước khi xác minh mật khẩu nếu không tìm thấy người dùng.
 - `get_current_user` dùng `user and verify_password(...)`, khiến bcrypt bị bỏ qua khi người dùng không tồn tại. Đây là dependency thực tế của `GET /auth/login` trong `backend/main.py` và các route yêu cầu xác thực khác.
 
-Chỉ sửa `authenticate_user` sẽ khiến luồng đăng nhập thực tế vẫn còn lỗ hổng. `backend/auth/utils.py` quản lý cấu hình bcrypt của Passlib và các hàm mật khẩu. `backend/auth/login_limiter.py` quản lý giữ chỗ cho lượt thử và ghi nhận các lần thất bại.
+Chỉ sửa `authenticate_user` sẽ khiến luồng đăng nhập thực tế vẫn còn lỗ hổng. `backend/app/auth/utils.py` quản lý cấu hình bcrypt của Passlib và các hàm mật khẩu. `backend/app/auth/login_limiter.py` quản lý giữ chỗ cho lượt thử và ghi nhận các lần thất bại.
 
 Bảng tính ghi đã có `TC_LOG_EDGE_004`, nhưng chưa tìm thấy mã kiểm thử này trong mã nguồn hiện tại. Cần bổ sung hoặc tìm lại, không coi đó là kiểm thử đã đạt.
 
@@ -42,7 +42,7 @@ Giữ nguyên các thay đổi đang có. Đọc `docs/system/TESTING.md` trư�
 
 ### 2. Thêm mã băm giả và hàm xác minh chung
 
-Trong `backend/auth/dependencies.py`, bổ sung dòng import:
+Trong `backend/app/auth/dependencies.py`, bổ sung dòng import:
 
 ```python
 from .utils import get_password_hash, verify_password
@@ -98,7 +98,7 @@ Xử lý `ValueError` hiện có phải tiếp tục từ chối mật khẩu kh
 
 ### 5. Bổ sung kiểm thử hồi quy
 
-Tạo `backend/tests/test_auth_timing.py` bằng `unittest` và mock. Patch đối tượng tại nơi được sử dụng trong `auth.dependencies`. Dùng người dùng và cơ sở dữ liệu giả lập; không import `main` hoặc kết nối MySQL. Gọi hàm `get_current_user` thực tế với request, cơ sở dữ liệu và thông tin đăng nhập được truyền rõ ràng.
+Tạo `backend/tests/unit/test_auth_timing.py` bằng `unittest` và mock. Patch đối tượng tại nơi được sử dụng trong `auth.dependencies`. Dùng người dùng và cơ sở dữ liệu giả lập; không import `main` hoặc kết nối MySQL. Gọi hàm `get_current_user` thực tế với request, cơ sở dữ liệu và thông tin đăng nhập được truyền rõ ràng.
 
 Kiểm tra cả hai hàm xác thực:
 
@@ -174,5 +174,5 @@ Phép đo cho thấy đã loại bỏ đường trả về nhanh bỏ qua bcrypt
 ## Tài liệu tham khảo
 
 - Tệp người dùng cung cấp: `test_3110_bug.xlsx`, vùng `Sheet1!A16:K16`.
-- Mã nguồn: `backend/auth/dependencies.py`, `backend/auth/utils.py`, `backend/auth/login_limiter.py`, `backend/main.py`.
+- Mã nguồn: `backend/app/auth/dependencies.py`, `backend/app/auth/utils.py`, `backend/app/auth/login_limiter.py`, `backend/main.py`.
 - [OWASP Authentication Cheat Sheet: phản hồi xác thực](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-responses): giải thích thông báo lỗi chung và chênh lệch thời gian do trả về sớm.

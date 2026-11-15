@@ -35,7 +35,7 @@ Migration runs during backend startup and adds `role` (default `user`) and `is_b
 To provision the first administrator, run from `backend/` against the intended account database:
 
 ```powershell
-.\venv\Scripts\python.exe -m auth.set_role EXISTING_VERIFIED_USERNAME admin
+.\venv\Scripts\python.exe -m scripts.provisioning.set_role EXISTING_VERIFIED_USERNAME admin
 ```
 
 The command loads `.env.local` and `.env` with process variables taking precedence, and honors `AUTH_DB_PATH`. It requires an existing verified, unblocked account. No default admin password is created. Log in again after assigning the role.

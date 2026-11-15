@@ -44,7 +44,7 @@ Các thay đổi có trước được giữ nguyên: `AGENTS.md`, `docs/BUG-018
 
 ### R01 — P1 — Các route vận hành/media không yêu cầu xác thực
 
-- **Vị trí:** `backend/main.py:157`, `:286`, `:314`, `:329`, `:336`, `:351`, `:362`, `:402`, `:444`, `:454`, `:483`, `:497`, `:518`, `:591`; đối chiếu `backend/auth/stream_tokens.py` và `docs/system/ARCHITECTURE.md`.
+- **Vị trí:** `backend/main.py:157`, `:286`, `:314`, `:329`, `:336`, `:351`, `:362`, `:402`, `:444`, `:454`, `:483`, `:497`, `:518`, `:591`; đối chiếu `backend/app/auth/stream_tokens.py` và `docs/system/ARCHITECTURE.md`.
 - **Hiện trạng:** không có dependency xác thực toàn app; các route camera, lịch sử, video/job và WebSocket nêu trên không gắn kiểm tra user/token. Feed và alerts socket nhận token nhưng bỏ qua. Module xác minh token có tồn tại nhưng không được nối vào các route này; `main.py` còn có một hàm tạo token riêng với cách ký khác.
 - **Tác động:** khi backend có thể truy cập từ ngoài, người chưa đăng nhập có thể xem dữ liệu/ảnh, bật tắt hoặc xóa camera, tạo và điều khiển job. Trạng thái blocked/password change không bảo vệ các luồng public. Caddy production chỉ reverse proxy, không bổ sung lớp xác thực.
 - **Kiểm chứng đề xuất:** trên app thử nghiệm có dependency dịch vụ giả, gửi request không Authorization tới camera mutations, lịch sử, upload và mở socket không token. Không thử xóa camera trên môi trường thật.
@@ -52,7 +52,7 @@ Các thay đổi có trước được giữ nguyên: `AGENTS.md`, `docs/BUG-018
 
 ### R02 — P1 — Chặn kích thước upload quá muộn
 
-- **Vị trí:** `backend/main.py:362–397`; `backend/auth/upload.py`.
+- **Vị trí:** `backend/main.py:362–397`; `backend/app/auth/upload.py`.
 - **Hiện trạng:** `UploadFile = File(...)` được FastAPI parse trước khi vào handler. Bộ đếm 500 MB chỉ chạy khi đọc lại `file.file` để ghi file ứng dụng. `AuthenticatedUploadRoute` đã có sẵn nhưng route thực tế không sử dụng.
 - **Tác động:** body lớn hoặc nhiều upload đồng thời có thể chiếm tài nguyên spool/temp trước khi bị trả 413. Giới hạn 20 job chỉ áp dụng khi submit, sau bước đọc/ghi upload. R01 làm tăng khả năng bị lạm dụng nhưng lỗi giới hạn body vẫn còn ngay cả sau khi thêm đăng nhập.
 - **Hướng sửa:** xác thực trước parse, giới hạn body tại proxy/ASGI có đếm byte thực nhận, hạn chế upload đồng thời và dọn tài nguyên khi client ngắt. Không chỉ tin `Content-Length`. Kiểm tra body vượt giới hạn bị dừng trước khi ghi toàn bộ.
@@ -65,7 +65,7 @@ Các thay đổi có trước được giữ nguyên: `AGENTS.md`, `docs/BUG-018
 
 ### R04 — P1 — DB lỗi khiến trạng thái camera bị lệch
 
-- **Vị trí:** `backend/camera_manager.py:384–412`.
+- **Vị trí:** `backend/app/cameras/manager.py:384–412`.
 - **Điều kiện:** MySQL lỗi trong `set_db_camera_status` hoặc `delete_db_camera`.
 - **Hiện trạng:** toggle gọi `cam.set_active` trước ghi DB; remove `pop` và dừng camera trước xóa DB. Không có khôi phục khi ghi thất bại.
 - **Tác động:** request báo lỗi nhưng camera thật đã tắt/bật hoặc biến mất khỏi RAM; sau restart, cấu hình cũ trong DB có thể làm camera xuất hiện/chạy trở lại. Đặc biệt đáng chú ý với thao tác tắt giám sát.
@@ -73,21 +73,21 @@ Các thay đổi có trước được giữ nguyên: `AGENTS.md`, `docs/BUG-018
 
 ### R05 — P1 — Schema cũ vẫn được báo sẵn sàng
 
-- **Vị trí:** `backend/db/engine.py:132–142`; `backend/migrations/versions/0001_initial_mysql.py`, `0002_user_profile.py`; `backend/users/routes.py`.
+- **Vị trí:** `backend/app/db/engine.py:132–142`; `backend/migrations/versions/0001_initial_mysql.py`, `0002_user_profile.py`; `backend/app/users/routes.py`.
 - **Hiện trạng:** `check_database` chấp nhận cả `0001_mysql` và `0002_user_profile`, chỉ thử `SELECT 1` từ bảng. Trong khi `/users/me` truy cập trực tiếp các cột profile và route cập nhật ghi `full_name`, `phone`, `avatar_url`, vốn chỉ được thêm ở 0002.
 - **Tác động:** database ở revision 0001 có thể vượt readiness; đọc profile trả rỗng qua default dataclass, nhưng lưu profile sẽ lỗi SQL do thiếu cột. Người vận hành nhận tín hiệu readiness sai cho phiên bản ứng dụng hiện tại.
 - **Hướng sửa:** yêu cầu revision tương thích có đủ cột, lý tưởng đối chiếu head migration thay vì danh sách revision cũ. Kiểm thử bằng schema 0001 trong database dùng một lần; readiness phải từ chối trước khi phục vụ.
 
 ### R06 — P2 — Lịch sử mất định danh camera nguồn
 
-- **Vị trí:** `backend/database.py:28–33`; `backend/db/schema.py:16–19`; `backend/camera_manager.py:554–578`; `frontend/src/app/dashboard/history/page.tsx:57`, `:160`, `:192`.
+- **Vị trí:** `backend/app/db/repositories/operations.py:28–33`; `backend/app/db/schema.py:16–19`; `backend/app/cameras/manager.py:554–578`; `frontend/src/app/dashboard/history/page.tsx:57`, `:160`, `:192`.
 - **Hiện trạng:** bảng event và `add_event` không lưu `camera_id`/`camera_name`. Realtime payload có tên nhưng truy vấn lịch sử không có. UI vẫn dùng `camera_id` để hiển thị, tìm kiếm, sắp xếp và xuất CSV.
 - **Tác động:** xuất hiện `Cam undefined`, mất khả năng truy nguồn sau reload; CSV không có camera. Nhiều camera khó phân biệt sự kiện.
 - **Hướng sửa:** migration thêm định danh và tên chụp tại thời điểm xảy ra; truyền từ camera tới repository và API. Với dữ liệu cũ, hiển thị “không xác định” thay vì tự suy đoán.
 
 ### R07 — P2 — Bot không nhận tên camera
 
-- **Vị trí:** `backend/camera_manager.py:582–584`; `backend/notification.py:260–270`.
+- **Vị trí:** `backend/app/cameras/manager.py:582–584`; `backend/app/notifications/service.py:260–270`.
 - **Hiện trạng:** `trigger_notifications` có tham số `camera_name`, nhưng caller camera chỉ truyền loại, confidence, ảnh. Do đó body không có Source/Camera như tài liệu kiến trúc mô tả.
 - **Tác động:** người nhận biết có cháy/khói nhưng không biết camera nào, đặc biệt khi có nhiều nguồn.
 - **Hướng sửa:** chụp tên camera cùng event và truyền rõ vào notification; tránh đọc tên mutable quá muộn. Test body của hai kênh bằng sender giả.
@@ -109,7 +109,7 @@ Các thay đổi có trước được giữ nguyên: `AGENTS.md`, `docs/BUG-018
 
 ### R10 — P2 — Ảnh nhiều event có thể ghi đè nhau
 
-- **Vị trí:** `backend/camera_manager.py:554–556`; giới hạn cooldown tại `backend/main.py:558–565`.
+- **Vị trí:** `backend/app/cameras/manager.py:554–556`; giới hạn cooldown tại `backend/main.py:558–565`.
 - **Điều kiện:** cooldown hợp lệ bằng 0 hoặc nhỏ hơn 1 giây; cùng camera/class tạo nhiều event trong một giây.
 - **Hiện trạng:** tên ảnh chỉ có timestamp chính xác tới giây + camera + class.
 - **Tác động:** nhiều event DB trỏ vào cùng ảnh bị ghi đè; ảnh được bot đính kèm có thể thuộc event khác.

@@ -16,7 +16,7 @@ The header's Internet indicator reflects browser connectivity, not backend healt
 
 The browser runs a Next.js frontend. HTTP requests reach FastAPI; camera images use MJPEG streams, while detection status, alerts, and analyzed video state use WebSockets. The backend owns camera capture, the YOLO model, MySQL persistence, and notification delivery.
 
-`backend/main.py` loads configuration before importing services that read environment variables. Importing the application checks the migrated MySQL schema, ensures model availability, loads YOLO, and constructs the camera/video managers. It is not a side-effect-free library import. The FastAPI lifespan installs the alert callback and shuts down managers.
+`backend/main.py` delegates to `app.bootstrap.create_app()`. Bootstrap loads environment configuration before importing services, checks the migrated MySQL schema, ensures model availability, loads YOLO and constructs the camera/video managers. Importing `main` still starts these services; importing route modules does not start managers. Routes use the process-owned services in `app.core.runtime`. The FastAPI lifespan installs alert callbacks and shuts down managers and the shared MySQL engine.
 
 ## Camera processing
 
