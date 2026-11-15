@@ -126,9 +126,9 @@ For deletion while the API is asleep, run an hourly external scheduler using the
 same MySQL/S3 environment and CA certificate, with the backend image:
 
 ```bash
-python cleanup_snapshots.py
+python -m scripts.maintenance.cleanup_snapshots
 # Or, from the production checkout:
-docker compose -f deploy/docker-compose.yml --env-file /opt/fireguard/.env run --rm --no-deps backend python cleanup_snapshots.py
+docker compose -f deploy/docker-compose.yml --env-file /opt/fireguard/.env run --rm --no-deps backend python -m scripts.maintenance.cleanup_snapshots
 ```
 
 This command imports neither the detector nor `main`, and starts no cameras/bots.
@@ -139,9 +139,9 @@ deletion, while authorization expiry is independent of cleanup completion.
 
 ## Verification
 
-Run `python -m pytest tests/test_private_evidence.py tests/test_event_history.py
-tests/test_api_security_registration.py tests/test_realtime_detection.py
-tests/test_video_database_recovery.py tests/test_s3_url_store.py -q` from backend.
+Run `python -m pytest tests/unit/test_private_evidence.py tests/unit/test_event_history.py
+tests/unit/test_api_security_registration.py tests/unit/test_realtime_detection.py
+tests/unit/test_video_database_recovery.py tests/unit/test_s3_url_store.py -q` from backend.
 The private-evidence fixtures forbid connections to a live database.
 Run TypeScript, affected-file ESLint and `tests/private_evidence.spec.ts` on an
 isolated frontend with API/WS origins `http://127.0.0.1:18080` and
@@ -165,11 +165,11 @@ Use the operator CLI from `backend/` to inspect unassigned cameras, then provide
 only independently verified camera-to-username mappings:
 
 ```powershell
-.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras
+.\venv\Scripts\python.exe -m scripts.maintenance.assign_legacy_cameras
 # Dry-run: prints target account IDs and camera names, never writes.
-.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME
+.\venv\Scripts\python.exe -m scripts.maintenance.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME
 # Apply exactly the reviewed mapping.
-.\venv\Scripts\python.exe -m scripts.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME --apply
+.\venv\Scripts\python.exe -m scripts.maintenance.assign_legacy_cameras --assign 1:ACCOUNT_NAME --assign 5:ACCOUNT_NAME --apply
 ```
 
 The command requires active, unblocked accounts and refuses duplicate mappings,

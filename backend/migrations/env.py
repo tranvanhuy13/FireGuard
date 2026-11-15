@@ -1,6 +1,6 @@
 from alembic import context
-from db.engine import get_engine
-from db.schema import metadata
+from app.db.engine import get_engine
+from app.db.schema import metadata
 
 if context.is_offline_mode():
     context.configure(dialect_name="mysql", target_metadata=metadata, literal_binds=True)

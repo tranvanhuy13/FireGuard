@@ -11,7 +11,7 @@ These are maintenance guidelines for changes to this repository. For current run
 
 ## Detection and concurrency
 
-- Put class normalization, confidence filtering and confirmation policy in `detection_rules.py` so videos and cameras agree.
+- Put class normalization, confidence filtering and confirmation policy in `app/detection/rules.py` so videos and cameras agree.
 - Keep one model owner through `InferenceScheduler`; do not call the shared YOLO model concurrently from capture/video threads.
 - Preserve camera priority and latest-frame processing. Avoid unbounded frame or event queues.
 - Preserve camera activation, generation checks and device lease release. Disabled cameras must not publish new frames or process stale-session results.

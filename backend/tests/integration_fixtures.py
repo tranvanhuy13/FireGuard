@@ -2,8 +2,8 @@
 import pytest
 
 from unittest.mock import patch
-from auth.utils import get_password_hash
-from db.engine import get_connection
+from app.auth.utils import get_password_hash
+from app.db.engine import get_connection
 
 @pytest.fixture(autouse=True)
 def mock_otp_email_sending(request):
@@ -11,7 +11,7 @@ def mock_otp_email_sending(request):
     if request.node.get_closest_marker("integration") is None:
         yield
         return
-    with patch("auth.routes.send_otp_email", return_value=True):
+    with patch("app.auth.routes.send_otp_email", return_value=True):
         yield
 
 @pytest.fixture(autouse=True)

@@ -1,62 +1,74 @@
 # File structure
 
-## Repository layout
+## Backend layout
 
 ```text
-AI-fire-detection/
-|-- AGENTS.md                 Coding-agent entry point
-|-- backend/                  FastAPI, OpenCV, YOLO, persistence, notifications
-|   |-- auth/                 Credentials, OTP, password reset, account database
-|   |-- users/                User data models and current-user route
-|   |-- tests/                Offline regressions and API integration tests
-|   |-- .env.local.example    Template for private local overrides
-|   |-- .dockerignore         Backend build exclusions
-|   |-- Dockerfile            Backend container build and runtime defaults
-|   |-- LOCAL_DEVELOPMENT.md  Local environment instructions
-|   `-- requirements.txt      Python dependencies
-|-- frontend/                 Next.js application with React and TypeScript
-|   |-- src/app/              App Router pages and layouts
-|   |-- src/components/       Shared UI and camera/video components
-|   |-- src/context/          Authentication and language providers
-|   |-- src/lib/api/          API client, account calls, mock service
-|   |-- src/locales/          English and Vietnamese strings
-|   |-- public/               Static public assets
-|   |-- tests/                Playwright browser tests
-|   |-- .env.example          Frontend environment template
-|   |-- package.json          Scripts and JavaScript dependencies
-|   |-- playwright.config.ts Browser test settings
-|   `-- Dockerfile            Frontend container build
-|-- deploy/                   Compose, reverse proxy, storage, VM scripts
-|-- .github/workflows/        Local and cloud deployment workflows
-|-- docs/                     API notes, feature docs, screenshots, proposal
-|   `-- system/               This documentation collection
-|-- start.bat                 Windows launcher for backend and frontend
-|-- start-local-backend.sh    Starts the local Compose backend service
-|-- .gitignore               Source-control exclusions
-`-- LICENSE                  Repository license
+backend/
+|-- main.py                    Stable uvicorn main:app entry point
+|-- app/
+|   |-- bootstrap.py           Service construction, router wiring and lifecycle
+|   |-- core/                  Environment/paths, CORS, health routes, runtime services
+|   |-- auth/                  Credentials, OTP, recovery, sessions, audit and tokens
+|   |-- users/                 User routes, models and request/response schemas
+|   |-- cameras/               Camera routes, source schema, capture manager and streams
+|   |-- detection/             Detector, shared confirmation rules and model scheduler
+|   |-- videos/                Upload/playback routes, control schemas and analyzer
+|   |-- events/                History, alert/statistics routes and alert WebSocket
+|   |-- settings/              Settings routes and bounded settings cache
+|   |-- notifications/         Recipient routes/repository, bot delivery and test route
+|   |-- storage/               Snapshot routes, storage providers, evidence and S3 URLs
+|   `-- db/                    MySQL configuration, engine, schema and repositories
+|-- migrations/                Existing Alembic revision history
+|-- scripts/
+|   |-- maintenance/           Snapshot cleanup and legacy camera assignment
+|   |-- migration/             Read-only legacy SQLite import into MySQL
+|   |-- provisioning/          Seed, test-account provisioning and operator role changes
+|   `-- diagnostics/           Explicit live storage smoke check
+|-- tests/
+|   |-- unit/                  Offline regressions and in-process API-handler checks
+|   |-- integration/           Opt-in live app and real MySQL checks
+|   |-- conftest.py            Integration opt-in and disposable-database safety gate
+|   |-- integration_mode.py    Shared opt-in state
+|   |-- integration_fixtures.py Database-writing fixtures, opt-in only
+|   |-- source.py              Actual route ASTs for isolated handler tests
+|   `-- mocks.py               Package module/parent-binding isolation helper
+|-- best.pt                    Default local model; path unchanged
+|-- model_provenance.json      Checkpoint provenance
+|-- Dockerfile
+|-- .dockerignore
+|-- .env.local.example
+|-- alembic.ini
+|-- pytest.ini
+|-- requirements.txt
+|-- requirements-test.txt
+`-- LOCAL_DEVELOPMENT.md
 ```
 
-## Backend modules
+Python package directories contain `__init__.py`. Local `.env.local`, `certs/`,
+`snapshots/`, `uploads_tmp/`, `migration_backups/`, `venv/`, caches and legacy
+SQLite files remain at their existing locations. They are runtime/developer
+files, not application packages; moving source does not migrate or delete data.
 
-| File | Responsibility |
+## Backend responsibilities
+
+| Module | Responsibility |
 | --- | --- |
-| [main.py](../../backend/main.py) | Environment loading, application startup/shutdown, HTTP and WebSocket routes, service wiring |
-| [detection.py](../../backend/detection.py) | Load YOLO weights, validate required classes, produce raw detections |
-| [detection_rules.py](../../backend/detection_rules.py) | Normalize class names, read settings, filter confidence, confirm observations, draw boxes |
-| [inference_scheduler.py](../../backend/inference_scheduler.py) | Serialize access to the shared model and prioritize waiting cameras |
-| [camera_manager.py](../../backend/camera_manager.py) | Shared webcam leases, capture threads, current frames, overlays, event queue, live detection state |
-| [video_analyzer.py](../../backend/video_analyzer.py) | Upload job queue, paced analyzed frames, pause/resume/restart/cancel, evidence and cleanup |
-| [database.py](../../backend/database.py) | SQLite camera records, settings, detection events and statistics |
-| [storage.py](../../backend/storage.py) | Local snapshots, MinIO/S3 or GCS access, model retrieval, pending snapshot synchronization |
-| [notification.py](../../backend/notification.py) | Zalo/Telegram notification delivery and channel cooldown |
-| [auth/database.py](../../backend/auth/database.py) | Separate SQLite account database |
-| [auth/dependencies.py](../../backend/auth/dependencies.py) | HTTP Basic credential validation and database dependencies |
-| [auth/upload.py](../../backend/auth/upload.py) | Early HTTP Basic gate for video uploads, before multipart parsing |
-| [auth/routes.py](../../backend/auth/routes.py) | Signup, account OTP, and password-reset endpoints |
-| [auth/utils.py](../../backend/auth/utils.py) | Password hashing, OTP and mail helpers |
-| [users/routes.py](../../backend/users/routes.py) | Authenticated current-user endpoint |
+| `main.py` | Builds the app through `app.bootstrap.create_app`; keeps the deployment entry point |
+| `app/bootstrap.py` | Loads environment before service imports, starts shared services, registers routers and shuts down managers/pool |
+| `app/core/config.py` | Resolves backend-root paths and preserves process/local/shared environment precedence |
+| `app/core/runtime.py` | One process-owned camera/video service set and alert event loop; no services start on import |
+| `app/cameras/manager.py` | Webcam leases, capture threads, latest frames, overlays and event queue |
+| `app/detection/rules.py` | Class normalization, thresholds, confirmation and drawing for cameras/videos |
+| `app/detection/scheduler.py` | One model owner with camera priority and cancellation |
+| `app/videos/analyzer.py` | Upload queue, paced playback, control, evidence and independent bot queue |
+| `app/db/repositories/operations.py` | Camera/settings/events/statistics persistence using the shared MySQL engine |
+| `app/auth/database.py` | Account connection compatibility using the same shared MySQL database |
+| `app/notifications/repository.py` | Account-owned recipient persistence |
+| `app/storage/service.py` | Local/cloud snapshots, model retrieval and background retention/synchronization |
 
-Schema/model files in `auth/` and `users/` define request, response, and user data structures. Read the route and its schema together when changing account behavior.
+Public HTTP/WebSocket paths remain unchanged. The repository also contains
+`frontend/` (Next.js), `deploy/` (Compose/proxy/VM scripts), `.github/workflows/`
+(CI/deployment) and `docs/` (guides and historical design notes).
 
 ## Frontend feature map
 
@@ -87,16 +99,22 @@ A page existing in the frontend does not imply the backend implements every matc
 
 Databases (`*.db`), `.env`/`.env.local`, snapshots, temporary uploads, virtual environments, `node_modules/`, build outputs, logs, and browser-test artifacts are runtime/developer data rather than architectural source modules. Do not infer tracked status from their presence on disk; use `git status` and `git ls-files`. Temporary video uploads are managed by `VideoAnalyzer`.
 
-### Notification destination management
+## Persistence and operator commands
 
-- [notification_targets.py](../../backend/notification_targets.py): SQLite destination persistence used by UI and bot delivery.
-- [notification_routes.py](../../backend/notification_routes.py): admin-only account/group CRUD and explicit recipient test delivery.
+Accounts, cameras, settings, evidence and notification recipients share MySQL.
+SQLite is used only for legacy import and disposable offline test storage.
+Alembic files remain under `backend/migrations/` and import `app.db`.
 
-## MySQL persistence
+Run operator commands from `backend/` with `python -m`, for example:
 
-- `backend/db/`: shared configuration, pooled connection adapter and SQLAlchemy schema.
-- `backend/alembic.ini`, `backend/migrations/`: versioned MySQL schema and transaction lock rows.
-- `backend/scripts/migrate_sqlite_to_mysql.py`: read-only legacy SQLite import; dry run by default.
-- `backend/scripts/seed_mysql.py`: optional idempotent defaults for new databases.
-- `backend/tests/test_mysql_persistence.py`, `test_mysql_concurrency.py`: offline and opt-in MySQL checks.
-- [Aiven migration runbook](../MYSQL_AIVEN_MIGRATION.md).
+```text
+python -m scripts.maintenance.assign_legacy_cameras
+python -m scripts.migration.migrate_sqlite_to_mysql --help
+python -m scripts.provisioning.seed_mysql
+python -m scripts.provisioning.provision_camera_test_account --help
+python -m scripts.provisioning.set_role --help
+python -m scripts.diagnostics.storage_smoke
+```
+
+Read each command's help and side effects before execution. Cleanup, provisioning,
+role changes and live diagnostics are not part of offline verification.

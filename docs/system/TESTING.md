@@ -7,16 +7,16 @@ Commands below assume existing dependencies are installed. They are guidance, no
 From `backend/`, run the offline suites:
 
 ```powershell
-.\venv\Scripts\python.exe -m unittest discover -s tests -p test_camera_lifecycle.py
-.\venv\Scripts\python.exe -m unittest discover -s tests -p test_realtime_detection.py
-.\venv\Scripts\python.exe -m unittest discover -s tests -p test_admin_profile.py
-.\venv\Scripts\python.exe -m unittest discover -s tests -p test_auth_timing.py
-.\venv\Scripts\python.exe -m unittest discover -s tests -p test_notification_permissions.py
+.\venv\Scripts\python.exe -m unittest discover -s tests/unit -p test_camera_lifecycle.py
+.\venv\Scripts\python.exe -m unittest discover -s tests/unit -p test_realtime_detection.py
+.\venv\Scripts\python.exe -m unittest discover -s tests/unit -p test_admin_profile.py
+.\venv\Scripts\python.exe -m unittest discover -s tests/unit -p test_auth_timing.py
+.\venv\Scripts\python.exe -m unittest discover -s tests/unit -p test_notification_permissions.py
 ```
 
 These suites isolate hardware/storage dependencies. Camera checks cover enable/disable, shared webcam leases, confirmation/cooldowns and stale state. Real-time checks cover settings, model scheduling, playback, cancellation, source retention and API handler contracts, including upload rejection before body reads and pause/resume slot handoff between videos. API handlers are exercised in-process with fake sockets; this is not a full network/browser test.
 
-Live source/capture regressions also run with `python -m pytest tests/test_camera_sources.py tests/test_camera_lifecycle.py tests/test_api_security_registration.py -q`.
+Live source/capture regressions also run with `python -m pytest tests/unit/test_camera_sources.py tests/unit/test_camera_lifecycle.py tests/unit/test_api_security_registration.py -q`.
 They cover source preservation/validation, changes during a blocked read, failed
 database writes, capture timeouts and independent capture/AI freshness. Devices,
 network streams and persistence are mocked.
@@ -24,12 +24,12 @@ network streams and persistence are mocked.
 Use syntax compilation when appropriate:
 
 ```powershell
-.\venv\Scripts\python.exe -m py_compile main.py camera_manager.py detection.py detection_rules.py inference_scheduler.py video_analyzer.py
+.\venv\Scripts\python.exe -m py_compile main.py app/cameras/manager.py app/detection/detector.py app/detection/rules.py app/detection/scheduler.py app/videos/analyzer.py
 ```
 
 Compilation does not load the application or verify runtime model accuracy.
 
-`test_admin_profile.py` extracts the actual login/audit route definitions without
+`test_admin_profile.py` extracts the actual login/audit route definitions from the feature packages without
 importing main. It checks admin/user login roles, profile email validation, audit
 pagination, anonymous/user rejection and connection cleanup with a fake repository.
 It does not connect to MySQL, load model weights, or start cameras.
@@ -142,7 +142,7 @@ The review regressions additionally run with:
 
 ```powershell
 # backend, offline services only
-.\venv\Scripts\python.exe -m pytest tests/test_api_security_registration.py tests/test_upload_limits.py tests/test_event_history.py tests/test_schema_readiness.py -q
+.\venv\Scripts\python.exe -m pytest tests/unit/test_api_security_registration.py tests/unit/test_upload_limits.py tests/unit/test_event_history.py tests/unit/test_schema_readiness.py -q
 # frontend
 node --test tests/api_client.unit.cjs tests/dashboard_connection.unit.cjs
 ```
@@ -157,7 +157,7 @@ For Markdown-only changes, verify relative links, referenced source paths, code-
 ## Notification permissions regression checks
 
 `test_notification_permissions.py` mounts the real notification router using the
-main module's registration AST without importing main. It stubs database lookups,
+bootstrap module's registration AST without importing main. It stubs database lookups,
 audit writes and bot delivery while exercising actual verified/blocked-account
 checks, account-owned CRUD/test for both roles, validation/conflicts, settings permissions
 and the global test-delivery route. It never changes Aiven data or sends messages.
@@ -173,7 +173,7 @@ covered separately by the MySQL suite on an empty disposable *_test database.
 
 ## Video database-outage and bot regression checks
 
-From backend, run `python -m unittest discover -s tests -p test_video_database_recovery.py`.
+From backend, run `python -m unittest discover -s tests/unit -p test_video_database_recovery.py`.
 The suite uses simulated MySQL errors, mocked bot HTTP responses and generated
 video frames. It covers stale-settings survival, cache recovery/concurrent writes,
 bounded read-only retry, cold failure sanitization, video callback wiring, pending
@@ -189,3 +189,14 @@ SQLite storage (never a runtime fallback), including cross-account CRUD denial,
 owner-scoped uniqueness/capacity, legacy quarantine, independent active flags and
 cooldowns, and delivery without legacy global destinations. Run it alongside
 `test_notification_permissions.py` and the camera/video notification suites.
+
+## Package refactor checks
+
+Application code lives under `backend/app/`. Offline suites live under
+`tests/unit/`; opt-in live suites live under `tests/integration/`. Shared safety
+fixtures remain at `tests/`. Run `python -m pytest tests -q -rs` for the offline
+default or `python -m compileall -q app scripts tests main.py` for syntax checks.
+`tests/source.py` reads the real route/schema/bootstrap ASTs without importing
+`main`; `tests/mocks.py` patches both canonical module names and package bindings.
+The public entry point remains `uvicorn main:app`; Alembic revision history and
+runtime/model paths are unchanged.
