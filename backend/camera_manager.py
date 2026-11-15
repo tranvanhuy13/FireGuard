@@ -269,13 +269,26 @@ class Camera:
                 self._close()
             # (Re)connect when needed
             if self.cap is None:
-                if not self._open():
+                try:
+                    opened = self._open()
+                except cv2.error:
+                    # Driver/decoder errors must not permanently kill capture.
+                    # Do not log the exception: it may contain URL credentials.
+                    logger.warning("[Camera %s] Capture open error", self.id)
+                    with self._state_lock:
+                        self.status = "disconnected"
+                    opened = False
+                if not opened:
                     self._stop.wait(RECONNECT_DELAY_SECONDS)
                     continue
 
             started = time.time()
             generation = self._capture_generation
-            ok, frame = self.cap.read()
+            try:
+                ok, frame = self.cap.read()
+            except cv2.error:
+                logger.warning("[Camera %s] Capture read error", self.id)
+                ok, frame = False, None
 
             # Discard reads from a session disabled while the device was busy.
             with self._state_lock:

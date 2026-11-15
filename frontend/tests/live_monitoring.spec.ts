@@ -70,7 +70,7 @@ test.describe('real monitoring', () => {
       await route.fulfill({ headers, json: body });
     });
     await page.goto('/dashboard/cameras');
-    await page.getByRole('button', { name: 'Add Camera', exact: true }).click();
+    await page.getByRole('button', { name: 'Add Camera', exact: true }).first().click();
     await page.getByPlaceholder('Main Gate').fill('Gate');
     await page.getByRole('textbox', { name: 'Source' }).fill('rtsp://camera.local/live');
     await page.getByRole('button', { name: 'Save', exact: true }).click();

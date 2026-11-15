@@ -40,8 +40,8 @@ class CameraLifecycleTests(unittest.TestCase):
             camera.thread.join(timeout=2)
             self.assertFalse(camera.thread.is_alive())
 
-    def camera(self, active=False):
-        camera = cm.Camera(len(self.cameras) + 1, "0", is_active=active)
+    def camera(self, active=False, source="0"):
+        camera = cm.Camera(len(self.cameras) + 1, source, is_active=active)
         self.cameras.append(camera)
         return camera
 
@@ -51,6 +51,31 @@ class CameraLifecycleTests(unittest.TestCase):
         self.open_capture.assert_not_called()
         cm.storage.save_snapshot.assert_not_called()
         self.assertEqual(camera.status, "disconnected")
+
+    def test_capture_recovers_after_opencv_open_error(self):
+        self.open_capture.side_effect = [cm.cv2.error('open failed'), self.capture]
+        with patch.object(cm, 'RECONNECT_DELAY_SECONDS', 0.01):
+            camera = self.camera(active=True, source='rtsp://camera.local/live')
+            deadline = time.monotonic() + 2
+            while camera.last_frame is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIsNotNone(camera.last_frame)
+            self.assertTrue(camera.thread.is_alive())
+
+    def test_capture_recovers_after_opencv_read_error(self):
+        def failed_read():
+            self.capture.read.side_effect = None
+            raise cm.cv2.error('read failed')
+
+        self.capture.read.side_effect = failed_read
+        with patch.object(cm, 'RECONNECT_DELAY_SECONDS', 0.01):
+            camera = self.camera(active=True)
+            deadline = time.monotonic() + 2
+            while camera.last_frame is None and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIsNotNone(camera.last_frame)
+            self.assertTrue(camera.thread.is_alive())
+            camera.stop()
 
     def test_disable_during_read_discards_frame_and_releases_device(self):
         reading, finish_read, released = threading.Event(), threading.Event(), threading.Event()
