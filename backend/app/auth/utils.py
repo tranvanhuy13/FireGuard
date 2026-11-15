@@ -48,7 +48,7 @@ def otp_expiry():
     return (datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES)).isoformat()
 
 def otp_expired(expires_at):
-    return not expires_at or datetime.fromisoformat(expires_at) < datetime.now(timezone.utc)
+    return not expires_at or datetime.fromisoformat(expires_at) <= datetime.now(timezone.utc)
 
 def otp_seconds_since_sent(expires_at):
     sent_at = datetime.fromisoformat(expires_at) - timedelta(minutes=OTP_EXPIRE_MINUTES)
