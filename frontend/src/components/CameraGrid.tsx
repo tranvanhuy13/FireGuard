@@ -207,7 +207,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures, cameraLoadState }
     if (!newCamSource || !canManage) return;
 
     try {
-      const response = await fetch(`${API_URL}/cameras`, {
+      const response = await authFetch(`${API_URL}/cameras`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -230,7 +230,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures, cameraLoadState }
     if (!canManage) return;
     if (!confirm(t.camera.confirmDelete)) return;
     try {
-      const response = await fetch(`${API_URL}/cameras/${id}`, { method: "DELETE" });
+      const response = await authFetch(`${API_URL}/cameras/${id}`, { method: "DELETE" });
       if (!response.ok) throw new Error(t.review.requestFailed);
       fetchCameras();
     } catch (error) {
@@ -266,9 +266,7 @@ const CameraGrid = ({ cameraData, onRefresh, onStreamFailures, cameraLoadState }
     try {
       const res = await authFetch(
         `${API_URL}/cameras/${id}/toggle?active=${active}`,
-        {
-          method: "POST",
-        },
+        { method: "POST" },
       );
       if (!res.ok) {
         let errorMsg = t.camera?.toggleErrorNetwork || "Lỗi kết nối khi thay đổi trạng thái camera.";

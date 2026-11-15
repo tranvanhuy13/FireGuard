@@ -42,6 +42,12 @@ view only. Narrow screens use stacked panels and hide desktop-only separators.
 
 Generation checks discard work from a camera session that has been disabled or replaced. Webcam leases are released when no enabled tile needs the device. The stream serves recent frames rather than accumulating a queue of old frames.
 
+OpenCV open/read exceptions are handled by the capture retry loop so a transient
+driver or decoder error does not terminate the camera thread. Error logs omit
+exception text because it may include credentials from a camera URL.
+Webcam indices refer to USB devices on the backend host. External sources must provide a video stream URL reachable
+from the backend, rather than a camera login/viewer web page.
+
 Editing a source persists the database update before changing the live camera,
 invalidates in-flight reads/inference, and lets the capture thread release and
 reopen the source. Startup no longer rewrites saved sources to webcam 0. Invalid
