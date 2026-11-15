@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 last_notification = {}
 _delivery_lock = threading.Lock()
 _in_flight = set()
-NOTIFICATION_COOLDOWN = 60
+NOTIFICATION_COOLDOWN = 15
 ZALO_API_BASE = "https://bot-api.zaloplatforms.com"
 CHANNELS = ("zalo", "telegram")
 
