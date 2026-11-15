@@ -66,7 +66,7 @@ An operator can create an active `user` account without an email using:
 
 ```powershell
 Set-Location D:\python\FireGuard\AI-fire-detection\backend
-.\venv\Scripts\python.exe -m scripts.provision_camera_test_account camtest
+.\venv\Scripts\python.exe -m scripts.provisioning.provision_camera_test_account camtest
 ```
 
 The password is prompted securely and stored as a bcrypt hash. Provisioning refuses
@@ -78,7 +78,7 @@ schema migration is required. For an existing account, run the operator command
 below; it changes only those settings, leaving credentials and roles unchanged:
 
 ```powershell
-.\venv\Scripts\python.exe -m scripts.provision_camera_test_account camtest --disable-images
+.\venv\Scripts\python.exe -m scripts.provisioning.provision_camera_test_account camtest --disable-images
 ```
 
 Updated backend code must be running on local/Render before using this account.

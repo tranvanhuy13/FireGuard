@@ -22,7 +22,7 @@ The first confirmed fire and smoke findings per job each enqueue one bot notific
 ## Cameras and settings
 
 An operator can disable snapshot persistence for a test account using
-`python -m scripts.provision_camera_test_account camtest --disable-images` from
+`python -m scripts.provisioning.provision_camera_test_account camtest --disable-images` from
 `backend/`. The global per-user opt-out blocks camera and uploaded-video snapshots
 before image storage, while retaining in-memory playback and detection metadata.
 Alerts are text-only and video evidence thumbnails are omitted. Existing images

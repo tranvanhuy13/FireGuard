@@ -15,14 +15,14 @@ Work in the existing checkout unless isolation is needed or requested. Preserve 
 
 | Task | Start with |
 | --- | --- |
-| Detection accuracy/classes | `backend/detection.py`, model metadata, representative labeled samples |
-| Confirmation or confidence | `backend/detection_rules.py`, AI settings API/page |
-| Camera lifecycle or performance | `backend/camera_manager.py`, `backend/inference_scheduler.py` |
-| Analyze Video behavior | `backend/video_analyzer.py`, video routes, `VideoAnalysisModal.tsx` |
+| Detection accuracy/classes | `backend/app/detection/detector.py`, model metadata, representative labeled samples |
+| Confirmation or confidence | `backend/app/detection/rules.py`, AI settings API/page |
+| Camera lifecycle or performance | `backend/app/cameras/manager.py`, `backend/app/detection/scheduler.py` |
+| Analyze Video behavior | `backend/app/videos/analyzer.py`, video routes, `VideoAnalysisModal.tsx` |
 | Fake camera overlays | `CameraGrid.tsx`, explicit mock flags/service |
 | Local model path | Startup environment loading, `.env.local.example`, backend Docker exclusions |
-| Account behavior | `backend/auth/`, `backend/users/`, frontend auth context/client |
-| Storage/notification behavior | `backend/storage.py`, `backend/notification.py`, deployment configuration |
+| Account behavior | `backend/app/auth/`, `backend/app/users/`, frontend auth context/client |
+| Storage/notification behavior | `backend/app/storage/service.py`, `backend/app/notifications/service.py`, deployment configuration |
 
 Keep thread-owned state, lock ordering and generation checks intact. Importing `main.py` starts services, so use isolated imports/mocks for checks that should not open hardware or touch runtime data.
 
