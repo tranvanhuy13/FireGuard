@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useLanguage } from "@/context/LanguageContext";
 import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { Logo } from "@/components/Logo";
+import { LegalConsentModal } from "@/components/LegalConsentModal";
 
 const getRegisterSchema = (t: any) => z.object({
   username: z.string()
@@ -48,11 +49,14 @@ export default function RegisterPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isLegalModalOpen, setIsLegalModalOpen] = useState(false);
+  const [legalModalTab, setLegalModalTab] = useState<"terms" | "privacy">("terms");
 
   const {
     register,
     handleSubmit,
     watch,
+    setValue,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -63,6 +67,25 @@ export default function RegisterPage() {
   const passwordRules = checkPasswordRules(passwordValue);
   const passwordValid = isPasswordValid(passwordRules);
   const passwordsMatch = confirmPasswordValue.length > 0 && passwordValue === confirmPasswordValue;
+
+  const openLegalModal = (tab: "terms" | "privacy") => {
+    setLegalModalTab(tab);
+    setIsLegalModalOpen(true);
+  };
+
+  const handleLegalAgree = () => {
+    setValue("terms", true, { shouldValidate: true });
+    setIsLegalModalOpen(false);
+  };
+
+  const handleLegalDecline = () => {
+    setValue("terms", false, { shouldValidate: false });
+    setIsLegalModalOpen(false);
+  };
+
+  const handleLegalClose = () => {
+    setIsLegalModalOpen(false);
+  };
 
   const onSubmit = async (data: RegisterForm) => {
     try {
@@ -193,14 +216,40 @@ export default function RegisterPage() {
           </div>
 
           <div className="pt-2">
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input type="checkbox" {...register("terms")} className="mt-1 text-sky-600 focus:ring-sky-500 w-4 h-4 border-gray-300 rounded" />
-              <span className="text-sm text-gray-600">
+            <div className="flex items-start gap-2">
+              <input
+                id="terms"
+                type="checkbox"
+                {...register("terms")}
+                className="mt-1 text-sky-600 focus:ring-sky-500 w-4 h-4 border-gray-300 rounded cursor-pointer"
+              />
+              <label htmlFor="terms" className="text-sm text-gray-600">
                 {t.auth.termsAgree}{" "}
-                <Link href="#" className="text-sky-600 hover:underline">{t.auth.termsLink}</Link> {t.auth.and}{" "}
-                <Link href="#" className="text-sky-600 hover:underline">{t.auth.privacyPolicy}</Link>
-              </span>
-            </label>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openLegalModal("terms");
+                  }}
+                  className="text-sky-600 hover:underline cursor-pointer font-medium p-0 bg-transparent border-none inline"
+                >
+                  {t.auth.termsLink}
+                </button>{" "}
+                {t.auth.and}{" "}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openLegalModal("privacy");
+                  }}
+                  className="text-sky-600 hover:underline cursor-pointer font-medium p-0 bg-transparent border-none inline"
+                >
+                  {t.auth.privacyPolicy}
+                </button>
+              </label>
+            </div>
             {errors.terms && <p className="mt-1 text-xs text-red-600">{errors.terms.message}</p>}
           </div>
 
@@ -226,6 +275,14 @@ export default function RegisterPage() {
           </p>
         </div>
       </motion.div>
+
+      <LegalConsentModal
+        open={isLegalModalOpen}
+        initialTab={legalModalTab}
+        onAgree={handleLegalAgree}
+        onDecline={handleLegalDecline}
+        onClose={handleLegalClose}
+      />
     </div>
   );
 }
