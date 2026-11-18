@@ -10,7 +10,8 @@ router = APIRouter()
 @router.post("/test-notification", dependencies=[Depends(require_admin)])
 def test_notification(current_user=Depends(get_current_user)):
     """Trigger a test notification."""
-    results = notification.trigger_notifications("TEST EVENT", 0.99, None, bypass_cooldown=True, owner_user_id=current_user.id)
+    results = notification.trigger_notifications("fire", .968, None, camera_name="Camera thử nghiệm",
+                                                 is_test=True, bypass_cooldown=True, owner_user_id=current_user.id)
     results = results if isinstance(results, dict) else {}
     sent = sum(result.get("status") == "sent" for result in results.values())
     status = "ok" if results and sent == len(results) else "partial" if sent else "error"
