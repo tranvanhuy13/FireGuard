@@ -23,7 +23,7 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
     await page.goto('/dashboard/profile');
 
     // Khối "Tài khoản liên kết" / "Linked Accounts" và nút disconnect Google/Facebook không còn tồn tại
-    const linkedAccounts = page.locator('text=Tài khoản liên kết, text=Linked Accounts, text=Liên kết Google, text=Liên kết Facebook');
+    const linkedAccounts = page.getByText(/Tài khoản liên kết|Linked Accounts|Liên kết Google|Liên kết Facebook/);
     await expect(linkedAccounts).toHaveCount(0);
   });
 
@@ -40,7 +40,7 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
     await phoneInput.blur();
 
     // Lỗi validation phải hiển thị ngay khi blur
-    const phoneError = page.locator('text=Số điện thoại không hợp lệ, text=Invalid phone number');
+    const phoneError = page.getByText(/Số điện thoại không hợp lệ|Invalid phone number/);
     await expect(phoneError).toBeVisible();
 
     // Nút Lưu thông tin vẫn có thể tương tác (không bị khóa ngầm làm người dùng hoang mang)
@@ -56,7 +56,7 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
 
     // 3. Bấm nút Lưu thông tin và kiểm tra lưu thành công
     await saveButton.click();
-    const successMsg = page.locator('text=thành công, text=successfully');
+    const successMsg = page.locator('form').getByText(/thành công|successfully/i);
     await expect(successMsg).toBeVisible({ timeout: 5000 });
   });
 });

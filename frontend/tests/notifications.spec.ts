@@ -15,7 +15,7 @@ test.describe('Cảnh báo qua Telegram & Zalo (Notification Channels & Settings
     await expect(page.locator('h1, h2, h3').first()).toBeVisible();
 
     // Kiểm tra xuất hiện các kênh Telegram hoặc Zalo trên giao diện
-    const channels = page.locator('text=Telegram, text=telegram, text=Zalo, text=zalo');
+    const channels = page.getByText(/Telegram|Zalo/i);
     await expect(channels.first()).toBeVisible();
   });
 
