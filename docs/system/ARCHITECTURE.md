@@ -2,6 +2,15 @@
 
 ## Services and startup
 
+Camera and uploaded-video bot alerts share `build_alert_message` in
+`backend/app/notifications/service.py`. Messages use concise Vietnamese plain
+text with a fire/smoke heading, source, AI confidence and explicit Vietnam time
+(UTC+7). Video alerts also carry the playback position and analysis job ID and
+state that they are not live camera alerts. Both bots use the approved plain-text
+layout without HTML emphasis or generated graphic cards. Telegram attaches available evidence
+as a photo caption; Zalo appends an expiring image link. Recipient test messages
+use the same formatter with a prominent test label and illustrative data.
+
 The dashboard tracks alert-history HTTP, camera HTTP and alert WebSocket states
 independently. Requests time out after 30 seconds, retry transient failures up to
 five times with 2–30 second backoff, and honor HTTP Retry-After. Authentication

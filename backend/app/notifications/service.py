@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import requests
@@ -166,7 +167,8 @@ def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, requ
         if snapshot_path:
             from app.storage.service import snapshot_public_url
             photo_url = snapshot_public_url(os.path.basename(snapshot_path))
-            message += (f"\n\nẢnh sự kiện (liên kết có thời hạn):\n{photo_url}" if photo_url else
+            message += (f"\n\nẢnh sự kiện:\n{photo_url}\n"
+                        "Liên kết có thời hạn. Xem lại trên dashboard nếu hết hạn." if photo_url else
                         "\n\nẢnh S3 chưa khả dụng. Vui lòng kiểm tra ảnh trên dashboard.")
         ok, error = _zalo_call(config["token"], "sendMessage",
                                {"chat_id": destination, "text": message}, cancelled=cancelled,
@@ -254,19 +256,50 @@ def send_telegram(message, snapshot_path=None, *, cancelled=None, details=None, 
         return False
 
 
+def build_alert_message(event_type, confidence, *, context=None, camera_name=None, is_test=False):
+    """Compact plain text shared by both bots, matching the approved message."""
+    def label(value, limit=160):
+        return " ".join(str(value).split())[:limit]
+
+    kind = str(event_type).strip().lower()
+    icon, hazard = {"fire": ("🔥", "cháy"), "smoke": ("💨", "khói")}.get(
+        kind, ("⚠️", label(event_type, 40)))
+    title = (f"{icon} PHÁT HIỆN {hazard.upper()} TRONG VIDEO" if context else
+             f"{icon} CẢNH BÁO PHÁT HIỆN {hazard.upper()}")
+    lines = (["[TEST FIREGUARD — KHÔNG PHẢI BÁO CHÁY]", ""] if is_test else [])
+    lines.extend([title, f"FireGuard phát hiện dấu hiệu {hazard}." +
+                  (" Dữ liệu minh họa để kiểm tra mẫu tin nhắn." if is_test else ""), ""])
+    if context:
+        seconds = max(0, round(float(context["video_time"]) * 100))
+        minutes, remainder = divmod(seconds, 6000)
+        lines.extend([f"Video: {label(context['filename'])}",
+                      f"Vị trí trong video: {minutes:02d}:{remainder // 100:02d},{remainder % 100:02d}",
+                      f"Mã phân tích: {label(context['job_id'], 64)}"])
+    else:
+        name = label(camera_name) if camera_name is not None else ""
+        lines.append(f"Camera: {name or 'Chưa có tên'}")
+    # Explicit Vietnam time keeps alerts consistent on UTC-hosted deployments.
+    timestamp = datetime.now(timezone(timedelta(hours=7))).strftime("%d/%m/%Y · %H:%M:%S")
+    lines.extend([f"{'Thời gian phân tích' if context else 'Thời gian'}: {timestamp} (UTC+7)",
+                  f"Độ tin cậy AI: {confidence * 100:.1f}%".replace(".", ",")])
+    if context:
+        lines.extend(["", "Cảnh báo từ video tải lên, không phải camera trực tiếp."])
+    if is_test:
+        action = "Đây là thông báo thử. Không có sự cố thực tế được báo qua tin nhắn này."
+    elif context:
+        action = "Mở dashboard để kiểm tra ảnh sự kiện và xem lại đoạn video liên quan."
+    else:
+        action = "Vui lòng kiểm tra khu vực ngay.\nMở dashboard để xem chi tiết sự kiện."
+    lines.extend(["", action])
+    return "\n".join(lines)
+
+
 def trigger_notifications(event_type, confidence, snapshot_path=None, *, context=None,
                           cancelled=None, bypass_cooldown=False, camera_name=None,
-                          channels=None, request_attempts=3, recipient_results=None, owner_user_id=None):
+                          channels=None, request_attempts=3, recipient_results=None, owner_user_id=None,
+                          is_test=False):
     """Return per-channel outcomes; video deduplication is owned by its job queue."""
-    body = (f"WARNING!\n\nThe system detected {event_type} with {confidence * 100:.1f}% confidence."
-            f"\nTime: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    if camera_name is not None:
-        name = " ".join(str(camera_name).split())[:160] or "Unnamed camera"
-        body += f"\nSource: camera\nCamera: {name}"
-    if context:
-        body += (f"\nSource: uploaded video\nVideo: {context['filename'][:160]}"
-                 f"\nJob: {context['job_id']}\nVideo time: {context['video_time']:.2f}s")
-    body += "\n\nPlease check the dashboard immediately."
+    body = build_alert_message(event_type, confidence, context=context, camera_name=camera_name, is_test=is_test)
     results = {}
     for channel in CHANNELS:
         if channels is not None and channel not in channels:

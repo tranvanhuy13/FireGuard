@@ -79,7 +79,7 @@ def test_recipient(kind: Kind, target_id: str, current_user=Depends(get_current_
         raise HTTPException(status_code=409, detail="Enable this recipient before testing")
     details = {}
     sender = notification.send_zalo if target["channel"] == "zalo" else notification.send_telegram
-    ok = sender("[TEST FIREGUARD — KHÔNG PHẢI BÁO CHÁY]\nNotification destination test.",
+    ok = sender(notification.build_alert_message("fire", .968, camera_name="Camera thử nghiệm", is_test=True),
                 chat_id=target["chatId"], details=details, request_attempts=1)
     log_action(current_user, "app.notifications.service.recipient.test", target_id)
     return {"status": "sent" if ok else "failed", **details}
