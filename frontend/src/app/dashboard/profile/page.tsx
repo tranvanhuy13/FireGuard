@@ -39,9 +39,11 @@ export default function ProfilePage() {
   // Profile Info States
   // ---------------------------------------------------------------------------
   const [fullName, setFullName] = useState(user?.fullName || '');
+  const [phone, setPhone] = useState(user?.phone || '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || '');
   const [isProfileSaving, setIsProfileSaving] = useState(false);
   const [profileMessage, setProfileMessage] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [avatarMessage, setAvatarMessage] = useState('');
   const [avatarError, setAvatarError] = useState('');
 
@@ -67,11 +69,26 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------------------
+  // Phone Validation Helper
+  // ---------------------------------------------------------------------------
+  const validatePhone = (val: string): string => {
+    const trimmed = val.trim();
+    if (trimmed && !/^\d{9,11}$/.test(trimmed)) {
+      return p.phoneError || 'Số điện thoại không hợp lệ (9-11 chữ số)';
+    }
+    return '';
+  };
+
+  // ---------------------------------------------------------------------------
   // Computed Validation & Rules
   // ---------------------------------------------------------------------------
   const initialFullName = user?.fullName || user?.username || '';
+  const initialPhone = user?.phone || '';
   const initialAvatar = user?.avatarUrl || '';
-  const isProfileChanged = fullName !== initialFullName || avatarUrl !== initialAvatar;
+  const isProfileChanged =
+    fullName !== initialFullName ||
+    phone !== initialPhone ||
+    avatarUrl !== initialAvatar;
   const canSaveProfile = isProfileChanged && !isProfileSaving;
 
   const rules = {
@@ -103,6 +120,7 @@ export default function ProfilePage() {
   useEffect(() => {
     if (user) {
       setFullName(user.fullName || user.username || '');
+      setPhone(user.phone || '');
       const savedAvatar =
         user.avatarUrl ||
         (typeof window !== 'undefined'
@@ -158,13 +176,19 @@ export default function ProfilePage() {
   // ---------------------------------------------------------------------------
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    const phoneValidationError = validatePhone(phone);
+    if (phoneValidationError) {
+      setPhoneError(phoneValidationError);
+      return;
+    }
+    setPhoneError('');
     if (!canSaveProfile) return;
 
     setIsProfileSaving(true);
     setProfileMessage('');
 
     try {
-      const res = await authApi.updateProfile({ fullName, avatarUrl });
+      const res = await authApi.updateProfile({ fullName, phone: phone.trim(), avatarUrl });
       setUser(res.user);
 
       if (typeof window !== 'undefined' && user?.username) {
@@ -366,6 +390,32 @@ export default function ProfilePage() {
                 className="w-full border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-lg p-2.5 focus:ring-2 focus:ring-sky-500 focus:outline-none"
                 placeholder={p.namePlaceholder || 'Nhập họ và tên...'}
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                {p.phone || 'Số điện thoại'}
+              </label>
+              <input
+                type="tel"
+                value={phone}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  if (phoneError) {
+                    setPhoneError(validatePhone(e.target.value));
+                  }
+                }}
+                onBlur={() => {
+                  setPhoneError(validatePhone(phone));
+                }}
+                className={`w-full border ${
+                  phoneError ? 'border-red-500' : 'border-gray-300 dark:border-slate-700'
+                } bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-lg p-2.5 focus:ring-2 focus:ring-sky-500 focus:outline-none`}
+                placeholder={p.phonePlaceholder || 'VD: 0912345678'}
+              />
+              {phoneError && (
+                <p className="text-xs text-red-500 mt-1">{phoneError}</p>
+              )}
             </div>
 
             <div>

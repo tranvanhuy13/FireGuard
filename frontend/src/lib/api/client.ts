@@ -3,8 +3,8 @@ const isDev = process.env.NODE_ENV !== "production";
 const forceMock = isDev && typeof window !== 'undefined' && localStorage.getItem('force_mock') === 'true';
 
 export const isMockMode = process.env.NEXT_PUBLIC_USE_MOCK === "true" || forceMock;
-export const isMockAuth = process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_AUTH === "true" : isMockMode;
-export const isMockData = process.env.NEXT_PUBLIC_USE_MOCK_DATA !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true" : isMockMode;
+export const isMockAuth = forceMock || (process.env.NEXT_PUBLIC_USE_MOCK_AUTH !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_AUTH === "true" : isMockMode);
+export const isMockData = forceMock || (process.env.NEXT_PUBLIC_USE_MOCK_DATA !== undefined ? process.env.NEXT_PUBLIC_USE_MOCK_DATA === "true" : isMockMode);
 
 type FetchOptions = RequestInit & {
   params?: Record<string, string>;

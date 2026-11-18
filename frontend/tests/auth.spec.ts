@@ -74,7 +74,7 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
   test('REG_09: Password Requirements hiển thị checklist 4 điều kiện khi nhập mật khẩu', async ({ page }) => {
     await page.goto('/register');
     await page.fill('#password', 'a');
-    const checklist = page.locator('text=Yêu cầu mật khẩu, text=Password requirements');
+    const checklist = page.getByText(/Yêu cầu mật khẩu|Password requirements/i);
     await expect(checklist.first()).toBeVisible();
   });
 
@@ -82,9 +82,9 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
     await page.goto('/register');
     const passInput = page.locator('#password');
     await passInput.fill('abcdefgh');
-    await expect(page.locator('text=Yếu, text=Weak').first()).toBeVisible();
+    await expect(page.getByText(/^(Yếu|Weak)$/i).first()).toBeVisible();
     await passInput.fill('Abcdefgh1');
-    await expect(page.locator('text=Mạnh, text=Strong').first()).toBeVisible();
+    await expect(page.getByText(/^(Mạnh|Strong)$/i).first()).toBeVisible();
   });
 
   test('REG_11: Nút Đăng ký được kích hoạt (enabled) khi mật khẩu hợp lệ và xác nhận khớp', async ({ page }) => {
