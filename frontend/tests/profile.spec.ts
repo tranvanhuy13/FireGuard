@@ -5,9 +5,11 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
   test.beforeEach(async ({ page }) => {
     await enableMockMode(page);
     await loginUI(page, MOCK_ADMIN.username, MOCK_ADMIN.password);
+    await page.waitForURL(/.*\/dashboard/, { timeout: 10000 });
   });
 
   test('PRO_01: Truy cập /dashboard/profile hiển thị thông tin người dùng và vai trò', async ({ page }) => {
+    await page.waitForLoadState('domcontentloaded');
     await page.goto('/dashboard/profile');
     await expect(page).toHaveURL(/.*\/dashboard\/profile/);
     await expect(page.locator('h1, h2, h3').first()).toBeVisible();
