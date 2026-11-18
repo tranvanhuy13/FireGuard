@@ -69,6 +69,17 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------------------
+  // Phone Validation Helper
+  // ---------------------------------------------------------------------------
+  const validatePhone = (val: string): string => {
+    const trimmed = val.trim();
+    if (trimmed && !/^\d{9,11}$/.test(trimmed)) {
+      return p.phoneError || 'Số điện thoại không hợp lệ (9-11 chữ số)';
+    }
+    return '';
+  };
+
+  // ---------------------------------------------------------------------------
   // Computed Validation & Rules
   // ---------------------------------------------------------------------------
   const initialFullName = user?.fullName || user?.username || '';
@@ -78,8 +89,7 @@ export default function ProfilePage() {
     fullName !== initialFullName ||
     phone !== initialPhone ||
     avatarUrl !== initialAvatar;
-  const isPhoneValid = !phone || /^\d{9,11}$/.test(phone.trim());
-  const canSaveProfile = isProfileChanged && isPhoneValid && !isProfileSaving;
+  const canSaveProfile = isProfileChanged && !isProfileSaving;
 
   const rules = {
     length: newPassword.length >= 8,
@@ -166,11 +176,12 @@ export default function ProfilePage() {
   // ---------------------------------------------------------------------------
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPhoneError('');
-    if (phone && !/^\d{9,11}$/.test(phone.trim())) {
-      setPhoneError(p.phoneError || 'Số điện thoại không hợp lệ (9-11 chữ số)');
+    const phoneValidationError = validatePhone(phone);
+    if (phoneValidationError) {
+      setPhoneError(phoneValidationError);
       return;
     }
+    setPhoneError('');
     if (!canSaveProfile) return;
 
     setIsProfileSaving(true);
@@ -390,7 +401,12 @@ export default function ProfilePage() {
                 value={phone}
                 onChange={(e) => {
                   setPhone(e.target.value);
-                  if (phoneError) setPhoneError('');
+                  if (phoneError) {
+                    setPhoneError(validatePhone(e.target.value));
+                  }
+                }}
+                onBlur={() => {
+                  setPhoneError(validatePhone(phone));
                 }}
                 className={`w-full border ${
                   phoneError ? 'border-red-500' : 'border-gray-300 dark:border-slate-700'

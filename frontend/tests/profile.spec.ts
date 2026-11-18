@@ -26,4 +26,37 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
     const linkedAccounts = page.locator('text=Tài khoản liên kết, text=Linked Accounts, text=Liên kết Google, text=Liên kết Facebook');
     await expect(linkedAccounts).toHaveCount(0);
   });
+
+  test('PRO_03: Nhập sai số điện thoại hiển thị thông báo lỗi, sửa đúng lưu thành công', async ({ page }) => {
+    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/dashboard/profile');
+    await expect(page).toHaveURL(/.*\/dashboard\/profile/);
+
+    const phoneInput = page.locator('input[type="tel"]');
+    await expect(phoneInput).toBeVisible();
+
+    // 1. Nhập số điện thoại sai định dạng (chứa dấu gạch ngang)
+    await phoneInput.fill('091-234-5678');
+    await phoneInput.blur();
+
+    // Lỗi validation phải hiển thị ngay khi blur
+    const phoneError = page.locator('text=Số điện thoại không hợp lệ, text=Invalid phone number');
+    await expect(phoneError).toBeVisible();
+
+    // Nút Lưu thông tin vẫn có thể tương tác (không bị khóa ngầm làm người dùng hoang mang)
+    const saveButton = page.locator('button[type="submit"]:has-text("Lưu"), button[type="submit"]:has-text("Save")');
+    await expect(saveButton).toBeEnabled();
+
+    // 2. Sửa lại thành số điện thoại hợp lệ (9-11 chữ số)
+    await phoneInput.fill('0912345678');
+    await phoneInput.blur();
+
+    // Thông báo lỗi phải biến mất
+    await expect(phoneError).toHaveCount(0);
+
+    // 3. Bấm nút Lưu thông tin và kiểm tra lưu thành công
+    await saveButton.click();
+    const successMsg = page.locator('text=thành công, text=successfully');
+    await expect(successMsg).toBeVisible({ timeout: 5000 });
+  });
 });
