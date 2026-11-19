@@ -1,21 +1,95 @@
 {
   "checkpoint": "best.pt",
   "architecture": "YOLO26n",
-  "classes": ["fire", "smoke"],
-  "sha256": "d2b0be214f45fa01d2044b960c3cb4da4bf65c06a89cf0a1967b0d40e8db4b98",
-  "origin": "externally pretrained evaluation checkpoint",
-  "source": "https://huggingface.co/seawsurf/fire_yolo",
-  "training_arguments_source": "https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml",
-  "published_dataset": "FASDD_CV-derived",
-  "dataset_source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
-  "published_dataset_images_approximate": 95000,
-  "dataset_size_note": "Total dataset size, not verified training split size.",
-  "published_training_configuration": {
-    "epochs_configured": 100,
+  "classes": [
+    "fire",
+    "smoke"
+  ],
+  "sha256": "2455f3a37594530d9c434f50b34a06876c193a9c4e92e2dd2f44b2e1d34b5732",
+  "origin": "project checkpoint fine-tuned on ECO Group Fire & Smoke v1",
+  "project_retraining_completed": true,
+  "training": {
+    "dataset": "ECO Group Fire & Smoke v1",
+    "dataset_source": "https://universe.roboflow.com/eco-group/fire-smoke-yvnrc/dataset/1",
+    "license": "CC BY 4.0",
+    "train_images": 7000,
+    "validation_images": 2000,
+    "test_images": 1000,
+    "epochs_completed": 20,
     "imgsz": 640,
-    "batch": 256,
-    "patience": 30
+    "actual_batch": 28,
+    "optimizer": "AdamW",
+    "lr0": 0.0001,
+    "freeze": 10,
+    "amp": true,
+    "seed": 20261119,
+    "gpu": "Tesla T4",
+    "ultralytics": "8.4.148",
+    "torch": "2.14.1+cu130",
+    "run_id": "v4clean_20261119_052846_656569",
+    "dataset_manifest_sha256": "de494738ed1ac517d8f062f6336022f8bdf6c3d6d69dffefba3e0be56fab381c",
+    "label_normalization": {
+      "source_0": "smoke",
+      "source_1": "fire",
+      "target_0": "fire",
+      "target_1": "smoke",
+      "polygons": "axis-aligned enclosing bounding boxes"
+    },
+    "checkpoint_selection": "validation fitness; test not used for selection"
   },
-  "project_retraining_completed": false,
-  "validation_note": "Checkpoint loaded with both required classes; sampled video inference and focused offline tests passed during preparation. Live camera-to-notification acceptance is pending."
+  "base_pretraining": {
+    "architecture": "YOLO26n",
+    "classes": [
+      "fire",
+      "smoke"
+    ],
+    "sha256": "d2b0be214f45fa01d2044b960c3cb4da4bf65c06a89cf0a1967b0d40e8db4b98",
+    "origin": "externally pretrained evaluation checkpoint",
+    "source": "https://huggingface.co/seawsurf/fire_yolo",
+    "training_arguments_source": "https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml",
+    "published_dataset": "FASDD_CV-derived",
+    "dataset_source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
+    "published_dataset_images_approximate": 95000,
+    "dataset_size_note": "Total dataset size, not verified training split size.",
+    "published_training_configuration": {
+      "epochs_configured": 100,
+      "imgsz": 640,
+      "batch": 256,
+      "patience": 30
+    }
+  },
+  "external_evaluation": {
+    "source": "https://zenodo.org/records/15826133",
+    "images": 1000,
+    "fire_instances": 797,
+    "smoke_instances": 645,
+    "sample_manifest_sha256": "0cd5be1db2a590a89b152c53765057df81ad9518f90a8b8a4d805722b03685b7",
+    "seed": 20261120,
+    "device": "cpu",
+    "imgsz": 640,
+    "batch": 1,
+    "conf": 0.001,
+    "iou": 0.7,
+    "before": {
+      "precision": 0.655165438004951,
+      "recall": 0.4347261227933047,
+      "mAP50": 0.4679821084497467,
+      "mAP50_95": 0.24488649569999926
+    },
+    "after": {
+      "precision": 0.619201002074153,
+      "recall": 0.41948531708124115,
+      "mAP50": 0.45195277521604293,
+      "mAP50_95": 0.20538402459710375
+    },
+    "independence_limits": [
+      "SHA256 exclusion against all 10000 ECO images and conservative source filename exclusion.",
+      "CRC32+size exclusion against all published FASDD-CV archive images; catches byte-identical images only.",
+      "dHash distance <=4 exclusion against previous FASDD 1000 test and within external pool.",
+      "Full historical training list of v3 and transformed duplicates against full FASDD/ECO unavailable; absolute independence is unproven.",
+      "Remaining frames may share videos/scenes; no complete scene identity annotation."
+    ],
+    "note": "Overall external mAP decreased; smoke mAP50 improved. No negative-background images. No guarantee of absolute historical training independence."
+  },
+  "validation_note": "Checkpoint loaded and measured on 1000 external-source images. Live camera-to-notification acceptance has not been performed."
 }
