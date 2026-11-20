@@ -5,91 +5,185 @@
     "fire",
     "smoke"
   ],
-  "sha256": "2455f3a37594530d9c434f50b34a06876c193a9c4e92e2dd2f44b2e1d34b5732",
-  "origin": "project checkpoint fine-tuned on ECO Group Fire & Smoke v1",
+  "sha256": "50ea8eac6820beda845c92dba31b3b60f9f0941acd38f174634e6cc7751852a8",
+  "origin": "Fine-tuned from best_v4 on D-Fire, FASDD-CV and visually screened Pyro-SDIS; ECO not retrained in this run.",
   "project_retraining_completed": true,
   "training": {
-    "dataset": "ECO Group Fire & Smoke v1",
-    "dataset_source": "https://universe.roboflow.com/eco-group/fire-smoke-yvnrc/dataset/1",
-    "license": "CC BY 4.0",
-    "train_images": 7000,
-    "validation_images": 2000,
-    "test_images": 1000,
-    "epochs_completed": 20,
-    "imgsz": 640,
+    "datasets": [
+      {
+        "name": "D-Fire",
+        "source": "https://github.com/gaia-solutions-on-demand/DFireDataset",
+        "train_images": 3400,
+        "validation_images": 800
+      },
+      {
+        "name": "FASDD-CV",
+        "source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
+        "train_images": 1200,
+        "validation_images": 300
+      },
+      {
+        "name": "Pyro-SDIS",
+        "source": "https://huggingface.co/datasets/pyronear/pyro-sdis",
+        "revision": "ebfc02d0cba7f7dfe0623d13bcf0f0aa8a38e3ee",
+        "train_images": 399,
+        "validation_images": 98,
+        "review_note": "500 images visually screened using contact sheets; 10 suspicious images additionally enlarged. Original smoke labels retained; no visible flame identified to add fire boxes. Three ambiguous smoke/fog positives quarantined. Not exhaustive full-resolution reannotation."
+      }
+    ],
+    "train_images": 4999,
+    "validation_images": 1198,
+    "requested_epochs": 20,
+    "epochs_completed": 16,
     "actual_batch": 28,
-    "optimizer": "AdamW",
-    "lr0": 0.0001,
+    "imgsz": 640,
+    "workers": 4,
     "freeze": 10,
     "amp": true,
+    "optimizer": "AdamW",
+    "lr0": 0.0001,
     "seed": 20261119,
     "gpu": "Tesla T4",
     "ultralytics": "8.4.148",
     "torch": "2.14.1+cu130",
-    "run_id": "v4clean_20261119_052846_656569",
-    "dataset_manifest_sha256": "de494738ed1ac517d8f062f6336022f8bdf6c3d6d69dffefba3e0be56fab381c",
-    "label_normalization": {
-      "source_0": "smoke",
-      "source_1": "fire",
-      "target_0": "fire",
-      "target_1": "smoke",
-      "polygons": "axis-aligned enclosing bounding boxes"
-    },
-    "checkpoint_selection": "validation fitness; test not used for selection"
+    "run_id": "v5add_20261120_035801_253532",
+    "dataset_manifest_sha256": "d90601762ddf1b4d91375f8c2bad6dcefc643f672a730dc6c2dca360e20513e3",
+    "checkpoint_selection": "validation fitness; test not used for selection",
+    "label_policy": "Target 0=fire, 1=smoke; segmentation polygons converted to bounding boxes; invalid-label images excluded, never converted to backgrounds."
   },
-  "base_pretraining": {
-    "architecture": "YOLO26n",
-    "classes": [
-      "fire",
-      "smoke"
-    ],
-    "sha256": "d2b0be214f45fa01d2044b960c3cb4da4bf65c06a89cf0a1967b0d40e8db4b98",
-    "origin": "externally pretrained evaluation checkpoint",
-    "source": "https://huggingface.co/seawsurf/fire_yolo",
-    "training_arguments_source": "https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml",
-    "published_dataset": "FASDD_CV-derived",
-    "dataset_source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
-    "published_dataset_images_approximate": 95000,
-    "dataset_size_note": "Total dataset size, not verified training split size.",
-    "published_training_configuration": {
-      "epochs_configured": 100,
+  "base_checkpoint": {
+    "sha256": "2455f3a37594530d9c434f50b34a06876c193a9c4e92e2dd2f44b2e1d34b5732",
+    "training": {
+      "dataset": "ECO Group Fire & Smoke v1",
+      "dataset_source": "https://universe.roboflow.com/eco-group/fire-smoke-yvnrc/dataset/1",
+      "license": "CC BY 4.0",
+      "train_images": 7000,
+      "validation_images": 2000,
+      "test_images": 1000,
+      "epochs_completed": 20,
       "imgsz": 640,
-      "batch": 256,
-      "patience": 30
+      "actual_batch": 28,
+      "optimizer": "AdamW",
+      "lr0": 0.0001,
+      "freeze": 10,
+      "amp": true,
+      "seed": 20261119,
+      "gpu": "Tesla T4",
+      "ultralytics": "8.4.148",
+      "torch": "2.14.1+cu130",
+      "run_id": "v4clean_20261119_052846_656569",
+      "dataset_manifest_sha256": "de494738ed1ac517d8f062f6336022f8bdf6c3d6d69dffefba3e0be56fab381c",
+      "label_normalization": {
+        "source_0": "smoke",
+        "source_1": "fire",
+        "target_0": "fire",
+        "target_1": "smoke",
+        "polygons": "axis-aligned enclosing bounding boxes"
+      },
+      "checkpoint_selection": "validation fitness; test not used for selection"
+    },
+    "base_pretraining": {
+      "architecture": "YOLO26n",
+      "classes": [
+        "fire",
+        "smoke"
+      ],
+      "sha256": "d2b0be214f45fa01d2044b960c3cb4da4bf65c06a89cf0a1967b0d40e8db4b98",
+      "origin": "externally pretrained evaluation checkpoint",
+      "source": "https://huggingface.co/seawsurf/fire_yolo",
+      "training_arguments_source": "https://huggingface.co/seawsurf/fire_yolo/blob/main/args.yaml",
+      "published_dataset": "FASDD_CV-derived",
+      "dataset_source": "https://huggingface.co/datasets/seawsurf/fire_smoke_dataset_fasdd_cv",
+      "published_dataset_images_approximate": 95000,
+      "dataset_size_note": "Total dataset size, not verified training split size.",
+      "published_training_configuration": {
+        "epochs_configured": 100,
+        "imgsz": 640,
+        "batch": 256,
+        "patience": 30
+      }
     }
   },
   "external_evaluation": {
     "source": "https://zenodo.org/records/15826133",
     "images": 1000,
-    "fire_instances": 797,
-    "smoke_instances": 645,
-    "sample_manifest_sha256": "0cd5be1db2a590a89b152c53765057df81ad9518f90a8b8a4d805722b03685b7",
-    "seed": 20261120,
-    "device": "cpu",
-    "imgsz": 640,
-    "batch": 1,
-    "conf": 0.001,
-    "iou": 0.7,
+    "fire_instances": 779,
+    "smoke_instances": 664,
+    "background_images": 0,
+    "sample_manifest_sha256": "75da60c752668a4a6bd960dfd8b8ccc07b00fb0d3aaf90c71583932c707022be",
+    "selection": "No random sampling: source test then valid then train, lexicographic filename order; first 1000 eligible after exclusions; frozen before inference.",
+    "source_splits": {
+      "test": 529,
+      "valid": 394,
+      "train": 77
+    },
+    "conditions": {
+      "imgsz": 640,
+      "batch": 1,
+      "device": "cpu",
+      "threads": 4,
+      "conf": 0.001,
+      "iou": 0.7,
+      "max_det": 300,
+      "python": "3.12.8",
+      "torch": "2.14.0+cpu",
+      "ultralytics": "8.4.148"
+    },
     "before": {
-      "precision": 0.655165438004951,
-      "recall": 0.4347261227933047,
-      "mAP50": 0.4679821084497467,
-      "mAP50_95": 0.24488649569999926
+      "precision": 0.6108853922207167,
+      "recall": 0.41501291474858726,
+      "mAP50": 0.45431352574227835,
+      "mAP50_95": 0.2143702701965871,
+      "per_class": [
+        {
+          "class": "fire",
+          "instances": 779,
+          "precision": 0.6092910541480239,
+          "recall": 0.5845439017863312,
+          "mAP50": 0.5745056249109904,
+          "mAP50_95": 0.2859893523056111
+        },
+        {
+          "class": "smoke",
+          "instances": 664,
+          "precision": 0.6124797302934096,
+          "recall": 0.24548192771084337,
+          "mAP50": 0.33412142657356625,
+          "mAP50_95": 0.14275118808756307
+        }
+      ]
     },
     "after": {
-      "precision": 0.619201002074153,
-      "recall": 0.41948531708124115,
-      "mAP50": 0.45195277521604293,
-      "mAP50_95": 0.20538402459710375
+      "precision": 0.6472583230905626,
+      "recall": 0.4291501693552129,
+      "mAP50": 0.47595337561677364,
+      "mAP50_95": 0.24190540327937898,
+      "per_class": [
+        {
+          "class": "fire",
+          "instances": 779,
+          "precision": 0.7070249127693052,
+          "recall": 0.6007702182284981,
+          "mAP50": 0.6555655632578435,
+          "mAP50_95": 0.3430024283355745
+        },
+        {
+          "class": "smoke",
+          "instances": 664,
+          "precision": 0.5874917334118201,
+          "recall": 0.2575301204819277,
+          "mAP50": 0.29634118797570375,
+          "mAP50_95": 0.14080837822318343
+        }
+      ]
     },
     "independence_limits": [
-      "SHA256 exclusion against all 10000 ECO images and conservative source filename exclusion.",
-      "CRC32+size exclusion against all published FASDD-CV archive images; catches byte-identical images only.",
-      "dHash distance <=4 exclusion against previous FASDD 1000 test and within external pool.",
-      "Full historical training list of v3 and transformed duplicates against full FASDD/ECO unavailable; absolute independence is unproven.",
-      "Remaining frames may share videos/scenes; no complete scene identity annotation."
+      "Byte-identical exclusions against ECO, complete FASDD archive index and actual v5 train/val.",
+      "dHash duplicate exclusion within test only; transformed training duplicates and historical D-Fire overlap cannot be fully excluded without full historical data.",
+      "Sorted selection is not population-random; results apply to this benchmark.",
+      "Class semantics inherited from prior visual audit of the same source archive."
     ],
-    "note": "Overall external mAP decreased; smoke mAP50 improved. No negative-background images. No guarantee of absolute historical training independence."
+    "note": "Fire AP improved; smoke AP decreased. No negative backgrounds, so false-alarm rate is not measured."
   },
-  "validation_note": "Checkpoint loaded and measured on 1000 external-source images. Live camera-to-notification acceptance has not been performed."
+  "validation_note": "36 offline camera/detection tests passed. Correct v5 hash and fire/smoke classes verified; actual FireDetector inference passed on two real external images. Measured on 1000 frozen external-source images; live camera-to-notification acceptance not performed."
 }
