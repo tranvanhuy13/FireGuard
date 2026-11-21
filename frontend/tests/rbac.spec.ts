@@ -37,53 +37,57 @@ test.describe('Phân quyền & Kiểm soát truy cập (Access Control & Protect
   });
 
   // --------------------------------------------------------------------------
-  // 2. CÁC ENDPOINT PUBLIC (THEO THIẾT KẾ HIỆN TẠI CỦA BACKEND)
-  // Theo backend/main.py: /cameras, /alerts, /stats, /history, /settings, /test-notification
+  // 2. CÁC ENDPOINT PUBLIC & BẢO VỆ (THEO THIẾT KẾ CỦA BACKEND)
   // --------------------------------------------------------------------------
-  test.describe('Các Endpoint Public Không Cần Login (Detection & Ops)', () => {
-    test('các endpoint đọc dữ liệu vận hành là public (200 OK)', async ({ request }) => {
-      const publicGetEndpoints = [
-        '/',
+  test.describe('Các Endpoint Public & Bảo Vệ (Theo Thiết Kế Của Backend)', () => {
+    test('endpoint root / là public (200 OK)', async ({ request }) => {
+      const res = await request.get('/');
+      expect(res.status()).toBe(200);
+    });
+
+    test('các endpoint đọc dữ liệu vận hành yêu cầu xác thực (401 khi chưa login, 200 khi đã login)', async ({ request }) => {
+      const operationalEndpoints = [
         '/cameras',
         '/alerts',
         '/stats',
         '/history',
-        '/settings',
       ];
 
-      for (const endpoint of publicGetEndpoints) {
-        const res = await request.get(endpoint);
-        expect(res.status(), `Endpoint ${endpoint} phải trả về 200`).toBe(200);
+      const headers = basicAuth(REAL_USER.username, REAL_USER.password);
+      for (const endpoint of operationalEndpoints) {
+        const resUnauth = await request.get(endpoint);
+        expect(resUnauth.status(), `Endpoint ${endpoint} phải trả về 401 khi chưa login`).toBe(401);
+
+        const resAuth = await request.get(endpoint, { headers });
+        expect(resAuth.status(), `Endpoint ${endpoint} phải trả về 200 khi đã login`).toBe(200);
       }
     });
 
-    test('endpoint kích hoạt thông báo thử nghiệm /test-notification là public (200 OK)', async ({ request }) => {
+    test('endpoint kích hoạt thông báo thử nghiệm /test-notification yêu cầu quyền Admin (401/403 khi chưa login)', async ({ request }) => {
       const res = await request.post('/test-notification');
-      expect(res.status()).toBe(200);
+      expect([401, 403]).toContain(res.status());
     });
 
-    test('endpoint lưu cấu hình /settings là public (200 OK)', async ({ request }) => {
+    test('endpoint lưu cấu hình /settings yêu cầu xác thực (401 khi chưa login)', async ({ request }) => {
       const res = await request.post('/settings', {
         data: { key: 'autotest_rbac_check', value: '1' },
       });
-      expect(res.status()).toBe(200);
+      expect(res.status()).toBe(401);
     });
   });
 
   // --------------------------------------------------------------------------
-  // 3. HIỆN TRẠNG PHÂN QUYỀN RBAC (THEO DOCS/API_CONTRACT.MD MỤC 2.1)
-  // Backend hiện chưa có trường role trong bảng users; tất cả user sau khi verify đều có quyền như nhau.
+  // 3. HIỆN TRẠNG PHÂN QUYỀN RBAC (THEO API CONTRACT & MYSQL SCHEMA)
   // --------------------------------------------------------------------------
   test.describe('Hiện trạng RBAC & Cấu trúc User', () => {
-    test('tài khoản hiện tại có trường is_active nhưng chưa có role (theo API Contract 2.1)', async ({ request }) => {
+    test('tài khoản hiện tại có trường is_active và role hợp lệ', async ({ request }) => {
       const headers = basicAuth(REAL_USER.username, REAL_USER.password);
       const res = await request.get('/users/me', { headers });
       expect(res.status()).toBe(200);
       const data = await res.json();
       expect(data.username).toBe(REAL_USER.username);
       expect(data.is_active).toBe(true);
-      // Phù hợp tài liệu API Contract mục 2.1: role chưa có trên backend
-      expect(data.role).toBeUndefined();
+      expect(['admin', 'user']).toContain(data.role);
     });
   });
 

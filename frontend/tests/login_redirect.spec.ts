@@ -37,7 +37,7 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
     await page.fill('#password', testAccount.password);
     await page.click('button[type="submit"]');
 
-    await page.waitForTimeout(1000);
+    await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
 
     // Kiểm tra sessionStorage có lưu auth_header
     const authHeader = await page.evaluate(() => sessionStorage.getItem('auth_header'));
@@ -54,7 +54,7 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
     await page.fill('#password', testAccount.password);
     await page.click('button[type="submit"]');
 
-    await page.waitForTimeout(1000);
+    await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
 
     // Backend mới nhất (Commit 56bb42f) hỗ trợ đăng nhập bằng Email
     // Kiểm tra sessionStorage có lưu auth_header thành công

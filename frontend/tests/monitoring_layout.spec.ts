@@ -15,7 +15,7 @@ async function mockDashboard(page: Page, role: 'user' | 'admin', active = false)
     sessionStorage.setItem('user_profile', JSON.stringify(user));
     localStorage.setItem('language', 'en');
   }, actor);
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
     const url = new URL(route.request().url());
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 200, headers });

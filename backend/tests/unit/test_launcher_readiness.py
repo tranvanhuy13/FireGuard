@@ -15,13 +15,13 @@ class LauncherReadinessTests(TestCase):
     def setUp(self):
         source = Path(__file__).resolve().parents[2] / "app/core/routes.py"
         tree = ast.parse(source.read_text(encoding="utf-8"))
-        handler = next(node for node in tree.body
-                       if isinstance(node, ast.FunctionDef) and node.name == "database_readiness")
+        handlers = [node for node in tree.body
+                    if isinstance(node, ast.FunctionDef) and node.name in ("database_readiness", "read_root")]
         self.database = SimpleNamespace(init_db=Mock())
         router = APIRouter()
         scope = dict(router=router, database=self.database, Response=Response,
                      HTTPException=HTTPException, logger=logging.getLogger(__name__))
-        exec(compile(ast.Module(body=[handler], type_ignores=[]), str(source), "exec"), scope)
+        exec(compile(ast.Module(body=handlers, type_ignores=[]), str(source), "exec"), scope)
         app = FastAPI()
         app.add_middleware(CORSMiddleware, allow_origins=["https://frontend.example.com"],
                            allow_credentials=True)
@@ -44,7 +44,14 @@ class LauncherReadinessTests(TestCase):
         response = self.client.get("/health/ready", headers={"Origin": "https://launcher.example.com"})
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {"detail": "Database unavailable"})
+        # Verify internal private error message is never leaked in the response body
+        self.assertNotIn("private database error", response.text)
         self.check_headers(response)
+
+    def test_read_root_returns_ok_message(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "ok", "message": "Fire Detection System API is running"})
 
 
 if __name__ == "__main__":

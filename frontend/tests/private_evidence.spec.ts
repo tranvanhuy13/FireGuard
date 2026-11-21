@@ -12,7 +12,7 @@ test('Fire Alert downloads signed camera/video evidence directly and handles exp
   let downloads = 0;
   let issued = 0;
   const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
     if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 200, headers });
     const path = new URL(route.request().url()).pathname;
     let body: unknown = {};

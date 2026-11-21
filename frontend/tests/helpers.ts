@@ -144,6 +144,7 @@ export async function loginUI(
     }
   }
   await page.click('button[type="submit"]');
+  await page.waitForURL(/.*\/dashboard/, { timeout: 10000 }).catch(() => {});
 }
 
 /** Thao tác đăng xuất từ Sidebar Dashboard */

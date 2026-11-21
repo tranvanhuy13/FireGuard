@@ -19,7 +19,7 @@ test.describe('real monitoring', () => {
     await session(page);
     let imageWorks = false;
     let fresh = true;
-    await page.route('http://127.0.0.1:18080/**', async route => {
+    await page.route(/.*(18080|:8000)\/.*/, async route => {
       const path = new URL(route.request().url()).pathname;
       const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
       if (path.startsWith('/video_feed/')) {
@@ -59,7 +59,7 @@ test.describe('real monitoring', () => {
   test('camera editor sends the chosen source and keeps the dialog open on rejection', async ({ page }) => {
     await session(page);
     let submitted: unknown;
-    await page.route('http://127.0.0.1:18080/**', async route => {
+    await page.route(/.*(18080|:8000)\/.*/, async route => {
       const path = new URL(route.request().url()).pathname;
       const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
       if (path === '/cameras' && route.request().method() === 'POST') {
@@ -83,7 +83,7 @@ test.describe('real monitoring', () => {
   test('detection socket reconnects after a policy close with an unchanged token', async ({ page }) => {
     await session(page);
     let connections = 0;
-    await page.route('http://127.0.0.1:18080/**', route => {
+    await page.route(/.*(18080|:8000)\/.*/, route => {
       const path = new URL(route.request().url()).pathname;
       const body = path === '/users/me' ? actor : path === '/auth/stream-token'
         ? { token: 'same-token', expires_in: 3600 } : path === '/cameras'
@@ -121,7 +121,7 @@ test.describe('demo monitoring', () => {
         return Promise.resolve();
       };
     });
-    await page.route('http://127.0.0.1:18080/**', route => {
+    await page.route(/.*(18080|:8000)\/.*/, route => {
       const path = new URL(route.request().url()).pathname;
       return route.fulfill({ headers: { 'access-control-allow-origin': '*' }, json: path === '/users/me' ? actor : { token: 'same-token', expires_in: 3600 } });
     });

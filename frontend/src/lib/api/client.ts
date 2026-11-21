@@ -119,7 +119,7 @@ if (typeof window !== 'undefined' && !window.__fireguard_fetch_wrapped) {
 
     const response = await originalFetch(input, modifiedInit);
 
-    if (isApiCall && response.status === 401 && !pathname.includes('/auth/login')) {
+    if (!isMockAuth && isApiCall && response.status === 401 && !pathname.includes('/auth/login')) {
       clearAuthSession();
       if (typeof window !== 'undefined' && window.location.pathname.startsWith('/dashboard')) {
         const currentPath = window.location.pathname + window.location.search;

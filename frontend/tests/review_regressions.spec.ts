@@ -11,7 +11,7 @@ test('history reaches old records, resets filtered pages and persists status con
   }, actor);
   let updated = false;
   const offsets: number[] = [];
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
     const url = new URL(route.request().url());
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
     let body: unknown = {};
@@ -59,7 +59,7 @@ test('camera image retries even when refreshed token remains the same', async ({
     sessionStorage.setItem('user_profile', JSON.stringify(user));
   }, actor);
   let frames = 0;
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
     const path = new URL(route.request().url()).pathname;
     const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
     if (path.startsWith('/video_feed/')) {
