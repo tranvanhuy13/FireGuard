@@ -636,9 +636,10 @@ export const setupMockService = () => {
         if (DEMO_CAMERAS_ENABLED) return handleDemoCameras(parsedUrl, cameraPath, init);
         return originalFetch(input, init);
       }
-      // Notification destinations must be persisted where the real bots read them.
-      if (/^\/notifications\/(accounts|groups)(?:\/|$)/.test(parsedUrl.pathname)
-          || /^\/(settings|test-notification)$/.test(parsedUrl.pathname)) {
+      // Notification destinations must be persisted where the real bots read them, unless in mock mode.
+      const isForceMock = typeof window !== 'undefined' && localStorage.getItem('force_mock') === 'true';
+      if (!isForceMock && (/^\/notifications\/(accounts|groups)(?:\/|$)/.test(parsedUrl.pathname)
+          || /^\/(settings|test-notification)$/.test(parsedUrl.pathname))) {
         return originalFetch(input, init);
       }
       const data = getMockData();

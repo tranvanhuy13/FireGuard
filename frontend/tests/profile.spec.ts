@@ -59,4 +59,48 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
     const successMsg = page.locator('form').getByText(/thành công|successfully/i);
     await expect(successMsg).toBeVisible({ timeout: 5000 });
   });
+
+  test('PRO_04: Phân tích giá trị biên (BVA) độ dài số điện thoại (8 số: lỗi, 9-11 số: hợp lệ, 12 số: lỗi)', async ({ page }) => {
+    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/dashboard/profile');
+    const phoneInput = page.locator('input[type="tel"]');
+    const phoneError = page.getByText(/Số điện thoại không hợp lệ|Invalid phone number/);
+
+    // Biên dưới - 1: 8 chữ số -> lỗi
+    await phoneInput.fill('09123456');
+    await phoneInput.blur();
+    await expect(phoneError).toBeVisible();
+
+    // Biên dưới (min): 9 chữ số -> hợp lệ
+    await phoneInput.fill('091234567');
+    await phoneInput.blur();
+    await expect(phoneError).toHaveCount(0);
+
+    // Biên trên (max): 11 chữ số -> hợp lệ
+    await phoneInput.fill('09123456789');
+    await phoneInput.blur();
+    await expect(phoneError).toHaveCount(0);
+
+    // Biên trên + 1: 12 chữ số -> lỗi
+    await phoneInput.fill('091234567890');
+    await phoneInput.blur();
+    await expect(phoneError).toBeVisible();
+  });
+
+  test('PRO_05: XSS & Ký tự đặc biệt trong ô số điện thoại bị chặn bởi validation', async ({ page }) => {
+    await page.waitForLoadState('domcontentloaded');
+    await page.goto('/dashboard/profile');
+    const phoneInput = page.locator('input[type="tel"]');
+    const phoneError = page.getByText(/Số điện thoại không hợp lệ|Invalid phone number/);
+
+    // Thử chèn payload XSS
+    await phoneInput.fill('<script>alert(1)</script>');
+    await phoneInput.blur();
+    await expect(phoneError).toBeVisible();
+
+    // Thử chèn payload SQL injection
+    await phoneInput.fill("0912'; DROP TABLE users;--");
+    await phoneInput.blur();
+    await expect(phoneError).toBeVisible();
+  });
 });

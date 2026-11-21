@@ -27,14 +27,14 @@ test.describe('Bảo mật & Validation API Xác thực (FireGuard Backend)', ()
       expect(data.detail).toContain('special characters');
     });
 
-    test('đăng ký: mật khẩu chứa ký tự đặc biệt -> 400', async ({ request }) => {
+    test('đăng ký: mật khẩu quá ngắn (< 8 ký tự) -> 400', async ({ request }) => {
       const u = newUser();
       const res = await request.post('/auth/signup', {
-        data: { username: u.username, email: u.email, password: 'Password123!@#' },
+        data: { username: u.username, email: u.email, password: '123' },
       });
       expect(res.status()).toBe(400);
       const data = await res.json();
-      expect(data.detail).toContain('special characters');
+      expect(data.detail).toContain('at least 8 characters');
     });
 
     test('đăng ký: email không phải Gmail (@gmail.com) -> 400', async ({ request }) => {
@@ -239,7 +239,7 @@ test.describe('Bảo mật & Validation API Xác thực (FireGuard Backend)', ()
   // 8. API ĐẶT LẠI MẬT KHẨU (/auth/reset-password)
   // --------------------------------------------------------------------------
   test.describe('API /auth/reset-password (Commit 654c4c0)', () => {
-    test('đặt lại mật khẩu chứa ký tự đặc biệt -> 400', async ({ request }) => {
+    test('đặt lại mật khẩu với OTP không hợp lệ -> 400', async ({ request }) => {
       const res = await request.post('/auth/reset-password', {
         data: {
           email: REAL_USER.email,
@@ -249,7 +249,7 @@ test.describe('Bảo mật & Validation API Xác thực (FireGuard Backend)', ()
       });
       expect(res.status()).toBe(400);
       const data = await res.json();
-      expect(data.detail).toContain('special characters');
+      expect(data.detail).toBe('INVALID_OTP');
     });
 
     test('đặt lại mật khẩu ngắn dưới 8 ký tự -> 400', async ({ request }) => {

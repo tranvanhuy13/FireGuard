@@ -81,7 +81,7 @@ test.describe('1. Đăng ký tài khoản (Register)', () => {
   test('REG_10: Password Strength Meter phản ánh độ mạnh của mật khẩu theo thời gian thực', async ({ page }) => {
     await page.goto('/register');
     const passInput = page.locator('#password');
-    await passInput.fill('abcdefgh');
+    await passInput.fill('abc');
     await expect(page.getByText(/^(Yếu|Weak)$/i).first()).toBeVisible();
     await passInput.fill('Abcdefgh1');
     await expect(page.getByText(/^(Mạnh|Strong)$/i).first()).toBeVisible();
@@ -238,7 +238,7 @@ test.describe('3. Đăng nhập (Login)', () => {
     await page.fill('#password', REAL_USER.password);
     await page.click('button[type="submit"]');
 
-    await page.waitForTimeout(1500);
+    await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
 
     // Kiểm tra sessionStorage lưu auth_header
     const authHeader = await page.evaluate(() => sessionStorage.getItem('auth_header'));

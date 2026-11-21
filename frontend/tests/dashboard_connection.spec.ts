@@ -13,7 +13,7 @@ test('slow history does not block dashboard; recovery preserves live alerts', as
     sessionStorage.setItem('user_profile', JSON.stringify(user));
   }, profile);
   const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
     const path = new URL(route.request().url()).pathname;
     if (route.request().method() === 'OPTIONS') {
       await route.fulfill({ status: 200, headers }); return;
@@ -35,19 +35,20 @@ test('slow history does not block dashboard; recovery preserves live alerts', as
       socket.send(JSON.stringify({ id: 99, timestamp: '2026-10-30 12:00:00', type: 'fire', confidence: 0.95 }));
     }
   });
+  const alertStatus = page.getByRole('status').filter({ hasText: /alert history|lịch sử/i });
   await page.clock.install();
   await page.goto('/dashboard');
   await expect.poll(() => pending.length).toBeGreaterThan(0);
-  await expect(page.getByRole('status')).toBeVisible();
+  await expect(alertStatus).toBeVisible();
   await expect(page.getByText('Connection Error', { exact: true })).toHaveCount(0);
   // Advance beyond both the former 8-second timeout and the new request timeout.
   await page.clock.fastForward(31000);
-  await expect(page.getByRole('status')).toBeVisible();
+  await expect(alertStatus).toBeVisible();
   await expect(page.getByRole('button', { name: /Thử lại|Retry/, exact: true })).toBeVisible();
   historyReady = true;
   for (const route of pending) await route.fulfill({ json: { alerts: [] }, headers }).catch(() => {});
   await page.getByRole('button', { name: /Thử lại|Retry/, exact: true }).click();
-  await expect(page.getByRole('status')).toHaveCount(0);
+  await expect(alertStatus).toHaveCount(0);
   const detections = page.getByText(/TOTAL DETECTIONS|TỔNG SỐ PHÁT HIỆN/, { exact: true }).locator('..');
   await expect(detections.getByText('1', { exact: true })).toBeVisible();
   expect(cameraRequests).toBeGreaterThan(0);

@@ -124,9 +124,11 @@ export function LegalConsentModal({
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 dark:border-slate-800 px-6 gap-6 bg-gray-50/50 dark:bg-slate-900/50">
+        <div role="tablist" className="flex border-b border-gray-200 dark:border-slate-800 px-6 gap-6 bg-gray-50/50 dark:bg-slate-900/50">
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "terms"}
             onClick={() => setActiveTab("terms")}
             className={`py-3 text-sm font-semibold transition-colors border-b-2 -mb-px ${
               activeTab === "terms"
@@ -138,6 +140,8 @@ export function LegalConsentModal({
           </button>
           <button
             type="button"
+            role="tab"
+            aria-selected={activeTab === "privacy"}
             onClick={() => setActiveTab("privacy")}
             className={`py-3 text-sm font-semibold transition-colors border-b-2 -mb-px ${
               activeTab === "privacy"
@@ -150,7 +154,7 @@ export function LegalConsentModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+        <div role="tabpanel" className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
           {activeTab === "terms" ? (
             <div className="space-y-4">
               {legal.termsSections.map((sec, idx) => (
