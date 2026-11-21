@@ -74,6 +74,8 @@ Mock behavior is controlled by `NEXT_PUBLIC_USE_MOCK`, with optional separate `N
 
 ## Deployment map
 
+- [Render launcher](../../deploy/launcher/README.md): a separate static waiting page wakes FE and BE concurrently, checks both public readiness endpoints, then redirects to FE. Requires public `FRONTEND_URL`/`BACKEND_URL`; readiness responses support cross-origin checks without credentials.
+
 - [Backend Dockerfile](../../backend/Dockerfile): runtime defaults use persistent `/data` paths and support the hosting `PORT` variable.
 - [Frontend Dockerfile](../../frontend/Dockerfile): frontend image build.
 - [Local Compose](../../deploy/docker-compose.local.yml): local MinIO, initializer, backend, frontend and Caddy stack.
