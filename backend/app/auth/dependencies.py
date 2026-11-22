@@ -1,3 +1,5 @@
+from time import perf_counter
+
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from .utils import get_password_hash, verify_password
@@ -5,7 +7,7 @@ from .login_limiter import reserve, finish
 from app.users.models import User
 from .database import get_connection
 
-security = HTTPBasic()
+security = HTTPBasic(auto_error=False)
 
 # Use the same bcrypt policy as real accounts, once per worker rather than request.
 _DUMMY_PASSWORD_HASH = get_password_hash("bug-015-dummy-password")
@@ -25,6 +27,20 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def get_auth_db(request: Request):
+    # Authentication owns a separate, short-lived connection. Route dependencies
+    # can still use get_db without inheriting a connection closed by auth.
+    if not request.headers.get("authorization"):
+        yield None
+        return
+    request.state.auth_started = perf_counter()
+    db = get_connection()
+    try:
+        yield db
+    finally:
+        db.close()
+
 
 def get_user(db, username: str):
     row = db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
@@ -51,30 +67,46 @@ def authenticate_user(db, identifier: str, password: str):
         return False
     return user
 
-def get_current_user(request: Request, db = Depends(get_db), credentials: HTTPBasicCredentials = Depends(security)):
-    user = get_user_by_identifier(db, credentials.username)
-    # Uvicorn applies its trusted-proxy policy to request.client. Never parse
-    # arbitrary forwarded headers here.
-    client_ip = request.client.host if request.client else "unknown"
-    ticket, scopes = reserve(db, credentials.username, user, client_ip)
+def get_current_user(request: Request, db = Depends(get_auth_db), credentials: HTTPBasicCredentials = Depends(security)):
+    started = getattr(getattr(request, "state", None), "auth_started", perf_counter())
     try:
-        valid = _verify_user_password(user, credentials.password)
-    except ValueError:
-        valid = False
-    except Exception:
-        finish(db, ticket, scopes, True)
-        raise
-    finish(db, ticket, scopes, valid)
-    if not valid:
-        user = None
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    validate_account(user)
-    return user
+        authorization = getattr(request, "headers", {}).get("authorization", "")
+        if authorization.lower().startswith("bearer "):
+            from .sessions import verify_session
+            user = verify_session(authorization[7:].strip(), db)
+            validate_account(user)
+            return user
+        if credentials is None:
+            raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Basic"})
+        user = get_user_by_identifier(db, credentials.username)
+        # Uvicorn applies its trusted-proxy policy to request.client. Never parse
+        # arbitrary forwarded headers here.
+        client_ip = request.client.host if request.client else "unknown"
+        ticket, scopes = reserve(db, credentials.username, user, client_ip)
+        try:
+            valid = _verify_user_password(user, credentials.password)
+        except ValueError:
+            valid = False
+        except Exception:
+            finish(db, ticket, scopes, True)
+            raise
+        finish(db, ticket, scopes, valid)
+        if not valid:
+            user = None
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Basic"},
+            )
+        validate_account(user)
+        return user
+    finally:
+        if db is not None:
+            db.close()
+        if getattr(request, "state", None) is not None:
+            request.state.auth_ms = (perf_counter() - started) * 1000
+
 
 
 def validate_account(user):

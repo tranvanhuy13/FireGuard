@@ -64,6 +64,7 @@ export const api = {
 
     try {
       const res = await apiClient<{
+        access_token?: string;
         id: number;
         username: string;
         email: string;
@@ -82,7 +83,8 @@ export const api = {
       });
 
       // Session saved in memory and sessionStorage only
-      setAuthHeader(basicHeader);
+      const sessionHeader = res.access_token ? `Bearer ${res.access_token}` : basicHeader;
+      setAuthHeader(sessionHeader);
       const user: User = {
         id: String(res.id),
         username: res.username,
@@ -98,7 +100,7 @@ export const api = {
         sessionStorage.setItem('user_profile', JSON.stringify(user));
       }
 
-      return { user, token: basicHeader };
+      return { user, token: sessionHeader };
     } catch (err: any) {
       if (err instanceof ApiError) {
         if (err.status === 429) {

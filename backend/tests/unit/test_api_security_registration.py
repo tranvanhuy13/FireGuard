@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
-from app.auth.dependencies import get_db
+from app.auth.dependencies import get_db, get_auth_db
 from app.detection import rules as detection_rules  # Load native OpenCV/NumPy once, outside sys.modules patching.
 
 
@@ -36,6 +36,7 @@ def app_module():
                                  camera_manager=camera, video_analyzer=video, storage=storage,
                                  ConnectionManager=bootstrap.ConnectionManager)
         module.app.dependency_overrides[get_db] = lambda: Mock()
+        module.app.dependency_overrides[get_auth_db] = lambda: Mock()
         yield module
 
 

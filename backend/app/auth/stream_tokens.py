@@ -35,7 +35,7 @@ def verify_stream_token(token, db):
     return user
 
 
-def require_stream_user(token: str | None = Query(None), db=Depends(get_db)):
+def require_stream_user(token: str | None = Query(None), db=Depends(get_db, scope="function")):
     return verify_stream_token(token, db)
 
 
@@ -45,7 +45,7 @@ def create_snapshot_token(name):
     return f"{payload}:{_sign(payload, 'notification-image')}"
 
 
-def require_snapshot_user(name: str, token: str | None = Query(None), db=Depends(get_db)):
+def require_snapshot_user(name: str, token: str | None = Query(None), db=Depends(get_db, scope="function")):
     if token and token.startswith("snapshot:") and token.count(":") == 3:
         try:
             scope, filename, expires, signature = token.rsplit(":", 3)

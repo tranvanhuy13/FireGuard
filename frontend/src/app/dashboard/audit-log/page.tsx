@@ -7,6 +7,8 @@ import { Download, Search, FilterX, ChevronDown, ChevronUp, FileText, AlertCircl
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { isMockData } from '@/lib/api/client';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { fetchPage, clearPageCache } from '@/lib/api/pageCache';
 import { authFetch } from '@/lib/api/authFetch';
 import { API_URL } from '@/config';
 
@@ -41,6 +43,9 @@ function AuditLogContent() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search);
+  const [total, setTotal] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const [filterAction, setFilterAction] = useState('ALL');
   const [filterResult, setFilterResult] = useState('ALL');
   const [dateFrom, setDateFrom] = useState('');
@@ -54,19 +59,38 @@ function AuditLogContent() {
 
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
+  const serverQuery = useMemo(() => {
+    const columns: Record<string, string> = { user: 'username', details: 'detail', timestamp: 'timestamp', action: 'action', target: 'target' };
+    const query = new URLSearchParams({ limit: String(rowsPerPage), offset: String((page - 1) * rowsPerPage),
+      search: debouncedSearch, action: filterAction === 'ALL' ? '' : filterAction,
+      sort: columns[sortCol] || 'timestamp', direction: sortDesc ? 'desc' : 'asc' });
+    if (dateFrom) query.set('date_from', new Date(`${dateFrom}T00:00:00`).toISOString());
+    if (dateTo) {
+      const end = new Date(`${dateTo}T00:00:00`); end.setDate(end.getDate() + 1);
+      query.set('date_to', end.toISOString());
+    }
+    return query.toString();
+  }, [rowsPerPage, page, debouncedSearch, filterAction, sortCol, sortDesc, dateFrom, dateTo]);
+
   useEffect(() => {
+    if (!isMockData && search !== debouncedSearch) return;
     let isMounted = true;
+    const controller = new AbortController();
     const fetchLogs = async () => {
+      await Promise.resolve();
+      if (!isMounted) return;
+      setLoading(true);
+      setError(null);
       try {
         if (isMockData) {
-          const res = await fetch('/audit-logs');
+          const res = await fetch('/audit-logs', { signal: controller.signal });
           if (!res.ok) {
             throw new Error(`HTTP ${res.status}`);
           }
           const data = await res.json();
           if (isMounted) setLogs(data.auditLogs || []);
         } else {
-          const res = await authFetch(`${API_URL}/audit-log?limit=200&offset=0`);
+          const res = await fetchPage(`${API_URL}/audit-log?${serverQuery}`, controller.signal);
           if (!isMounted) return;
           if (res.status === 401) {
             setError(n.errors?.unauthorized || 'Phiên đăng nhập đã hết hạn hoặc bạn chưa đăng nhập.');
@@ -101,7 +125,11 @@ function AuditLogContent() {
             result: '-',
             userAgent: '-'
           }));
-          if (isMounted) setLogs(mappedLogs);
+          if (isMounted) {
+            setLogs(mappedLogs);
+            setTotal(data.total || 0);
+            setPage(value => Math.min(value, Math.max(1, Math.ceil(data.total / rowsPerPage))));
+          }
         }
       } catch {
         if (isMounted) {
@@ -115,11 +143,13 @@ function AuditLogContent() {
     fetchLogs();
     return () => {
       isMounted = false;
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey]);
+  }, [reloadKey, serverQuery, search, debouncedSearch]);
 
   const handleRetry = () => {
+    clearPageCache();
     setLoading(true);
     setError(null);
     setReloadKey(k => k + 1);
@@ -168,10 +198,11 @@ function AuditLogContent() {
     if (isMockData) {
       return Object.keys(n.actions);
     }
-    return Array.from(new Set(logs.map(l => l.action).filter(Boolean))).sort();
+    return Array.from(new Set([...Object.keys(n.actions).filter(action => action.includes('.')), ...logs.map(l => l.action).filter(Boolean)])).sort();
   }, [logs, n.actions]);
 
   const filteredLogs = useMemo(() => {
+    if (!isMockData) return logs;
     return logs.filter(log => {
       if (filterAction !== 'ALL' && log.action !== filterAction) return false;
       if (isMockData && filterResult !== 'ALL' && log.result !== filterResult) return false;
@@ -205,11 +236,15 @@ function AuditLogContent() {
   }, [logs, search, filterAction, filterResult, dateFrom, dateTo, sortCol, sortDesc, n]);
 
   const paginatedLogs = useMemo(() => {
+    if (!isMockData) return logs;
     const start = (page - 1) * rowsPerPage;
     return filteredLogs.slice(start, start + rowsPerPage);
-  }, [filteredLogs, page, rowsPerPage]);
+  }, [logs, filteredLogs, page, rowsPerPage]);
+  const totalRows = isMockData ? filteredLogs.length : total;
 
   const handleSort = (col: keyof AuditLog) => {
+    if (!isMockData && (col === 'ip' || col === 'result')) return;
+    setPage(1);
     if (sortCol === col) setSortDesc(!sortDesc);
     else { setSortCol(col); setSortDesc(true); }
   };
@@ -218,9 +253,31 @@ function AuditLogContent() {
     setSearch(''); setFilterAction('ALL'); setFilterResult('ALL'); setDateFrom(''); setDateTo(''); setPage(1);
   };
 
-  const handleExport = () => {
+  const handleExport = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+    let exported = filteredLogs;
+    if (!isMockData) {
+      exported = [];
+      let watermark: number | undefined;
+      for (let offset = 0; ; offset += 500) {
+        const query = new URLSearchParams(serverQuery);
+        query.set('limit', '500'); query.set('offset', String(offset));
+        if (watermark !== undefined) query.set('max_id', String(watermark));
+        const response = await authFetch(`${API_URL}/audit-log?${query}`);
+        if (!response.ok) throw new Error('Audit export failed');
+        const data = await response.json();
+        watermark ??= data.max_id;
+        exported.push(...data.logs.map((item: { id: number; timestamp: string; username: string; action: string; target: string; detail: string }) => ({
+          id: String(item.id), timestamp: item.timestamp, user: item.username, action: item.action,
+          target: item.target || '-', details: item.detail || '-', ip: '-', result: '-',
+        })));
+        if (!data.logs.length || offset + data.logs.length >= data.total) break;
+      }
+    }
     const headers = [n.cols.time, n.cols.user, n.cols.action, n.cols.target, n.cols.ip, n.cols.result, n.cols.details];
-    const csvContent = filteredLogs.map(log => {
+    const csvContent = exported.map(log => {
       let timeFormatted = log.timestamp;
       try {
         const d = new Date(log.timestamp);
@@ -247,6 +304,9 @@ function AuditLogContent() {
     link.href = URL.createObjectURL(blob);
     link.download = 'audit_log.csv';
     link.click();
+    URL.revokeObjectURL(link.href);
+    } catch { setError(n.errors?.networkError || 'Export failed'); }
+    finally { setExporting(false); }
   };
 
   return (
@@ -256,7 +316,7 @@ function AuditLogContent() {
           <h1 className="text-3xl font-bold text-slate-900">{n.title}</h1>
           <p className="text-slate-500 mt-2">{n.subtitle}</p>
         </div>
-        <button onClick={handleExport} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium">
+        <button disabled={exporting || loading} onClick={handleExport} className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium">
           <Download className="w-4 h-4" /> {n.export}
         </button>
       </div>
@@ -315,7 +375,7 @@ function AuditLogContent() {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading && logs.length === 0 ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <tr key={i} className="border-b border-slate-100 animate-pulse">
                     <td className="p-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
@@ -424,9 +484,9 @@ function AuditLogContent() {
             </select>
           </div>
           <div className="flex gap-1">
-            <button disabled={page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 rounded border border-slate-200 text-slate-600 disabled:opacity-50 hover:bg-slate-50 text-sm font-medium">Previous</button>
-            <div className="px-3 py-1 text-sm text-slate-600 font-medium">Page {page} of {Math.max(1, Math.ceil(filteredLogs.length / rowsPerPage))}</div>
-            <button disabled={page >= Math.ceil(filteredLogs.length / rowsPerPage)} onClick={() => setPage(page + 1)} className="px-3 py-1 rounded border border-slate-200 text-slate-600 disabled:opacity-50 hover:bg-slate-50 text-sm font-medium">Next</button>
+            <button disabled={loading || page === 1} onClick={() => setPage(page - 1)} className="px-3 py-1 rounded border border-slate-200 text-slate-600 disabled:opacity-50 hover:bg-slate-50 text-sm font-medium">Previous</button>
+            <div className="px-3 py-1 text-sm text-slate-600 font-medium">Page {page} of {Math.max(1, Math.ceil(totalRows / rowsPerPage))}</div>
+            <button disabled={loading || page >= Math.ceil(totalRows / rowsPerPage)} onClick={() => setPage(page + 1)} className="px-3 py-1 rounded border border-slate-200 text-slate-600 disabled:opacity-50 hover:bg-slate-50 text-sm font-medium">Next</button>
           </div>
         </div>
       </div>

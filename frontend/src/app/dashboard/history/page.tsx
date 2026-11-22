@@ -1,5 +1,7 @@
 /* eslint-disable */
 "use client";
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { fetchPage, clearPageCache } from '@/lib/api/pageCache';
 import EvidenceImage from "@/components/EvidenceImage";
 import { Download } from 'lucide-react';
 import React, { useState, useEffect, useCallback } from 'react';
@@ -23,6 +25,7 @@ export default function HistoryPage() {
   
   // filters, sort, pagination
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebouncedValue(search);
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc'|'desc' }>({ key: 'timestamp', direction: 'desc' });
@@ -33,16 +36,17 @@ export default function HistoryPage() {
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
 
   const queryFor = useCallback((limit: number, offset: number) => new URLSearchParams({
-    limit: String(limit), offset: String(offset), search, event_type: typeFilter,
+    limit: String(limit), offset: String(offset), search: debouncedSearch, event_type: typeFilter,
     status: statusFilter, sort: sortConfig.key, direction: sortConfig.direction,
-  }), [search, typeFilter, statusFilter, sortConfig]);
+  }), [debouncedSearch, typeFilter, statusFilter, sortConfig]);
 
   useEffect(() => {
+    if (search !== debouncedSearch) return;
     const controller = new AbortController();
     let disposed = false;
     setLoading(true);
     setRequestError(false);
-    fetch(`${API_URL}/history?${queryFor(itemsPerPage, (currentPage - 1) * itemsPerPage)}`, { signal: controller.signal })
+    fetchPage(`${API_URL}/history?${queryFor(itemsPerPage, (currentPage - 1) * itemsPerPage)}`, controller.signal)
       .then(async res => { if (!res.ok) throw new Error('History failed'); return res.json(); })
       .then(data => {
         if (disposed) return;
@@ -53,7 +57,7 @@ export default function HistoryPage() {
       .catch(() => { if (!disposed) setRequestError(true); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; controller.abort(); };
-  }, [queryFor, currentPage, reload]);
+  }, [queryFor, currentPage, reload, search, debouncedSearch]);
 
   const handleExportCsv = async () => {
     if (exporting) return;
@@ -108,6 +112,7 @@ export default function HistoryPage() {
         body: JSON.stringify({ status })
       });
       if (res.ok) {
+        clearPageCache();
         setReload(value => value + 1);
         setSelectedAlert(null);
       } else { setRequestError(true); }
@@ -133,7 +138,7 @@ export default function HistoryPage() {
     <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t.pages.history.title}</h1>
-        <button disabled={exporting} onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
+        <button disabled={exporting || search !== debouncedSearch} onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
       </div>
       
       <div className="flex flex-col md:flex-row gap-4">

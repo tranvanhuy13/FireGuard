@@ -75,16 +75,15 @@ def search_events(limit=50, offset=0, *, search="", event_type="all", status="al
         args.extend([pattern] * 3)
     with get_connection() as conn:
         if max_id is not None:
-            watermark = max_id
-        elif owner_user_id is not None:
-            watermark = conn.execute("SELECT MAX(id) FROM events WHERE owner_user_id=? AND source_kind='camera'",
-                                     (owner_user_id,)).fetchone()[0] or 0
-        else:
-            watermark = conn.execute("SELECT MAX(id) FROM events").fetchone()[0] or 0
-        clauses.append("id <= ?")
-        args.append(watermark)
+            clauses.append("id <= ?")
+            args.append(max_id)
         where = " WHERE " + " AND ".join(clauses)
-        total = conn.execute("SELECT COUNT(*) FROM events" + where, args).fetchone()[0]
+        # Count and establish the export watermark in one round trip.
+        summary = conn.execute("SELECT COUNT(*) AS total, MAX(id) AS max_id FROM events" + where, args).fetchone()
+        total = summary["total"]
+        watermark = max_id if max_id is not None else summary["max_id"] or 0
+        where += " AND id <= ?"
+        args.append(watermark)
         rows = conn.execute("SELECT * FROM events" + where +
                             f" ORDER BY {sort} {direction}, id {direction} LIMIT ? OFFSET ?",
                             [*args, limit, offset]).fetchall()
