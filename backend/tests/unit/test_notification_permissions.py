@@ -39,7 +39,8 @@ class RecipientPermissionsTests(unittest.TestCase):
         for p in self.patches:
             self.addCleanup(p.stop)
         self.app = FastAPI()
-        self.app.dependency_overrides[auth.get_db] = lambda: object()
+        self.app.dependency_overrides[auth.get_db] = lambda: Mock()
+        self.app.dependency_overrides[auth.get_auth_db] = lambda: Mock()
         tree = ast.parse(application_source())
         registrations = [node for node in tree.body if isinstance(node, ast.Expr) and
                          isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute) and

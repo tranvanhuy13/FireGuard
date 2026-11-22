@@ -7,6 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from app.core.timing import ListTimingMiddleware
 from app.core.runtime import runtime
 from app.db.repositories import operations as database
 from app.notifications import service as notification
@@ -62,6 +63,7 @@ def create_app(*, detector_factory=None, camera_factory=None, video_factory=None
     runtime.video_analyzer = (video_factory or VideoAnalyzer)(runtime.camera_manager.detect, database.get_setting, notification.trigger_notifications)
     runtime.manager = ConnectionManager()
     app = FastAPI(title="AI Fire Detection System", lifespan=lifespan)
+    app.add_middleware(ListTimingMiddleware)
     app.add_middleware(UploadLimitMiddleware, max_bytes=(MAX_UPLOAD_MB + 1) * 1024 * 1024)
     app.add_middleware(CORSMiddleware, **cors_options(), allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
     app.include_router(auth_router, prefix="/auth", tags=["auth"])

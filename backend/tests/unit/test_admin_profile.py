@@ -5,7 +5,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock, patch
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -21,8 +21,14 @@ class AdminProfileTests(unittest.TestCase):
                                  {"login", "get_audit_log"}], type_ignores=[])
         self.app = FastAPI()
         self.actor = SimpleNamespace(id=1, username="admin", email="admin@example.com",
-                                     role="admin", is_active=True, is_blocked=False)
-        self.connection = Mock()
+                                     role="admin", is_active=True, is_blocked=False, hashed_password="offline-hash")
+        self.connection = MagicMock()
+        self.connection.__enter__.return_value = self.connection
+        self.connection.__exit__.side_effect = lambda *_: self.connection.close() and False
+        self.connection.execute.return_value.fetchone.return_value = [1]
+        repository = patch("app.db.repositories.audit.get_connection", return_value=self.connection)
+        repository.start()
+        self.addCleanup(repository.stop)
         self.connection.execute.return_value.fetchall.return_value = [
             {"id": 1, "username": "admin", "role": "admin", "action": "user.update",
              "timestamp": "2026-10-30T00:00:00+00:00", "target": "user:admin", "detail": None}
@@ -51,7 +57,7 @@ class AdminProfileTests(unittest.TestCase):
         response = self.client.get("/audit-log?limit=9999&offset=-3")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["logs"][0]["action"], "user.update")
-        self.assertEqual(self.connection.execute.call_args.args[1], (500, 0))
+        self.assertEqual(self.connection.execute.call_args.args[1], [1, 500, 0])
         self.connection.close.assert_called_once()
 
     def test_standard_user_cannot_read_audit_history(self):

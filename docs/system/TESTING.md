@@ -200,3 +200,10 @@ default or `python -m compileall -q app scripts tests main.py` for syntax checks
 `main`; `tests/mocks.py` patches both canonical module names and package bindings.
 The public entry point remains `uvicorn main:app`; Alembic revision history and
 runtime/model paths are unchanged.
+
+
+## Audit/History and API sessions
+
+Offline backend checks: `python -m pytest tests/unit/test_api_sessions.py tests/unit/test_audit_pagination.py tests/unit/test_auth_timing.py tests/unit/test_admin_profile.py tests/unit/test_event_history.py tests/unit/test_notification_permissions.py tests/unit/test_api_security_registration.py -q`.
+Frontend transport checks: `node --test tests/list_performance.unit.cjs tests/api_client.unit.cjs`.
+`tests/list_performance.spec.ts` exercises the actual History/Audit pages with all API requests intercepted at `http://127.0.0.1:18080`. Start an isolated frontend with that API origin and all mock flags false, then run Playwright with `BASE_URL` pointing at the frontend and optionally `PLAYWRIGHT_CHANNEL=chrome`. It checks debounced searches, cached history page navigation, server audit pagination and complete filtered CSV export. It does not contact MySQL or send bot messages.

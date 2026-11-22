@@ -38,6 +38,7 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `S3_REGION` | Bucket region; public-link signing defaults to `us-east-1`; set to the actual region |
 | `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 signing lifetime, default 3600 (1 hour), range 1–604800; bot links are capped at 3600 seconds and the evidence retention deadline; dashboard links at 300 seconds |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |
+| `AUTH_SESSION_SECRET` | Stable backend-only secret for one-hour API sessions across workers/restarts; falls back to `STREAM_TOKEN_SECRET`, then a per-process random secret |
 | `STREAM_TOKEN_SECRET` | Stable signing secret for password-bound media tokens across restarts |
 | `CORS_ORIGINS` | Comma-separated allowed HTTP(S) origins; explicit configuration replaces development defaults |
 | `ZALO_BOT_TOKEN`, `ZALO_CHAT_ID`, `ZALO_ENABLED` | Optional nonblank environment overrides for Zalo notification settings |
@@ -132,3 +133,17 @@ Per-recipient delivery results are keyed by opaque destination identity and cont
 ## MySQL deployment
 
 Both Compose files require MYSQL_* and MYSQL_SSL_CA_HOST_PATH (an existing absolute CA path on the Docker host). The CA is mounted read-only at /run/secrets/aiven-ca.pem. DB_NAME and AUTH_DB_PATH are no longer consumed. See [MySQL/Aiven migration](../MYSQL_AIVEN_MIGRATION.md) for migration, import, TLS and cutover commands. Keep /data for snapshots and models.
+
+
+## Applying Audit/History optimizations
+
+Install the updated requirements (FastAPI >=0.121.1 is required for media dependency function scope; see [FastAPI early-exit dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/#early-exit-and-scope)). Run `python -m alembic upgrade head` from `backend/` before starting the updated backend (required head: `0007_history_audit_indexes`). Deploy frontend and backend together. Set `AUTH_SESSION_SECRET` to a strong shared backend-only secret for multiple workers; never expose it through `NEXT_PUBLIC_*`. Without a stable shared secret, sessions are intentionally invalidated by process restarts and may fail between workers. Existing Basic browser sessions use the compatibility path until the next login; sign out and sign in to obtain the faster Bearer session. Password changes invalidate Bearer sessions immediately. These changes do not increase the database pool size.
+
+
+### Render deployment with migration
+
+For a native Python Render backend, set Root Directory to `backend`, Build Command to `pip install -r requirements.txt`, and Start Command to `python scripts/start_server.py`. For a Docker Render backend, keep Docker Command empty so the image uses the same entrypoint. An older explicit Uvicorn Docker Command must be cleared or replaced with `python scripts/start_server.py`.
+
+The entrypoint acquires a MySQL advisory lock, applies Alembic through `0007_history_audit_indexes`, releases the lock and starts Uvicorn on `0.0.0.0:$PORT`. Other instances wait up to 60 seconds for the lock. A failed migration or lock acquisition prevents API startup. Do not run migrations during the build; runtime has the database credentials and mounted CA. No separate pre-deploy step is required. Existing CI one-off `alembic upgrade head` commands remain valid; serialize these deploy jobs with service starts. Migration 0007 can recover when an earlier attempt created only one of its two indexes, but rejects an existing index with an unexpected column definition.
+
+Keep `MYSQL_*`, the Aiven CA secret file, Storage credentials and `AUTH_SESSION_SECRET` in the backend environment. This PR does not provision services or modify live Render settings. The frontend has no database migration; deploy its matching code after the backend is ready. Verify `/health`, login and the two list APIs after deployment. Do not downgrade the shared database while either release is serving traffic.

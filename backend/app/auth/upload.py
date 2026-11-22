@@ -65,6 +65,8 @@ class AuthenticatedUploadRoute(APIRoute):
         async def authenticated(request: Request):
             # HTTPBasic reads headers only. Password/DB work stays off the event loop.
             credentials = await security(request)
+            if credentials is None and not request.headers.get("authorization", "").lower().startswith("bearer "):
+                raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Basic"})
 
             def authenticate():
                 with closing(get_connection()) as db:

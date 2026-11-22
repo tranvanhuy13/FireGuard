@@ -22,7 +22,6 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8000
 
-# Apply all migrations (including account-owned notification recipients) before
-# API startup. Abort startup if the database cannot be migrated.
-# Render supplies PORT; local containers default to 8000.
-CMD ["sh", "-c", "python -m alembic upgrade head && exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --log-level info"]
+# Shared entrypoint for Docker and native Render deployments. Migrations are
+# serialized across instances and must succeed before Uvicorn starts.
+CMD ["python", "scripts/start_server.py"]

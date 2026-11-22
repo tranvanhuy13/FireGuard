@@ -47,6 +47,7 @@ events.append_column(sa.Column("source_kind", sa.String(16), nullable=False, ser
 events.append_column(sa.Column("video_job_id", sa.String(32)))
 events.append_column(sa.Column("video_time", sa.Double))
 events.append_column(sa.Column("video_name", sa.Text))
+sa.Index("events_owner_source_time_id", events.c.owner_user_id, events.c.source_kind, events.c.timestamp, events.c.id)
 snapshots = table("snapshots", sa.Column("name", sa.String(191), primary_key=True),
     sa.Column("owner_user_id", sa.Integer, sa.ForeignKey("users.id"), nullable=False),
     sa.Column("source_kind", sa.String(16), nullable=False), sa.Column("source_id", sa.String(64), nullable=False),
@@ -61,6 +62,7 @@ sa.Index("video_jobs_owner", video_jobs.c.owner_user_id, video_jobs.c.sequence)
 audit = table("audit_log", identity(), sa.Column("timestamp", sa.String(40), nullable=False),
     sa.Column("username", sa.String(255), nullable=False), sa.Column("role", sa.String(16), nullable=False),
     sa.Column("action", sa.String(255), nullable=False), sa.Column("target", sa.Text), sa.Column("detail", sa.Text))
+sa.Index("audit_timestamp_id", audit.c.timestamp, audit.c.id)
 attempts = table("login_attempts", sa.Column("ticket", sa.String(32), primary_key=True),
     sa.Column("scope", sa.String(255), primary_key=True), sa.Column("expires_at", sa.Double, nullable=False))
 sa.Index("login_attempts_scope", attempts.c.scope, attempts.c.expires_at)
