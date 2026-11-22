@@ -166,9 +166,9 @@ def send_zalo(message, snapshot_path=None, *, cancelled=None, details=None, requ
             return False
         if snapshot_path:
             from app.storage.service import snapshot_public_url
-            photo_url = snapshot_public_url(os.path.basename(snapshot_path))
+            photo_url = snapshot_public_url(os.path.basename(snapshot_path), expires_in=3600)
             message += (f"\n\nẢnh sự kiện:\n{photo_url}\n"
-                        "Liên kết có thời hạn. Xem lại trên dashboard nếu hết hạn." if photo_url else
+                        "Liên kết có hiệu lực tối đa 1 tiếng. Xem lại trên dashboard nếu hết hạn." if photo_url else
                         "\n\nẢnh S3 chưa khả dụng. Vui lòng kiểm tra ảnh trên dashboard.")
         ok, error = _zalo_call(config["token"], "sendMessage",
                                {"chat_id": destination, "text": message}, cancelled=cancelled,

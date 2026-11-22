@@ -28,7 +28,8 @@ the existing S3 adapter. No Supabase Auth migration is required.
   and local deletion must succeed before a registry entry is marked deleted.
   Failures are retried; expired files are never re-uploaded by pending sync.
   Notification pins do not extend the seven-day deadline. Bot image links also
-  expire after at most five minutes; manual video retries reject expired evidence.
+  expire after at most one hour (or sooner at the retention deadline); manual video retries reject expired evidence.
+  A failed initial upload is retried from the local copy before creating the bot link.
 - New registered video images survive job eviction until retention. Video source
   files and decoder/notification queues remain temporary. Job creation and terminal
   results are persisted; after restart unfinished jobs are reported as interrupted,

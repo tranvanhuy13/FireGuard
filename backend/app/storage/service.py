@@ -104,7 +104,7 @@ class _MinioStore:
                 or endpoint.username or endpoint.password or endpoint.query
                 or endpoint.fragment or endpoint.path not in ("", "/")):
             raise ValueError("S3_PUBLIC_ENDPOINT must be an http(s) S3 API origin without a path")
-        seconds = int(os.getenv("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        seconds = int(os.getenv("S3_SNAPSHOT_URL_TTL_SECONDS", "3600"))
         if expires_in is not None:
             seconds = min(seconds, expires_in)
         if not 1 <= seconds <= 604800:
@@ -321,9 +321,20 @@ def snapshot_public_url(name, expires_in=None):
         if row is None or row["deleted_at"] is not None or row["expires_at"] <= time.time():
             return None
         remaining = max(1, int(row["expires_at"] - time.time()))
-        expires_in = min(expires_in or 300, remaining, 300)
-        return _get_store().snapshot_url(SNAPSHOT_PREFIX + os.path.basename(name),
-                                         expires_in=expires_in, expires_at=row["expires_at"])
+        expires_in = min(expires_in if expires_in is not None else 3600, remaining, 3600)
+        store = _get_store()
+        key = SNAPSHOT_PREFIX + os.path.basename(name)
+        try:
+            return store.snapshot_url(key, expires_in=expires_in, expires_at=row["expires_at"])
+        except Exception:
+            # A failed initial upload may still have a local fallback. Retry it
+            # before sending a notification without its evidence link.
+            path = local_path(name)
+            if row["expires_at"] <= time.time() or not os.path.isfile(path):
+                raise
+            with open(path, "rb") as image:
+                store.put(key, image.read(), "image/jpeg")
+            return store.snapshot_url(key, expires_in=expires_in, expires_at=row["expires_at"])
     except Exception:
         # Do not log signed URLs or credentials returned by providers.
         logger.warning("[Storage] S3 snapshot link unavailable for %s; check upload and public endpoint configuration", os.path.basename(name))
