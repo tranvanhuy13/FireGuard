@@ -228,3 +228,40 @@ def test_legacy_cleanup_removes_only_expired_generated_images(owned_database, tm
     with patch.object(storage, "SNAPSHOT_DIR", str(tmp_path)), patch.object(storage, "enabled", return_value=False):
         assert storage.cleanup_unregistered() == 3
     assert {file.name for file in tmp_path.iterdir()} == {"best.pt", "unrelated.jpg", "event_fresh.jpg", "event_owned.jpg"}
+
+
+def test_bot_link_retries_local_upload_and_lasts_one_hour(owned_database, tmp_path):
+    evidence.register("retry.jpg", 1, "video", "job")
+    (tmp_path / "retry.jpg").write_bytes(b"jpeg")
+    store = Mock()
+    store.snapshot_url.side_effect = [RuntimeError("missing object"), "https://storage.example/signed"]
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \
+         patch.object(storage, "SNAPSHOT_DIR", str(tmp_path)), \
+         patch.object(storage, "_get_store", return_value=store):
+        assert storage.snapshot_public_url("retry.jpg") == "https://storage.example/signed"
+    store.put.assert_called_once_with("snapshots/retry.jpg", b"jpeg", "image/jpeg")
+    assert store.snapshot_url.call_count == 2
+    assert store.snapshot_url.call_args.kwargs["expires_in"] == 3600
+
+
+def test_bot_link_never_outlives_retention(owned_database):
+    evidence.register("ending.jpg", 1, "video", "job")
+    row = evidence.find("ending.jpg")
+    store = Mock()
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \
+         patch.object(storage, "_get_store", return_value=store), \
+         patch.object(storage.time, "time", return_value=row["expires_at"] - 90):
+        storage.snapshot_public_url("ending.jpg", expires_in=7200)
+        assert store.snapshot_url.call_args.kwargs["expires_in"] == 90
+
+
+def test_zalo_sends_one_hour_image_link():
+    from app.notifications import service as notification
+    url = "https://storage.example/image?signature=abc&expires=3600"
+    with patch.object(storage, "snapshot_public_url", return_value=url) as sign, \
+         patch.object(notification, "_zalo_call", return_value=(True, "")) as send:
+        assert notification.send_zalo("Fire", snapshot_path="snapshots/event.jpg",
+                                      _config={"token": "test", "chat_id": "recipient"})
+    sign.assert_called_once_with("event.jpg", expires_in=3600)
+    assert url in send.call_args.args[2]["text"]
+    assert "1 tiếng" in send.call_args.args[2]["text"]

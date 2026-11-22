@@ -95,7 +95,7 @@ class S3UrlStore:
 
     def snapshot_url(self, key, expires_in=None, expires_at=None):
         public = endpoint_url(os.environ.get("S3_PUBLIC_ENDPOINT", "").strip())
-        seconds = int(os.environ.get("S3_SNAPSHOT_URL_TTL_SECONDS", "86400"))
+        seconds = int(os.environ.get("S3_SNAPSHOT_URL_TTL_SECONDS", "3600"))
         if expires_in is not None:
             seconds = min(seconds, expires_in)
         if not 1 <= seconds <= 604800:

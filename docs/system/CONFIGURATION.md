@@ -36,7 +36,7 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_SECURE` | MinIO/S3 configuration |
 | `S3_PUBLIC_ENDPOINT` | Public S3 endpoint for Zalo links; full URL mode preserves API paths, e.g. Supabase `/storage/v1/s3`; bare MinIO mode requires an origin without a path |
 | `S3_REGION` | Bucket region; public-link signing defaults to `us-east-1`; set to the actual region |
-| `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 image-link lifetime, default 86400 (24 hours), range 1–604800 |
+| `S3_SNAPSHOT_URL_TTL_SECONDS` | S3 signing lifetime, default 3600 (1 hour), range 1–604800; bot links are capped at 3600 seconds and the evidence retention deadline; dashboard links at 300 seconds |
 | `GCS_BUCKET` | Select GCS if no S3 endpoint is configured |
 | `STREAM_TOKEN_SECRET` | Stable signing secret for password-bound media tokens across restarts |
 | `CORS_ORIGINS` | Comma-separated allowed HTTP(S) origins; explicit configuration replaces development defaults |
