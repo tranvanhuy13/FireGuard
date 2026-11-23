@@ -4,7 +4,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import RequireRole from '@/components/RequireRole';
 import { useLanguage } from '@/context/LanguageContext';
 import { Download, Search, FilterX, ChevronDown, ChevronUp, FileText, AlertCircle, RefreshCw } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { isMockData } from '@/lib/api/client';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -56,8 +55,6 @@ function AuditLogContent() {
 
   const [page, setPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
-
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
   const serverQuery = useMemo(() => {
     const columns: Record<string, string> = { user: 'username', details: 'detail', timestamp: 'timestamp', action: 'action', target: 'target' };
@@ -276,7 +273,7 @@ function AuditLogContent() {
         if (!data.logs.length || offset + data.logs.length >= data.total) break;
       }
     }
-    const headers = [n.cols.time, n.cols.user, n.cols.action, n.cols.target, n.cols.ip, n.cols.result, n.cols.details];
+    const headers = [n.cols.time, n.cols.user, n.cols.action, n.cols.target];
     const csvContent = exported.map(log => {
       let timeFormatted = log.timestamp;
       try {
@@ -291,10 +288,7 @@ function AuditLogContent() {
         timeFormatted,
         log.user,
         translateAction(log.action),
-        translateTarget(log.target),
-        log.ip || '-',
-        translateResult(log.result),
-        log.details || ''
+        translateTarget(log.target)
       ].map(field => `"${String(field).replace(/"/g, '""')}"`).join(',');
     });
 
@@ -354,24 +348,19 @@ function AuditLogContent() {
 
         {/* Table */}
         <div className="overflow-x-auto flex-1">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse table-fixed min-w-[840px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('timestamp')}>
+                <th className="p-4 w-1/4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('timestamp')}>
                   <div className="flex items-center gap-1">{n.cols.time} {sortCol === 'timestamp' && (sortDesc ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />)}</div>
                 </th>
-                <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('user')}>
+                <th className="p-4 w-1/4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('user')}>
                   <div className="flex items-center gap-1">{n.cols.user} {sortCol === 'user' && (sortDesc ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />)}</div>
                 </th>
-                <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('action')}>
+                <th className="p-4 w-1/4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('action')}>
                   <div className="flex items-center gap-1">{n.cols.action} {sortCol === 'action' && (sortDesc ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />)}</div>
                 </th>
-                <th className="p-4">{n.cols.target}</th>
-                <th className="p-4">{n.cols.ip}</th>
-                <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('result')}>
-                  <div className="flex items-center gap-1">{n.cols.result} {sortCol === 'result' && (sortDesc ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />)}</div>
-                </th>
-                <th className="p-4 w-10"></th>
+                <th className="p-4 w-1/4">{n.cols.target}</th>
               </tr>
             </thead>
             <tbody>
@@ -382,14 +371,11 @@ function AuditLogContent() {
                     <td className="p-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
                     <td className="p-4"><div className="h-4 bg-slate-200 rounded w-32"></div></td>
                     <td className="p-4"><div className="h-4 bg-slate-200 rounded w-20"></div></td>
-                    <td className="p-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
-                    <td className="p-4"><div className="h-6 bg-slate-200 rounded-full w-16"></div></td>
-                    <td className="p-4"></td>
                   </tr>
                 ))
               ) : error ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center">
+                  <td colSpan={4} className="p-12 text-center">
                     <div className="max-w-md mx-auto flex flex-col items-center">
                       <AlertCircle className="w-10 h-10 text-red-500 mb-3" />
                       <p className="text-sm font-medium text-slate-800 mb-1">{error}</p>
@@ -405,7 +391,7 @@ function AuditLogContent() {
                 </tr>
               ) : paginatedLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-500">
+                  <td colSpan={4} className="p-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center">
                       <FileText className="w-12 h-12 text-slate-200 mb-3" />
                       <p>{n.noData}</p>
@@ -415,58 +401,17 @@ function AuditLogContent() {
                 </tr>
               ) : (
                 paginatedLogs.map(log => (
-                  <React.Fragment key={log.id}>
-                    <tr className={`border-b border-slate-50 hover:bg-slate-50/50 transition-colors ${expandedRow === log.id ? 'bg-slate-50/80' : ''}`}>
-                      <td className="p-4 text-sm text-slate-600 whitespace-nowrap">{formatTimestamp(log.timestamp)}</td>
-                      <td className="p-4 text-sm font-medium text-slate-800">
-                        <div className="flex flex-col">
-                          <span>{log.user}</span>
-                          {log.fullName && <span className="text-xs text-slate-400 font-normal">{log.fullName}</span>}
-                        </div>
-                      </td>
-                      <td className="p-4 text-sm font-medium text-sky-700">{translateAction(log.action)}</td>
-                      <td className="p-4 text-sm text-slate-600">{translateTarget(log.target)}</td>
-                      <td className="p-4 text-sm font-mono text-slate-500 text-xs">{log.ip || '-'}</td>
-                      <td className="p-4">
-                        {log.result === '-' ? (
-                          <span className="text-slate-400 text-sm">-</span>
-                        ) : (
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${log.result === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                            {translateResult(log.result)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-4 text-right">
-                        <button onClick={() => setExpandedRow(expandedRow === log.id ? null : log.id)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-                          <ChevronDown className={`w-4 h-4 transition-transform ${expandedRow === log.id ? 'rotate-180' : ''}`} />
-                        </button>
-                      </td>
-                    </tr>
-                    <AnimatePresence>
-                      {expandedRow === log.id && (
-                        <tr>
-                          <td colSpan={7} className="p-0 border-b border-slate-100">
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-slate-50/50 shadow-inner">
-                              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div>
-                                  <h4 className="text-xs font-semibold uppercase text-slate-400 mb-2">{n.cols.details}</h4>
-                                  <div className="bg-white p-3 rounded-lg border border-slate-200 text-sm font-mono text-slate-700">
-                                    {log.details ? log.details : 'No additional details'}
-                                  </div>
-                                </div>
-                                <div>
-                                  <h4 className="text-xs font-semibold uppercase text-slate-400 mb-2">User Agent</h4>
-                                  <div className="bg-white p-3 rounded-lg border border-slate-200 text-sm text-slate-600 break-all">
-                                    {log.userAgent && log.userAgent !== '-' ? log.userAgent : '-'}
-                                  </div>
-                                </div>
-                              </div>
-                            </motion.div>
-                          </td>
-                        </tr>
-                      )}
-                    </AnimatePresence>
-                  </React.Fragment>
+                  <tr key={log.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                    <td className="p-4 text-sm text-slate-600 whitespace-nowrap">{formatTimestamp(log.timestamp)}</td>
+                    <td className="p-4 text-sm font-medium text-slate-800 break-words">
+                      <div className="flex flex-col">
+                        <span>{log.user}</span>
+                        {log.fullName && <span className="text-xs text-slate-400 font-normal">{log.fullName}</span>}
+                      </div>
+                    </td>
+                    <td className="p-4 text-sm font-medium text-sky-700 break-words">{translateAction(log.action)}</td>
+                    <td className="p-4 text-sm text-slate-600 break-words">{translateTarget(log.target)}</td>
+                  </tr>
                 ))
               )}
             </tbody>
