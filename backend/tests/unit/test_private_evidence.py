@@ -265,3 +265,46 @@ def test_zalo_sends_one_hour_image_link():
     sign.assert_called_once_with("event.jpg", expires_in=3600)
     assert url in send.call_args.args[2]["text"]
     assert "1 tiếng" in send.call_args.args[2]["text"]
+
+
+def test_snapshot_public_url_edge_cases_and_fallback_failures(owned_database, tmp_path):
+    # 1. No S3_ENDPOINT configured -> returns None immediately
+    evidence.register("local_only.jpg", 1, "camera", "1")
+    with patch.object(storage, "S3_ENDPOINT", ""):
+        assert storage.snapshot_public_url("local_only.jpg") is None
+
+    # 2. Unregistered snapshot -> returns None
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"):
+        assert storage.snapshot_public_url("non_existent.jpg") is None
+
+    # 3. Deleted snapshot -> returns None
+    evidence.register("deleted.jpg", 1, "camera", "1")
+    evidence.mark_deleted("deleted.jpg")
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"):
+        assert storage.snapshot_public_url("deleted.jpg") is None
+
+    # 4. Expired snapshot (expires_at <= now) -> returns None
+    evidence.register("already_expired.jpg", 1, "camera", "1")
+    row = evidence.find("already_expired.jpg")
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \
+         patch.object(storage.time, "time", return_value=row["expires_at"]):
+        assert storage.snapshot_public_url("already_expired.jpg") is None
+
+    # 5. Initial signing fails AND local fallback file is missing -> returns None safely without crashing
+    evidence.register("no_local.jpg", 1, "camera", "1")
+    store = Mock()
+    store.snapshot_url.side_effect = RuntimeError("head_object 404")
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \
+         patch.object(storage, "SNAPSHOT_DIR", str(tmp_path)), \
+         patch.object(storage, "_get_store", return_value=store):
+        assert storage.snapshot_public_url("no_local.jpg") is None
+    store.put.assert_not_called()
+
+    # 6. Initial signing fails, local file exists, but retry put() also fails -> returns None safely
+    evidence.register("put_fails.jpg", 1, "camera", "1")
+    (tmp_path / "put_fails.jpg").write_bytes(b"jpeg")
+    store.put.side_effect = RuntimeError("S3 outage")
+    with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \
+         patch.object(storage, "SNAPSHOT_DIR", str(tmp_path)), \
+         patch.object(storage, "_get_store", return_value=store):
+        assert storage.snapshot_public_url("put_fails.jpg") is None

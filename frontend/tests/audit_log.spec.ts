@@ -45,4 +45,13 @@ test.describe('Nhật ký Kiểm toán Hệ thống (Audit Log Page)', () => {
     const count = await paginationControls.count();
     expect(count).toBeGreaterThanOrEqual(1);
   });
+
+  test('AUD_04: Bảng nhật ký hiển thị đúng 4 cột đều nhau (w-1/4) và không còn dòng mở rộng chi tiết', async ({ page }) => {
+    await page.goto('/dashboard/audit-log');
+    const tableHeaders = page.locator('table thead th');
+    await expect(tableHeaders).toHaveCount(4);
+    for (let i = 0; i < 4; i++) {
+      await expect(tableHeaders.nth(i)).toHaveClass(/w-1\/4/);
+    }
+  });
 });

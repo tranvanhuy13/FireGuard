@@ -1,8 +1,8 @@
 # 📊 BÁO CÁO KẾT QUẢ KIỂM THỬ HỆ THỐNG FIREGUARD (TEST REPORT)
-> **Dự án:** Hệ thống Giám sát & Cảnh báo Cháy Thông minh FireGuard  
-> **Phiên bản:** v2.0 | **Ngày hoàn thành kiểm thử:** 21/11/2026  
-> **Tiêu chuẩn kiểm thử:** IEEE 829 & ISO/IEC/IEEE 29119 Software Testing Standards  
-> **Người thực hiện:** Đội ngũ Kiểm thử Hệ thống FireGuard  
+> **Dự án:** Hệ thống Giám sát & Cảnh báo Cháy Thông minh FireGuard
+> **Phiên bản:** v2.0 | **Ngày hoàn thành kiểm thử:** 25/11/2026
+> **Tiêu chuẩn kiểm thử:** IEEE 829 & ISO/IEC/IEEE 29119 Software Testing Standards
+> **Người thực hiện:** Đội ngũ Kiểm thử Hệ thống FireGuard
 
 ---
 
@@ -24,15 +24,15 @@
 Hệ thống **FireGuard** đã hoàn thành toàn bộ chu trình kiểm thử đa tầng bao gồm Kiểm thử Đơn vị (Unit Testing), Kiểm thử Tích hợp (Integration Testing), Kiểm thử Toàn trình Trình duyệt (End-to-End Testing) và Kiểm thử Bảo mật API.
 
 ### 🌟 Các chỉ số chất lượng chính:
-* **Tổng số bài kiểm thử tự động:** **319 bài kiểm thử** (161 Playwright E2E tests, 29 Frontend Unit tests, 129 Backend Unit tests).
-* **Tỷ lệ vượt qua kiểm thử tự động:** **100% Pass** trên môi trường hoạt động thực tế (318 passed, 1 skipped by design cho máy chủ camera demo bên ngoài).
-* **Tài liệu kiểm thử nghiệm thu (`test.xlsx`):** **16 Sheets** chuẩn hóa (15 Sheets Chức năng + 1 Sheet Defect Log) với tổng cộng **370 dòng kịch bản & khuyết tật**.
-* **Tỷ lệ Pass trên tài liệu nghiệm thu (`test.xlsx`):** **352/352 Test Cases Pass (100%)**.
+* **Tổng số bài kiểm thử tự động:** **438 bài kiểm thử** (164 Playwright E2E tests, 34 Frontend Unit tests, 240 Backend Unit tests + 49 subtests).
+* **Tỷ lệ vượt qua kiểm thử tự động:** **100% Pass** trên môi trường hoạt động thực tế (437 passed, 1 skipped by design cho máy chủ camera demo bên ngoài).
+* **Tài liệu kiểm thử nghiệm thu (`test.xlsx`):** **16 Sheets** chuẩn hóa (15 Sheets Chức năng + 1 Sheet Defect Log) với tổng cộng **384 dòng kịch bản & khuyết tật**.
+* **Tỷ lệ Pass trên tài liệu nghiệm thu (`test.xlsx`):** **366/366 Test Cases Pass (100%)**.
 * **Tỷ lệ khắc phục lỗi (Defect Resolution Rate):** **18/18 Lỗi Đã Giải Quyết (100% Resolved)**, toàn bộ được kiểm thử hồi quy nghiêm ngặt.
 
 ```mermaid
 pie title Tỷ lệ Vượt qua Kiểm thử Hệ thống FireGuard
-    "Passed (Thành công)" : 318
+    "Passed (Thành công)" : 437
     "Skipped (By Design)" : 1
     "Failed (Thất bại)" : 0
 ```
@@ -85,7 +85,7 @@ flowchart TD
         E4["rbac.spec.ts & users.spec.ts (15 tests - Phân quyền Admin/User)"]
         E5["video_analysis.spec.ts (7 tests - Phân tích video AI)"]
         E6["notifications.spec.ts & ai_settings.spec.ts (9 tests - Cảnh báo & Ngưỡng AI)"]
-        E7["history.spec.ts, audit_log.spec.ts, profile.spec.ts, ... (65 tests)"]
+        E7["history.spec.ts, audit_log.spec.ts, list_performance.spec.ts, ... (68 tests)"]
     end
 
     subgraph TIER2["Tầng 2: Frontend Unit & Resilience Tests (Node test runner)"]
@@ -93,20 +93,21 @@ flowchart TD
         U2["camera_view.unit.cjs (7 tests - Lưới 4-25 ô, Phân trang, HLS recovery)"]
         U3["dashboard_connection.unit.cjs (14 tests - Phục hồi mạng, Offline, WebSocket)"]
         U4["launcher_probe.unit.cjs (5 tests - Xác thực Origin, Readiness Probe)"]
+        U5["list_performance.unit.cjs (5 tests - PageCache 5s FIFO 30, Session Auth, Audit 4 cột)"]
     end
 
-    subgraph TIER3["Tầng 3: Backend Unit & Contract Tests (pytest / unittest)"]
-        B1["test_camera_lifecycle.py (SharedWebcam Singleton, Bật/Tắt)"]
+    subgraph TIER3["Tầng 3: Backend Unit & Contract Tests (pytest / unittest - 240 tests)"]
+        B1["test_camera_lifecycle.py & test_camera_sources.py (SharedWebcam, RTSP/HLS)"]
         B2["test_realtime_detection.py (YOLO26n Bounding Box, Freshness)"]
-        B3["test_admin_profile.py (RBAC, Audit Log, User Management)"]
-        B4["test_notifications.py (Telegram Bot, Zalo, S3 Presigned URL)"]
+        B3["test_api_sessions.py & test_audit_pagination.py (Bearer Session 3600s, Server Audit)"]
+        B4["test_notifications.py & test_alert_messages.py (Telegram Bot, Zalo, Alert Format)"]
         B5["test_auth_timing.py (Chống Timing Attack Bcrypt BUG-015)"]
-        B6["test_s3_url_store.py & test_private_evidence.py (Lưu trữ S3)"]
-        B7["test_mysql_persistence.py & test_mysql_concurrency.py (MySQL Aiven)"]
+        B6["test_s3_url_store.py & test_private_evidence.py (Lưu trữ S3, Zalo 1h Retry Upload)"]
+        B7["test_render_startup.py & test_launcher_readiness.py (MySQL GET_LOCK, Index 0007)"]
     end
 
     subgraph TIER4["Tầng 4: Hồ sơ Nghiệm thu Chuẩn hóa (test.xlsx)"]
-        X1["15 Sheets Chức năng (352 Test Cases Pass 100%)"]
+        X1["15 Sheets Chức năng (366 Test Cases Pass 100%)"]
         X2["1 Sheet Defect Log (18 Bugs: 100% Resolved)"]
     end
 
@@ -123,12 +124,12 @@ flowchart TD
 
 | STT | Bộ kiểm thử / Phân loại | Công cụ thực thi | Tổng số test | Passed | Failed | Skipped | Tỷ lệ thành công |
 | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| 1 | **Frontend E2E Test Suite** | Playwright (Chromium) | 161 | 160 | 0 | 1* | **100%** |
-| 2 | **Frontend Unit Test Suite** | Node.js Test Runner | 29 | 29 | 0 | 0 | **100%** |
-| 3 | **Backend Unit Test Suite** | Python `unittest` | 129 | 129 | 0 | 0 | **100%** |
-| 4 | **Bảng Kịch bản Nghiệm thu (`test.xlsx`)** | Excel IEEE 829 Matrix | 352 | 352 | 0 | 0 | **100%** |
+| 1 | **Frontend E2E Test Suite** | Playwright (Chromium) | 164 | 163 | 0 | 1* | **100%** |
+| 2 | **Frontend Unit Test Suite** | Node.js Test Runner | 34 | 34 | 0 | 0 | **100%** |
+| 3 | **Backend Unit Test Suite** | Python `pytest` / `unittest` | 240 | 240 | 0 | 0 | **100%** |
+| 4 | **Bảng Kịch bản Nghiệm thu (`test.xlsx`)** | Excel IEEE 829 Matrix | 366 | 366 | 0 | 0 | **100%** |
 | 5 | **Nhật ký Quản lý Lỗi (`Defect_Log`)** | Regression Verified | 18 | 18 | 0 | 0 | **100%** |
-| **TỔNG** | **Toàn bộ Hệ thống FireGuard** | **Hệ thống Kiểm thử Đa tầng** | **689** | **688** | **0** | **1** | **99.85% (100% Thực tế)** |
+| **TỔNG** | **Toàn bộ Hệ thống FireGuard** | **Hệ thống Kiểm thử Đa tầng** | **822** | **821** | **0** | **1** | **99.88% (100% Thực tế)** |
 
 *\* Ghi chú về 1 test skipped: Bài test `demo monitoring › a native HLS stream retries more than once after repeated failure` trong file `live_monitoring.spec.ts` được thiết kế có chủ đích (`test.skip(!process.env.TEST_DEMO)`) để kiểm thử máy chủ camera demo bên ngoài internet khi có cờ `TEST_DEMO=1`, nhằm tránh phụ thuộc đường truyền mạng ngoài khi chạy tự động hóa thông thường.*
 
@@ -138,10 +139,10 @@ flowchart TD
 
 Dưới đây là chi tiết kiểm thử trên **15 phân hệ chức năng tương ứng với 15 Sheets độc lập trong file nghiệm thu `test.xlsx`**:
 
-### 6.1. Phân hệ 1: Đăng nhập Hệ thống (`Dang_Nhap` - 36 Test Cases)
-* **Nội dung kiểm thử:** Đăng nhập bằng HTTP Basic Auth, đăng nhập bằng Username hoặc Email, tính năng Ghi nhớ đăng nhập (Remember Me), kiểm soát Brute-force (Lockout sau 5 lần thử sai), Rate Limit (HTTP 429), dọn dẹp lỗi khi chuyển form.
-* **Kết quả:** **36/36 Pass (100%)**.
-* **Test Case tiêu biểu:** `TC_LOG_E2E_001` (Kiểm chứng đăng nhập UI đồng bộ AuthContext, chuyển hướng vào Dashboard ổn định không bị redirect loop, khắc phục triệt để `BUG-001`).
+### 6.1. Phân hệ 1: Đăng nhập Hệ thống (`Dang_Nhap` - 39 Test Cases)
+* **Nội dung kiểm thử:** Đăng nhập bằng HTTP Basic Auth, cấp phát phiên ngắn hạn Bearer Session Token thời hạn 1 giờ (`3600s` - PR #75) giúp giải phóng kết nối DB sớm và tránh băm lại Bcrypt trên mỗi truy vấn, thu hồi phiên tức thì khi đổi mật khẩu hoặc khóa tài khoản, kiểm tra biên độ dài token (`1024` vs `1025` ký tự) và kiểu dữ liệu claims, đăng nhập bằng Username hoặc Email, Ghi nhớ đăng nhập (Remember Me), kiểm soát Brute-force (Lockout sau 5 lần thử sai), Rate Limit (HTTP 429).
+* **Kết quả:** **39/39 Pass (100%)**.
+* **Test Case tiêu biểu:** `TC_LOG_E2E_001` (Đồng bộ AuthContext không bị redirect loop `BUG-001`), `TC_LOG_016` & `TC_LOG_EDGE_006` (Phiên API Bearer 3600s và thu hồi tức thì tại mốc biên `exp == now` hoặc khi đổi mật khẩu).
 
 ### 6.2. Phân hệ 2: Đăng ký Tài khoản (`Dang_Ky` - 47 Test Cases)
 * **Nội dung kiểm thử:** Form đăng ký tài khoản, kiểm tra ràng buộc Username không chứa ký tự đặc biệt, kiểm tra email bắt buộc đuôi `@gmail.com`, hỗ trợ mật khẩu có ký tự đặc biệt theo chuẩn OWASP (`BUG-010`), kiểm tra hộp thoại Điều khoản & Chính sách bảo mật (`LegalConsentModal`) hỗ trợ WAI-ARIA tab semantics.
@@ -188,30 +189,30 @@ Dưới đây là chi tiết kiểm thử trên **15 phân hệ chức năng tư
 * **Kết quả:** **19/19 Pass (100%)**.
 * **Test Case tiêu biểu:** `TC_VID_E2E_001` (Bảo vệ endpoint phân tích video bằng HTTP Basic Auth, chặn 401 khi chưa login, chặn 400 khi file rỗng/sai định dạng).
 
-### 6.11. Phân hệ 11: Lịch sử Sự cố & Thống kê (`Lich_Su_Su_Co` - 15 Test Cases)
-* **Nội dung kiểm thử:** Danh mục sự cố tại `/dashboard/history`, phân trang dữ liệu (limit, offset), tìm kiếm sự cố theo tên camera/thời gian, lọc sự cố theo loại (Cháy/Khói) và trạng thái, xem ảnh snapshot bằng chứng qua Presigned S3 URL an toàn, xuất báo cáo lịch sử sự cố định dạng CSV.
-* **Kết quả:** **15/15 Pass (100%)**.
-* **Test Case tiêu biểu:** `TC_HIST_E2E_001` (Tra cứu lịch sử sự cố, kiểm tra ô tìm kiếm, bộ lọc phân loại và xuất tệp tin CSV chuẩn UTF-8).
+### 6.11. Phân hệ 11: Lịch sử Sự cố & Thống kê (`Lich_Su_Su_Co` - 18 Test Cases)
+* **Nội dung kiểm thử:** Danh mục sự cố tại `/dashboard/history`, phân trang dữ liệu (limit, offset), bộ nhớ đệm trang ngắn hạn 5 giây theo phiên (`pageCache` với giới hạn FIFO 30 trang - PR #75), tìm kiếm sự cố có debounce 300ms (`useDebouncedValue`), thoát ký tự đại diện SQL (`%`, `_`, `!`), lọc sự cố theo loại (Cháy/Khói) và trạng thái, xem ảnh snapshot bằng chứng qua Presigned S3 URL an toàn, xuất báo cáo lịch sử sự cố định dạng CSV cố định theo mốc `max_id`.
+* **Kết quả:** **18/18 Pass (100%)**.
+* **Test Case tiêu biểu:** `TC_HIST_E2E_001`, `TC_HIS_011` & `TC_HIS_EDGE_004` (Kiểm chứng `pageCache` 5s cô lập theo phiên, đẩy FIFO ở trang thứ 31, không lưu kết quả lỗi/abort và xuất CSV chuẩn UTF-8).
 
 ### 6.12. Phân hệ 12: Cấu hình AI & Hệ thống (`Cau_Hinh_AI_He_Thong` - 12 Test Cases)
 * **Nội dung kiểm thử:** Trang cấu hình tham số `/dashboard/ai-settings`, điều chỉnh ngưỡng nhạy phát hiện cháy (`fire_threshold`) và khói (`smoke_threshold`) qua thanh trượt, thời gian chờ báo động (`alert_cooldown`), tính năng khôi phục mặc định (Restore Defaults), lưu cấu hình vào cơ sở dữ liệu MySQL, che mờ bí mật token (`********`).
 * **Kết quả:** **12/12 Pass (100%)**.
 * **Test Case tiêu biểu:** `TC_CFG_E2E_001` (Kiểm tra hiển thị đầy đủ thanh trượt ngưỡng nhạy, khôi phục mặc định và lưu cấu hình thành công).
 
-### 6.13. Phân hệ 13: Cảnh báo Đa kênh Telegram & Zalo (`Canh_Bao_Telegram_Zalo` - 26 Test Cases)
-* **Nội dung kiểm thử:** Cấu hình Bot Token và Chat ID Telegram, gửi tin nhắn cảnh báo văn bản kèm icon trực quan (PR #68), gửi ảnh chụp snapshot sự cố qua `sendPhoto`, tạo đường dẫn Presigned S3 GET URL gửi qua Zalo, cơ chế Cooldown chống spam thông báo, phân quyền người nhận theo từng tài khoản cá nhân (`owner_user_id` - PR #58).
-* **Kết quả:** **26/26 Pass (100%)**.
-* **Test Case tiêu biểu:** `TC_NOTIF_E2E_001` (Kích hoạt endpoint `/test-notification` có xác thực quyền Admin, trả về trạng thái chi tiết của từng kênh gửi tin).
+### 6.13. Phân hệ 13: Cảnh báo Đa kênh Telegram & Zalo (`Canh_Bao_Telegram_Zalo` - 28 Test Cases)
+* **Nội dung kiểm thử:** Cấu hình Bot Token và Chat ID Telegram, gửi tin nhắn cảnh báo văn bản kèm icon trực quan (PR #68), gửi ảnh chụp snapshot sự cố qua `sendPhoto`, tạo đường dẫn Presigned S3 GET URL thời hạn 1 giờ (`3600s`) gửi qua Zalo kèm cơ chế tự động upload lại từ file fallback cục bộ nếu lần tải lên S3 đầu tiên bị lỗi (PR #74), giới hạn thời hạn link không vượt quá `expires_at`, cơ chế Cooldown chống spam thông báo, phân quyền người nhận theo từng tài khoản cá nhân (`owner_user_id` - PR #58).
+* **Kết quả:** **28/28 Pass (100%)**.
+* **Test Case tiêu biểu:** `TC_NOTIF_E2E_001`, `TC_NOTIF_019` & `TC_NOTIF_EDGE_005` (Khôi phục upload S3 từ đĩa cục bộ trước khi ký link Zalo 1 tiếng và cắt TTL theo thời hạn lưu trữ bằng chứng).
 
-### 6.14. Phân hệ 14: Nhật ký Kiểm toán Audit Log (`Nhat_Ky_Audit_Log` - 12 Test Cases)
-* **Nội dung kiểm thử:** Trang nhật ký hệ thống `/dashboard/audit-log`, lưu vết các hành động trọng yếu (Đăng nhập, Tạo tài khoản, Đổi vai trò, Bật/Tắt camera, Thay đổi cấu hình AI), giới hạn phân quyền chỉ dành riêng cho Admin (User thường bị chặn 403), tìm kiếm, sắp xếp cột và điều khiển phân trang mượt mà.
-* **Kết quả:** **12/12 Pass (100%)**.
-* **Test Case tiêu biểu:** `TC_AUD_E2E_001` (Admin xem bảng nhật ký sự kiện kiểm toán, thanh điều khiển phân trang hiển thị ổn định, không bị lỗi race condition).
+### 6.14. Phân hệ 14: Nhật ký Kiểm toán Audit Log (`Nhat_Ky_Audit_Log` - 15 Test Cases)
+* **Nội dung kiểm thử:** Trang nhật ký hệ thống `/dashboard/audit-log` hiển thị bảng rút gọn 4 cột đều nhau (`w-1/4`: Thời gian, Người dùng, Hành động, Đối tượng), loại bỏ dòng mở rộng chi tiết và đồng bộ xuất CSV 4 cột (PR #76); phân trang, tìm kiếm debounce, lọc theo hành động và khoảng thời gian (`date_from`, `date_to`) trực tiếp trên server kèm watermark `max_id` (PR #75); kiểm tra biên độ dài bộ lọc (`255` vs `256` ký tự) và thoát ký tự đại diện SQL.
+* **Kết quả:** **15/15 Pass (100%)**.
+* **Test Case tiêu biểu:** `TC_AUD_011`, `TC_AUD_012` & `TC_AUD_EDGE_002` (Bảng 4 cột đều nhau, xuất CSV 4 cột theo watermark `max_id` và kiểm tra biên độ dài bộ lọc 255 ký tự).
 
-### 6.15. Phân hệ 15: Hạ tầng, Khả năng Phục hồi & Bảo mật API (`Ha_Tang_Va_Bao_Mat_API` - 29 Test Cases)
-* **Nội dung kiểm thử:** Kiểm tra trạng thái hệ thống (`GET /api/health` trả về status ready, service name, uptime), cấu hình CORS an toàn, kiểm soát bộ nhớ đệm `Cache-Control: no-store` cho ảnh bằng chứng nhạy cảm, cấp phát Media Stream Token HMAC bảo vệ luồng `/video_feed`, kết nối Supabase S3 Storage qua kết nối mã hóa, cơ chế tự phục hồi kết nối mạng (Network Resilience).
-* **Kết quả:** **29/29 Pass (100%)**.
-* **Test Case tiêu biểu:** `TC_SYS_E2E_001` (Luồng kiểm thử tích hợp E2E toàn diện: từ Đăng nhập -> Giám sát Camera -> Lịch sử Sự cố -> Cấu hình AI -> Kênh Cảnh báo -> Đăng xuất dọn dẹp sạch phiên làm việc).
+### 6.15. Phân hệ 15: Hạ tầng, Khả năng Phục hồi & Bảo mật API (`Ha_Tang_Va_Bao_Mat_API` - 32 Test Cases)
+* **Nội dung kiểm thử:** Trình khởi chạy tĩnh trên Render (`deploy/launcher` - PR #72) kiểm tra đồng thời `/api/health` của Frontend và `/health/ready` của Backend; quy trình khởi động Migration-First (`scripts/start_server.py` - PR #75) sử dụng khóa tuần tự MySQL `GET_LOCK('fireguard_schema_migration', 60)` để chạy `alembic upgrade head` (bao gồm composite index `0007_history_audit_indexes`) trước khi mở cổng Uvicorn (`PORT` `1..65535`); middleware đo thời gian phản hồi `Server-Timing` (`auth;dur`, `app;dur`); cấp phát Media Stream Token HMAC bảo vệ luồng `/video_feed`.
+* **Kết quả:** **32/32 Pass (100%)**.
+* **Test Case tiêu biểu:** `TC_SYS_E2E_001`, `TC_SYS_025`, `TC_SYS_EDGE_007` & `TC_SYS_026` (Khởi động Render Migration-First với khóa MySQL, kiểm tra biên cổng PORT 1..65535 và Shared Launcher readiness probe).
 
 ---
 
@@ -268,9 +269,9 @@ Toàn bộ **18 lỗi (Defects)** phát sinh trong các chu kỳ phát triển h
 
 ### 9.1. Kết luận
 Dự án **Hệ thống Giám sát & Cảnh báo Cháy Thông minh FireGuard** đã hoàn thành toàn diện các mục tiêu kiểm thử đề ra:
-1. Bộ kiểm thử tự động hóa phủ kín mọi luồng nghiệp vụ từ Frontend đến Backend với **318/318 bài kiểm thử đạt kết quả Pass 100%**.
-2. Hồ sơ nghiệm thu chi tiết tại file [test.xlsx](file:///d:/FireGuard/frontend/tests/test.xlsx) gồm **16 Sheets** chuẩn hóa với **352 Test Cases** và **18 Bugs đã giải quyết triệt để**.
-3. Các cơ chế bảo mật, chống tấn công dò quét và khả năng tự phục hồi mạng đã được kiểm chứng hoạt động ổn định trong mọi điều kiện biên.
+1. Bộ kiểm thử tự động hóa phủ kín mọi luồng nghiệp vụ từ Frontend đến Backend với **437/438 bài kiểm thử đạt kết quả Pass 100%** (1 bài test demo HLS bên ngoài được skip có chủ đích theo thiết kế).
+2. Hồ sơ nghiệm thu chi tiết tại file [test.xlsx](file:///d:/FireGuard/frontend/tests/test.xlsx) gồm **16 Sheets** chuẩn hóa với **366 Test Cases** và **18 Bugs đã giải quyết triệt để**.
+3. Các cơ chế bảo mật, phiên API ngắn hạn, phân trang server-side, khôi phục ảnh S3 Zalo 1 giờ, khởi động Render Migration-First và khả năng tự phục hồi mạng đã được kiểm chứng hoạt động ổn định trong mọi điều kiện biên.
 
 ### 9.2. Khuyến nghị Bàn giao & Nghiệm thu
 * **Khuyến nghị:** Hệ thống FireGuard đáp ứng đầy đủ và vượt trội các tiêu chuẩn kỹ thuật, chất lượng phần mềm và độ tin cậy an toàn, **đủ điều kiện để tiến hành nghiệm thu chính thức và triển khai vào môi trường vận hành thực tế.**

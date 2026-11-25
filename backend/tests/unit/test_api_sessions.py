@@ -60,6 +60,75 @@ def test_expired_forged_and_other_token_types_are_rejected():
         assert caught.value.status_code == 401
 
 
+def test_session_boundary_length_claim_types_and_missing_user():
+    row = account()
+    db = Mock()
+    db.execute.return_value.fetchone.return_value = row
+    # Boundary: None, exact 1024 length vs 1025 length (>1024 rejected before split/decode)
+    for oversized_or_null in [None, "a" * 1025, "a" * 512 + "." + "b" * 512]:
+        with pytest.raises(auth.HTTPException) as caught:
+            sessions.verify_session(oversized_or_null, db)
+        assert caught.value.status_code == 401
+    db.execute.assert_not_called()
+
+    # Exact expiration boundary: exp == time.time() must be rejected (exp <= time.time())
+    with patch.object(sessions.time, "time", return_value=1000):
+        token = sessions.create_session(SimpleNamespace(**row))
+    with patch.object(sessions.time, "time", return_value=1000 + sessions.SESSION_TTL_SECONDS):
+        with pytest.raises(auth.HTTPException) as caught:
+            sessions.verify_session(token, db)
+        assert caught.value.status_code == 401
+    # 1 second before expiration must succeed
+    with patch.object(sessions.time, "time", return_value=1000 + sessions.SESSION_TTL_SECONDS - 1):
+        assert sessions.verify_session(token, db).id == 1
+
+    # Wrong claim types (bool is a subclass of int in Python, float, string, missing keys)
+    bad_claims_list = [
+        {"id": True, "exp": 9999999999},
+        {"id": 1, "exp": True},
+        {"id": "1", "exp": 9999999999},
+        {"id": 1.5, "exp": 9999999999},
+        {"id": 1, "exp": 9999999999.0},
+        {"id": 1},
+        {"exp": 9999999999},
+        [],
+        "not-a-dict",
+    ]
+    for claims in bad_claims_list:
+        payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+        sig = sessions._signature(payload, row["hashed_password"])
+        with pytest.raises(auth.HTTPException) as caught:
+            sessions.verify_session(f"{payload}.{sig}", db)
+        assert caught.value.status_code == 401
+
+    # Deleted user in database after session token was issued
+    db.execute.return_value.fetchone.return_value = None
+    with pytest.raises(auth.HTTPException) as caught:
+        sessions.verify_session(token, db)
+    assert caught.value.status_code == 401
+
+
+def test_bearer_header_case_insensitivity_and_whitespace():
+    row = account()
+    token = sessions.create_session(SimpleNamespace(**row))
+    for header in [f"bearer {token}", f"BEARER   {token}  ", f"BeArEr {token}"]:
+        db = Mock()
+        db.execute.return_value.fetchone.return_value = row
+        request = SimpleNamespace(headers={"authorization": header}, state=SimpleNamespace())
+        user = auth.get_current_user(request, db, None)
+        assert user.id == 1
+        assert hasattr(request.state, "auth_ms") and request.state.auth_ms >= 0
+        db.close.assert_called_once()
+
+    # Empty bearer token "Bearer   " fails with 401 and still closes db
+    db = Mock()
+    request = SimpleNamespace(headers={"authorization": "Bearer    "}, state=SimpleNamespace())
+    with pytest.raises(auth.HTTPException) as caught:
+        auth.get_current_user(request, db, None)
+    assert caught.value.status_code == 401
+    db.close.assert_called_once()
+
+
 def test_login_returns_session_then_bearer_reads_without_password_or_limiter():
     row = account()
     db = Mock()
