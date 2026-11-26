@@ -60,7 +60,7 @@ class CameraLifecycleTests(unittest.TestCase):
         database = Mock()
         database.get_all_db_cameras.return_value = [
             {"id": 1, "name": "Laptop", "source": "0", "is_active": 1, "owner_user_id": 1},
-            {"id": 2, "name": "Network", "source": "rtsp://camera.local/live", "is_active": 1, "owner_user_id": 1},
+            {"id": 2, "name": "Network", "source": "http://camera.local/live", "is_active": 1, "owner_user_id": 1},
         ]
         with module_mocks({'app.db.repositories.operations': database}):
             with patch.object(cm, "Camera") as camera_factory:
@@ -72,7 +72,7 @@ class CameraLifecycleTests(unittest.TestCase):
     def test_capture_recovers_after_opencv_open_error(self):
         self.open_capture.side_effect = [cm.cv2.error('open failed'), self.capture]
         with patch.object(cm, 'RECONNECT_DELAY_SECONDS', 0.01):
-            camera = self.camera(active=True, source='rtsp://camera.local/live')
+            camera = self.camera(active=True, source='http://camera.local/live')
             deadline = time.monotonic() + 2
             while camera.last_frame is None and time.monotonic() < deadline:
                 time.sleep(0.01)
@@ -213,15 +213,17 @@ class CameraLifecycleTests(unittest.TestCase):
         manager.cameras = {}
         database = Mock()
         database.get_all_db_cameras.return_value = [
-            {'id': 1, 'name': 'Gate', 'source': 'rtsp://old', 'is_active': 0, 'owner_user_id': 1},
+            {'id': 1, 'name': 'Gate', 'source': 'http://old', 'is_active': 0, 'owner_user_id': 1},
             {'id': 2, 'name': 'Lobby', 'source': '1', 'is_active': 0, 'owner_user_id': 1},
+            {'id': 4, 'name': 'Unsupported', 'source': 'rtsp://camera.local/live', 'is_active': 1, 'owner_user_id': 1},
+            {'id': 5, 'name': 'Unsupported secure', 'source': 'rtsps://camera.local/live', 'is_active': 1, 'owner_user_id': 1},
         ]
         database.add_db_camera.return_value = 3
         with module_mocks({'app.db.repositories.operations': database}), patch.object(cm, 'Camera') as camera:
             manager.load_cameras_from_db()
-            self.assertEqual([call.args[1] for call in camera.call_args_list], ['rtsp://old', '1'])
-            manager.add_camera('rtsp://old', 'New', False)
-            database.add_db_camera.assert_called_once_with('New', 'rtsp://old', 0)
+            self.assertEqual([call.args[1] for call in camera.call_args_list], ['http://old', '1'])
+            manager.add_camera('http://old', 'New', False)
+            database.add_db_camera.assert_called_once_with('New', 'http://old', 0)
             database.update_db_camera.assert_not_called()
 
     def test_source_update_rolls_back_on_database_failure(self):

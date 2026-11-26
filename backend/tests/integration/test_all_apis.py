@@ -40,7 +40,7 @@ async def test_cameras_crud_and_toggle():
 
         # POST thêm camera mới
         new_cam_payload = {
-            "source": "rtsp://192.168.1.200:554/live",
+            "source": "http://192.168.1.200/mjpeg",
             "name": "Camera AutoTest"
         }
         res_add = await client.post("/cameras", json=new_cam_payload)
@@ -225,12 +225,12 @@ async def test_otp_verification_edge_cases():
 
 
 @pytest.mark.asyncio
-async def test_edge_case_camera_source_hardcoding():
-    """7. Truong hop bien: Kiem tra them camera voi luong RTSP (Ghi nhan BUG-007)"""
+async def test_edge_case_camera_source_preserved():
+    """7. Truong hop bien: Kiem tra them camera voi luong HTTP"""
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post("/cameras", json={
-            "source": "rtsp://admin:pass@192.168.1.100:554/live",
-            "name": "Camera RTSP Ngoai Vi",
+            "source": "http://192.168.1.100/mjpeg",
+            "name": "Camera HTTP Ngoai Vi",
             "is_active": False
         })
         assert res.status_code == 200
@@ -239,8 +239,8 @@ async def test_edge_case_camera_source_hardcoding():
             cams_res = await client.get("/cameras")
             cam = next((c for c in cams_res.json().get("cameras", []) if c["id"] == cam_id), None)
             assert cam is not None
-            # Ghi nhan BUG-007: source bi hardcode thanh '0' thay vi giu nguyen RTSP URL
-            assert cam["source"] == "0"
+            # Keep the configured network stream URL.
+            assert cam["source"] == "http://192.168.1.100/mjpeg"
         finally:
             await client.delete(f"/cameras/{cam_id}")
 

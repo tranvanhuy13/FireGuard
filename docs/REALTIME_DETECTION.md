@@ -30,7 +30,7 @@ are not deleted; see [account policy](ACCOUNT_NOTIFICATIONS.md#test-account-with
 
 `POST /cameras` and `PUT /cameras/{id}` accept `{name, source, is_active}` through
 the existing verified/unblocked HTTP Basic gate for user/admin. Source defaults
-to `"0"` and accepts webcam indices 0–63, RTSP/RTSPS, or HTTP(S) camera streams
+to `"0"` and accepts webcam indices 0–63, HTTP(S) camera streams
 (including HLS and MJPEG). On PUT, omitting source preserves the current source.
 Unsupported protocols/local paths return 422. Saved
 sources survive restart; editing a source invalidates old capture/inference work
@@ -81,3 +81,8 @@ From `backend/`:
 These offline tests exercise sampled video decoding, confirmation/thresholds, synchronized frame metadata, negative and corrupt input, playback controls, queued cancellation, source retention, model serialization/camera priority, API handler contracts, camera cooldowns, lifecycle, and stale detection expiry. API handler tests run in-process with a fake socket; they do not open a network listener or a physical webcam.
 
 From `frontend/`, run `node_modules/.bin/tsc --noEmit` (or `tsc.cmd` on Windows). Actual camera latency, smoke recall, and false positives still require representative footage from the deployment site; synthetic rule tests and blank-frame FPS are not accuracy measurements.
+
+Camera sources are limited to webcam indices 0–63 and HTTP/HTTPS video streams.
+Previously saved RTSP/RTSPS sources are skipped at startup without modifying or
+deleting their database records. Replace those sources with a supported HTTP/HTTPS
+stream or webcam index before using the cameras again.
