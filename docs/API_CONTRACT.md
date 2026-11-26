@@ -201,7 +201,7 @@ Tài liệu này phản ánh chính xác cấu trúc API thực tế của Backe
 - **Request Body:**
   ```json
   {
-    "source": "rtsp://192.168.1.100:554/live",
+    "source": "http://192.168.1.100/mjpeg",
     "name": "Kho hàng B"
   }
   ```

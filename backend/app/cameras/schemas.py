@@ -10,7 +10,7 @@ def normalize_source(value: str) -> str:
         return str(int(source))
     try:
         url = urlsplit(source)
-        valid = (url.scheme in {"rtsp", "rtsps", "http", "https"} and url.hostname
+        valid = (url.scheme in {"http", "https"} and url.hostname
                  and not url.fragment and len(source) <= 2048
                  and not any(char.isspace() or ord(char) < 32 for char in source))
         # Accessing port also rejects malformed/out-of-range port numbers.
@@ -18,7 +18,7 @@ def normalize_source(value: str) -> str:
     except ValueError:
         valid = False
     if not valid:
-        raise ValueError("Use a webcam index (0–63) or an RTSP/HTTP(S) camera URL")
+        raise ValueError("Use a webcam index (0–63) or an HTTP(S) camera URL")
     return source
 
 

@@ -174,7 +174,7 @@ Dưới đây là chi tiết kiểm thử trên **15 phân hệ chức năng tư
 * **Test Case tiêu biểu:** `TC_USR_E2E_001` (Admin truy cập giao diện người dùng, kiểm tra hiển thị bảng, dropdown vai trò và nút thao tác trạng thái).
 
 ### 6.8. Phân hệ 8: Quản lý Camera (`Quan_Ly_Camera` - 27 Test Cases)
-* **Nội dung kiểm thử:** Thêm mới camera (RTSP, HLS, Webcam 0), bật/tắt luồng camera an toàn, chỉnh sửa tên và nguồn camera, xóa camera, hiển thị lưới đa ô (4, 9, 16, 25 ô), kéo thả thay đổi kích thước khu vực camera (ResizeHandle 20%-80%), cơ chế Singleton chia sẻ webcam `0` (`BUG-004`), cơ chế tự động thử kết nối lại (auto-retry sau 15 giây) của trình phát HLS khi gặp sự cố gián đoạn luồng video.
+* **Nội dung kiểm thử:** Thêm mới camera (HTTP/HTTPS, HLS, Webcam 0), bật/tắt luồng camera an toàn, chỉnh sửa tên và nguồn camera, xóa camera, hiển thị lưới đa ô (4, 9, 16, 25 ô), kéo thả thay đổi kích thước khu vực camera (ResizeHandle 20%-80%), cơ chế Singleton chia sẻ webcam `0` (`BUG-004`), cơ chế tự động thử kết nối lại (auto-retry sau 15 giây) của trình phát HLS khi gặp sự cố gián đoạn luồng video.
 * **Kết quả:** **27/27 Pass (100%)**.
 * **Test Case tiêu biểu:** `TC_CAM_E2E_001` (Bảo vệ API camera với Basic Auth, xử lý trạng thái empty state mượt mà khi chưa có camera), `TC_CAM_E2E_002` (Khả năng Tự phục hồi Luồng Video Camera HLS qua cơ chế auto-retry 15s).
 

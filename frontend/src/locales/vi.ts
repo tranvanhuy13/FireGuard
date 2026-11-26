@@ -1,5 +1,5 @@
 export const vi = {
-  monitoring: {"sourceHint": "Webcam USB (0–63) cắm vào máy chạy backend, hoặc URL luồng RTSP/RTSPS/HTTP(S) mà backend truy cập được. Dùng URL luồng video, không dùng trang web xem camera.", "verifyAfterSave": "Lưu và bật camera, sau đó kiểm tra hình trực tiếp trên dashboard.", "saveFailed": "Không thể lưu camera. Kiểm tra URL nguồn và thử lại.", "viewerClock": "Giờ máy đang xem; chỉ hiện khi có hình mới", "noFrames": "Không có hình mới", "previousPage": "Trang camera trước", "nextPage": "Trang camera sau", "page": "Trang", "connectionLost": "Mất kết nối"},
+  monitoring: {"sourceHint": "Webcam USB (0–63) cắm vào máy chạy backend, hoặc URL luồng HTTP(S) mà backend truy cập được. Dùng URL luồng video, không dùng trang web xem camera.", "verifyAfterSave": "Lưu và bật camera, sau đó kiểm tra hình trực tiếp trên dashboard.", "saveFailed": "Không thể lưu camera. Kiểm tra URL nguồn và thử lại.", "viewerClock": "Giờ máy đang xem; chỉ hiện khi có hình mới", "noFrames": "Không có hình mới", "previousPage": "Trang camera trước", "nextPage": "Trang camera sau", "page": "Trang", "connectionLost": "Mất kết nối"},
   review: { requestFailed: "Không thể hoàn tất yêu cầu. Vui lòng thử lại.", unknownCamera: "Camera không xác định" },
   header: {
     title: "FIRE GUARD AI",
@@ -46,7 +46,7 @@ export const vi = {
       title: "Cách FireGuard Hoạt động",
       subtitle: "Thiết lập trong vài phút. Bảo vệ dài lâu.",
       s1_title: "Thêm Camera",
-      s1_desc: "Kết nối bất kỳ camera IP nào hỗ trợ luồng RTSP/HTTP.",
+      s1_desc: "Kết nối bất kỳ camera IP nào hỗ trợ luồng HTTP/HTTPS.",
       s2_title: "AI Phân tích",
       s2_desc: "AI tại biên/đám mây phân tích ngay lập tức từng khung hình.",
       s3_title: "Phát hiện Tức thời",
@@ -253,7 +253,7 @@ export const vi = {
     cancel: "Hủy",
     add: "Thêm",
     cameraName: "Tên camera",
-    cameraSource: "Nguồn camera (0, 1 hoặc RTSP URL)",
+    cameraSource: "Nguồn camera (0, 1 hoặc HTTP/HTTPS URL)",
     adding: "Đang thêm...",
     analyzeVideo: "Phân tích video",
     inactive: "(Đã tắt)",

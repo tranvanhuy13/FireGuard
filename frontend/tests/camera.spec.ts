@@ -25,7 +25,7 @@ test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Cam
     const addRes = await request.post('/cameras', {
       headers,
       data: {
-        source: 'rtsp://192.168.1.100:554/live',
+        source: 'http://192.168.1.100/mjpeg',
         name: 'Camera Kiểm Thử Tự Động',
       },
     });

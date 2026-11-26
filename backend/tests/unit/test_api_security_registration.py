@@ -86,7 +86,7 @@ def test_camera_routes_validate_and_forward_real_sources(app_module):
     manager.add_camera.return_value = 7
     manager.update_camera.return_value = True
     with TestClient(app_module.app) as client:
-        body = {'name': 'Gate', 'source': 'rtsp://camera.local/live', 'is_active': True}
+        body = {'name': 'Gate', 'source': 'http://camera.local/live', 'is_active': True}
         assert client.post('/cameras', json=body).json()['id'] == 7
         manager.add_camera.assert_called_once_with(body['source'], 'Gate', True, owner_user_id=1)
         manager.cameras = {7: SimpleNamespace(owner_user_id=1)}
@@ -96,4 +96,8 @@ def test_camera_routes_validate_and_forward_real_sources(app_module):
         assert client.put('/cameras/7', json={'name': 'Renamed', 'is_active': True}).status_code == 200
         manager.update_camera.assert_called_with(7, 'Renamed', True, source=None)
         assert client.post('/cameras', json={**body, 'source': 'file:///private'}).status_code == 422
+        for source in ('rtsp://camera.local/live', 'rtsps://camera.local/live'):
+            assert client.post('/cameras', json={**body, 'source': source}).status_code == 422
+            assert client.put('/cameras/7', json={**body, 'source': source}).status_code == 422
         assert manager.add_camera.call_count == 1
+        assert manager.update_camera.call_count == 2

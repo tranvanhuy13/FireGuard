@@ -43,7 +43,7 @@ restores the dashboard panel proportions. Sizes are kept for the current mounted
 view only. Narrow screens use stacked panels and hide desktop-only separators.
 
 1. `Camera` captures frames independently from inference and publishes its newest frame.
-2. `SharedWebcam` lets enabled tiles using the same webcam index share that physical device. Sources preserve webcam indices 0–63 or RTSP/RTSPS/HTTP(S) URLs; local paths and other protocols are rejected. Network capture uses FFmpeg with five-second open/read timeouts. Authenticated camera operators control these backend-host sources, including cameras on its private network.
+2. `SharedWebcam` lets enabled tiles using the same webcam index share that physical device. Sources preserve webcam indices 0–63 or HTTP(S) URLs; local paths and other protocols are rejected. Network capture uses FFmpeg with five-second open/read timeouts. Authenticated camera operators control these backend-host sources, including cameras on its private network.
 3. `CameraManager` requests inference on available new frames, targeting at most 10 inferences per second per camera. Actual throughput depends on the model, hardware, and number of sources.
 4. `InferenceScheduler` permits one model call at a time; waiting camera requests take priority over uploaded-video requests.
 5. Shared rules filter and confirm fire/smoke detections. Overlays expire after one second without a fresh analyzed capture.

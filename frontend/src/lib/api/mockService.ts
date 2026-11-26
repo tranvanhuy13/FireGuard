@@ -77,10 +77,10 @@ export const getMockData = () => {
   
   const data = {
     cameras: [
-      { id: 1, name: 'Main Gate', source: 'rtsp://...', is_active: true, status: 'connected' },
-      { id: 2, name: 'Lobby', source: 'rtsp://...', is_active: true, status: 'connected' },
-      { id: 3, name: 'Parking', source: 'rtsp://...', is_active: true, status: 'disconnected' },
-      { id: 4, name: 'Warehouse', source: 'rtsp://...', is_active: false, status: 'disconnected' }
+      { id: 1, name: 'Main Gate', source: 'http://camera.local/mjpeg', is_active: true, status: 'connected' },
+      { id: 2, name: 'Lobby', source: 'http://camera.local/mjpeg', is_active: true, status: 'connected' },
+      { id: 3, name: 'Parking', source: 'http://camera.local/mjpeg', is_active: true, status: 'disconnected' },
+      { id: 4, name: 'Warehouse', source: 'http://camera.local/mjpeg', is_active: false, status: 'disconnected' }
     ],
     alerts: Array.from({ length: 35 }).map((_, i) => ({
       id: `alert-${i}`,

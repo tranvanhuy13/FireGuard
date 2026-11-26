@@ -212,7 +212,7 @@ Mở [http://localhost:3000](http://localhost:3000). Frontend và backend phải
    ```
 
 4. Đăng nhập lại để giao diện nhận quyền mới. Không có thông tin đăng nhập admin mặc định trong hướng dẫn này.
-5. Thêm camera mình có quyền sử dụng. Nguồn `0` là webcam trên máy chạy backend, không phải webcam của trình duyệt; camera mạng dùng URL RTSP/RTSPS/HTTP(S) backend truy cập được.
+5. Thêm camera mình có quyền sử dụng. Nguồn `0` là webcam trên máy chạy backend, không phải webcam của trình duyệt; camera mạng dùng URL HTTP(S) backend truy cập được.
 6. Bật camera, kiểm tra hình ảnh, kết quả và trạng thái lỗi. Chỉ đăng ký camera chưa có nghĩa suy luận đã bắt đầu.
 7. Thử video tải lên có lửa, khói và cảnh bình thường; kiểm tra lớp, độ tin cậy, cảnh báo và lịch sử. Dùng video mẫu an toàn, không tạo cháy thật để thử.
 
