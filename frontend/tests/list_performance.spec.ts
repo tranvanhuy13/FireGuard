@@ -6,9 +6,15 @@ test('history debounces search and reuses a recently visited page', async ({ pag
   await page.addInitScript(() => {
     sessionStorage.setItem('auth_header', 'Bearer offline-session');
     sessionStorage.setItem('user_profile', JSON.stringify({ id: '1', username: 'admin', role: 'admin' }));
+    localStorage.setItem('language', 'en');
   });
   const queries: URLSearchParams[] = [];
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 200, headers });
+      return;
+    }
     const url = new URL(route.request().url());
     let body: unknown = {};
     if (url.pathname === '/users/me') body = { id: 1, username: 'admin', role: 'admin', is_active: true };
@@ -19,8 +25,9 @@ test('history debounces search and reuses a recently visited page', async ({ pag
       body = { events: [{ id: offset + 1, timestamp: '2026-11-22T00:00:00Z', camera_name: `Camera ${offset + 1}`,
         type: 'fire', confidence: .9, status: 'new' }], total: 25, max_id: 25 };
     }
-    await route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
+    await route.fulfill({ json: body, headers });
   });
+  await page.routeWebSocket('**/ws/**', () => {});
   await page.goto('/dashboard/history');
   await expect(page.getByText('Camera 1', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next', exact: true }).click();
@@ -39,9 +46,15 @@ test('audit requests server pages, debounces filters and exports all matching re
   await page.addInitScript(() => {
     sessionStorage.setItem('auth_header', 'Bearer offline-session');
     sessionStorage.setItem('user_profile', JSON.stringify({ id: '1', username: 'admin', role: 'admin' }));
+    localStorage.setItem('language', 'en');
   });
   const queries: URLSearchParams[] = [];
-  await page.route('http://127.0.0.1:18080/**', async route => {
+  const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+  await page.route(/.*(18080|:8000)\/.*/, async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 200, headers });
+      return;
+    }
     const url = new URL(route.request().url());
     let body: unknown = {};
     if (url.pathname === '/users/me') body = { id: 1, username: 'admin', role: 'admin', is_active: true };
@@ -54,8 +67,9 @@ test('audit requests server pages, debounces filters and exports all matching re
         timestamp: '2026-11-22T00:00:00Z', action: 'camera.add', target: `camera:${i + 1}` }));
       body = { logs: all.slice(offset, offset + limit), total: 25, max_id: 25 };
     }
-    await route.fulfill({ json: body, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' } });
+    await route.fulfill({ json: body, headers });
   });
+  await page.routeWebSocket('**/ws/**', () => {});
   await page.goto('/dashboard/audit-log');
   await expect(page.getByText('operator-1', { exact: true })).toBeVisible();
   expect(queries.at(-1)?.get('limit')).toBe('10');

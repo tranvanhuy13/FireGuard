@@ -18,20 +18,12 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
     // 3. Nhấn nút đăng nhập
     await page.click('button[type="submit"]');
 
-    // 4. Theo dõi URL sau khi đăng nhập
-    // Bug hiện tại: router.push chuyển sang /dashboard nhưng AuthContext chưa có user
-    // nên DashboardLayout lập tức đá ngược về /login?redirect=%2Fdashboard
-    await page.waitForTimeout(2000);
-
-    const currentUrl = page.url();
-    console.log('Current URL sau khi đăng nhập:', currentUrl);
-
-    // Kỳ vọng của hệ thống: Phải ở lại trang dashboard thành công
-    await expect(page).toHaveURL(/.*\/dashboard/);
+    // 4. Kỳ vọng của hệ thống: Điều hướng và ở lại trang dashboard ổn định
+    await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
     await expect(page.locator('h1, h2, [class*="CameraGrid"]').first()).toBeVisible();
   });
 
-  test('TC_LOGIN_02: Kiểm tra lưu trữ auth_header trong sessionStorage', async ({ page }) => {
+  test('TC_LOGIN_02: Kiểm tra lưu trữ auth_header (Bearer session token) trong sessionStorage', async ({ page }) => {
     await page.goto('/login');
     await page.fill('#identifier', testAccount.username);
     await page.fill('#password', testAccount.password);
@@ -39,12 +31,10 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
 
     await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
 
-    // Kiểm tra sessionStorage có lưu auth_header
+    // Kiểm tra sessionStorage có lưu auth_header (Bearer session token hoặc Basic fallback)
     const authHeader = await page.evaluate(() => sessionStorage.getItem('auth_header'));
-    console.log('SessionStorage auth_header:', authHeader ? 'Đã lưu' : 'Chưa lưu');
-
     expect(authHeader).not.toBeNull();
-    expect(authHeader).toContain('Basic ');
+    expect(authHeader).toMatch(/^(Bearer|Basic) \S+/);
   });
 
   test('TC_LOGIN_03: Kiểm tra đăng nhập bằng Email thành công (Tính năng mới Commit 56bb42f)', async ({ page }) => {
@@ -56,10 +46,36 @@ test.describe('Kiểm thử lỗi điều hướng và trạng thái đăng nh�
 
     await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
 
-    // Backend mới nhất (Commit 56bb42f) hỗ trợ đăng nhập bằng Email
     // Kiểm tra sessionStorage có lưu auth_header thành công
     const authHeader = await page.evaluate(() => sessionStorage.getItem('auth_header'));
     expect(authHeader).not.toBeNull();
-    expect(authHeader).toContain('Basic ');
+    expect(authHeader).toMatch(/^(Bearer|Basic) \S+/);
+  });
+
+  test('TC_LOGIN_04: Chống Open Redirect khi tham số ?redirect trỏ ra domain ngoài và giữ redirect nội bộ hợp lệ', async ({ page }) => {
+    await page.goto('/login?redirect=https://evil.example.com/phishing');
+    await page.fill('#identifier', testAccount.username);
+    await page.fill('#password', testAccount.password);
+    await page.click('button[type="submit"]');
+
+    // URL độc hại bên ngoài phải bị chặn và đưa về /dashboard mặc định
+    await expect(page).toHaveURL(/\/dashboard$/, { timeout: 10000 });
+  });
+
+  test('TC_LOGIN_05: Tự động xóa phiên và chuyển hướng về /login?redirect=... khi API trả về 401 (mất phiên đăng nhập)', async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!sessionStorage.getItem('seeded_expired_once')) {
+        sessionStorage.setItem('seeded_expired_once', '1');
+        sessionStorage.setItem('auth_header', 'Bearer expired-or-revoked-session-token');
+        sessionStorage.setItem('user_profile', JSON.stringify({ id: '99', username: 'expired_user', role: 'user' }));
+      }
+    });
+
+    await page.goto('/dashboard/history');
+
+    // Khi token không hợp lệ (Backend trả 401), client tự động xóa sessionStorage và chuyển về /login kèm redirect
+    await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard%2Fhistory/, { timeout: 10000 });
+    const remainingAuth = await page.evaluate(() => sessionStorage.getItem('auth_header'));
+    expect(remainingAuth).toBeNull();
   });
 });

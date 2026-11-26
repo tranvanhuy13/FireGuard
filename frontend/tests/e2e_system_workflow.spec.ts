@@ -21,18 +21,24 @@ test.describe('E2E Quy trình Hoạt động Toàn diện Hệ thống (End-to-E
     await expect(userRoleBadge).toBeVisible();
   });
 
-  test('TC_E2E_02: Điều hướng trang Cameras, kiểm tra danh sách và chức năng chuyển đổi bố cục', async ({ page }) => {
+  test('TC_E2E_02: Điều hướng trang Cameras, kiểm tra nút thêm camera và chức năng chuyển đổi bố cục Grid/Table', async ({ page }) => {
     await page.goto('/dashboard/cameras');
     await expect(page).toHaveURL(/.*\/dashboard\/cameras/);
 
-    // Kiểm tra tiêu đề trang hoặc heading
+    // Kiểm tra tiêu đề trang
     await expect(page.locator('h1, h2').filter({ hasText: /Cameras|Camera/i }).first()).toBeVisible();
 
-    // Kiểm tra nút thêm camera
-    const addCameraBtn = page.locator('button').filter({ hasText: /Add Camera|Thêm Camera/i });
-    if (await addCameraBtn.count() > 0) {
-      await expect(addCameraBtn.first()).toBeVisible();
-    }
+    // Kiểm tra nút thêm camera và nút chuyển đổi bố cục Grid / Table luôn hiển thị
+    const addCameraBtn = page.getByRole('button', { name: /Add Camera|Thêm Camera/i }).first();
+    await expect(addCameraBtn).toBeVisible();
+
+    const tableModeBtn = page.getByRole('button', { name: 'Table', exact: true });
+    const gridModeBtn = page.getByRole('button', { name: 'Grid', exact: true });
+    await expect(tableModeBtn).toBeVisible();
+    await tableModeBtn.click();
+    await expect(tableModeBtn).toHaveClass(/shadow/);
+    await gridModeBtn.click();
+    await expect(gridModeBtn).toHaveClass(/shadow/);
   });
 
   test('TC_E2E_03: Điều hướng Lịch sử Sự cố, kiểm tra bảng dữ liệu và bộ lọc phân loại', async ({ page }) => {
@@ -62,19 +68,14 @@ test.describe('E2E Quy trình Hoạt động Toàn diện Hệ thống (End-to-E
     await expect(saveBtn).toBeVisible();
   });
 
-  test('TC_E2E_05: Điều hướng Kênh Cảnh báo, kiểm tra cấu hình Telegram Bot & Zalo', async ({ page }) => {
+  test('TC_E2E_05: Điều hướng Kênh Cảnh báo, kiểm tra cấu hình người nhận Telegram Bot & Zalo', async ({ page }) => {
     await page.goto('/dashboard/notifications');
     await expect(page).toHaveURL(/.*\/dashboard\/notifications/);
 
-    // Kiểm tra các trường cấu hình Telegram
-    const telegramHeading = page.locator('h2, h3, div').filter({ hasText: /Telegram/i }).first();
-    await expect(telegramHeading).toBeVisible();
-
-    // Kiểm tra nút Test Notification hoặc Save
-    const testBtn = page.locator('button').filter({ hasText: /Test Notification|Thử nghiệm|Kiểm tra/i }).first();
-    if (await testBtn.count() > 0) {
-      await expect(testBtn).toBeVisible();
-    }
+    // Kiểm tra tiêu đề trang và nút Thêm tài khoản nhận thông báo luôn hiển thị
+    await expect(page.locator('h1').first()).toBeVisible();
+    const addAccountBtn = page.getByRole('button', { name: /Add Account|Thêm tài khoản/i });
+    await expect(addAccountBtn).toBeVisible();
   });
 
   test('TC_E2E_06: Điều hướng Quản trị Người dùng, xác nhận bảng thành viên và phân quyền', async ({ page }) => {

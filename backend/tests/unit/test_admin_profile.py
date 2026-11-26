@@ -138,9 +138,20 @@ class UserProfileApiTests(unittest.TestCase):
         self.mock_db.commit.assert_called_once()
 
     def test_update_users_me_rejects_invalid_phone(self):
-        res = self.client.put("/users/me", json={"phone": "123"})
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("Số điện thoại không hợp lệ", res.json()["detail"])
+        for bad_phone in ("123", "12345678", "091234567890", "091-234-5678", "٠١٢٣٤٥٦٧٨٩"):
+            res = self.client.put("/users/me", json={"phone": bad_phone})
+            self.assertEqual(res.status_code, 400, f"Expected 400 for {bad_phone!r}")
+            self.assertIn("Số điện thoại không hợp lệ", res.json()["detail"])
+
+    def test_update_users_me_clears_blank_whitespace_phone_and_accepts_boundaries(self):
+        res_blank = self.client.put("/users/me", json={"phone": "   "})
+        self.assertEqual(res_blank.status_code, 200)
+        self.assertEqual(res_blank.json()["phone"], "")
+
+        for ok_phone in ("091234567", "09123456789"):
+            res_ok = self.client.put("/users/me", json={"phone": f" {ok_phone} "})
+            self.assertEqual(res_ok.status_code, 200)
+            self.assertEqual(res_ok.json()["phone"], ok_phone)
 
     def test_change_password_rejects_wrong_current_password(self):
         res = self.client.post("/users/change-password", json={
@@ -175,6 +186,78 @@ class UserProfileApiTests(unittest.TestCase):
         self.assertEqual(res.json()["message"], "Password changed successfully")
         self.mock_db.execute.assert_called_once()
         self.mock_db.commit.assert_called_once()
+
+
+class AdminUsersManagementTests(unittest.TestCase):
+    def setUp(self):
+        import sqlalchemy as sa
+        from sqlalchemy.pool import StaticPool
+        from app.db.engine import Connection
+        from app.db.schema import metadata
+        from app.users.routes import router as users_router
+        from app.auth.dependencies import get_db
+
+        self.engine = sa.create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+        metadata.create_all(self.engine)
+        with self.engine.begin() as conn:
+            conn.execute(metadata.tables["users"].insert(), [
+                {"id": 1, "username": "boss", "email": "boss@gmail.com", "hashed_password": "h",
+                 "is_active": 1, "is_blocked": 0, "role": "admin", "full_name": "Boss Admin"},
+                {"id": 2, "username": "member", "email": "member@gmail.com", "hashed_password": "h",
+                 "is_active": 1, "is_blocked": 0, "role": "user", "full_name": ""},
+                {"id": 3, "username": "pending", "email": "pending@gmail.com", "hashed_password": "h",
+                 "is_active": 0, "is_blocked": 0, "role": "user", "full_name": "Pending User"},
+            ])
+
+        self.actor = SimpleNamespace(id=1, username="boss", email="boss@gmail.com",
+                                     role="admin", is_active=True, is_blocked=False)
+        self.app = FastAPI()
+        self.app.include_router(users_router, prefix="/users")
+        self.app.dependency_overrides[get_current_user] = lambda: self.actor
+
+        def override_db():
+            conn = Connection(self.engine.connect())
+            try:
+                yield conn
+            finally:
+                conn.close()
+
+        self.app.dependency_overrides[get_db] = override_db
+        self._patches = [
+            patch.object(Connection, "begin_serialized", lambda conn_self, name="auth": conn_self.rollback()),
+            patch("app.users.routes.log_action"),
+        ]
+        for p in self._patches:
+            p.start()
+        self.client = TestClient(self.app)
+
+    def tearDown(self):
+        self.client.close()
+        for p in reversed(self._patches):
+            p.stop()
+        self.engine.dispose()
+
+    def test_list_users_requires_admin_and_formats_status(self):
+        self.actor.role = "user"
+        self.assertEqual(self.client.get("/users").status_code, 403)
+        self.actor.role = "admin"
+        res = self.client.get("/users")
+        self.assertEqual(res.status_code, 200)
+        statuses = {u["username"]: u["status"] for u in res.json()["users"]}
+        self.assertEqual(statuses, {"boss": "active", "member": "active", "pending": "pending"})
+
+    def test_update_user_guards_self_last_admin_unverified_and_missing(self):
+        self.assertEqual(self.client.put("/users/999", json={"role": "admin"}).status_code, 404)
+        self.assertEqual(self.client.put("/users/1", json={"role": "user"}).status_code, 403)
+        self.assertEqual(self.client.put("/users/1", json={"status": "blocked"}).status_code, 403)
+        self.assertEqual(self.client.put("/users/3", json={"status": "active"}).status_code, 409)
+
+        # Promote member -> second active admin, then blocking/demoting succeeds until only 1 admin remains
+        self.assertEqual(self.client.put("/users/2/role", json={"role": "admin"}).json()["role"], "admin")
+        self.assertEqual(self.client.put("/users/2", json={"status": "blocked"}).json()["status"], "blocked")
+        # Now boss is once again the last active admin (demoting self already returns 403)
+        self.assertEqual(self.client.put("/users/2", json={"status": "active"}).json()["status"], "active")
+        self.assertEqual(self.client.put("/users/2", json={"role": "user"}).json()["role"], "user")
 
 
 if __name__ == "__main__":

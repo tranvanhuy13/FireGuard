@@ -71,4 +71,16 @@ test('timestamp is only "live" while video frames keep arriving', () => {
   assert.equal(isFrameFresh(undefined, 10000), false);
   assert.equal(isFrameFresh(9000, 10000), true);
   assert.equal(isFrameFresh(1000, 10000), false);
+  assert.equal(isFrameFresh(10000, 10000), true); // 0ms boundary
+  assert.equal(isFrameFresh(4000, 10000), true);  // exact 6000ms boundary
+  assert.equal(isFrameFresh(3999, 10000), false); // 6001ms expired boundary
+});
+
+test('cameraView boundary & null/empty/NaN inputs are clamped safely', () => {
+  assert.equal(pageCount(0, 0), 1);
+  assert.equal(pageCount(-5, 4), 1);
+  assert.equal(clampPage(NaN, 5, 4), 0);
+  assert.equal(clampPage(-10, 0, 0), 0);
+  assert.deepEqual(pageSlice([], 0, 4), []);
+  assert.equal(apiPathname('/cameras', ''), '/cameras');
 });

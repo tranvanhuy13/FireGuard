@@ -2,8 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   newUser,
   basicAuth,
-  apiSignup,
-  apiVerifyOtp,
   apiLogin,
   apiCurrentUser,
   REAL_USER,

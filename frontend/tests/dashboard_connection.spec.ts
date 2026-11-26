@@ -36,6 +36,10 @@ test('slow history does not block dashboard; recovery preserves live alerts', as
     }
   });
   const alertStatus = page.getByRole('status').filter({ hasText: /alert history|lịch sử/i });
+  page.on('requestfailed', request => {
+    const idx = pending.findIndex(route => route.request() === request);
+    if (idx !== -1) pending.splice(idx, 1);
+  });
   await page.clock.install();
   await page.goto('/dashboard');
   await expect.poll(() => pending.length).toBeGreaterThan(0);
@@ -46,7 +50,7 @@ test('slow history does not block dashboard; recovery preserves live alerts', as
   await expect(alertStatus).toBeVisible();
   await expect(page.getByRole('button', { name: /Thử lại|Retry/, exact: true })).toBeVisible();
   historyReady = true;
-  for (const route of pending) await route.fulfill({ json: { alerts: [] }, headers }).catch(() => {});
+  for (const route of pending.splice(0)) await route.fulfill({ json: { alerts: [] }, headers });
   await page.getByRole('button', { name: /Thử lại|Retry/, exact: true }).click();
   await expect(alertStatus).toHaveCount(0);
   const detections = page.getByText(/TOTAL DETECTIONS|TỔNG SỐ PHÁT HIỆN/, { exact: true }).locator('..');

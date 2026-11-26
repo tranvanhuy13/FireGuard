@@ -9,7 +9,6 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
   });
 
   test('PRO_01: Truy cập /dashboard/profile hiển thị thông tin người dùng và vai trò', async ({ page }) => {
-    await page.waitForLoadState('domcontentloaded');
     await page.goto('/dashboard/profile');
     await expect(page).toHaveURL(/.*\/dashboard\/profile/);
     await expect(page.locator('h1, h2, h3').first()).toBeVisible();
@@ -102,5 +101,57 @@ test.describe('Hồ sơ Người dùng & Dọn dẹp Tài khoản Liên kết (P
     await phoneInput.fill("0912'; DROP TABLE users;--");
     await phoneInput.blur();
     await expect(phoneError).toBeVisible();
+  });
+
+  test('PRO_06: Đổi mật khẩu trên trang Profile: chặn mật khẩu trùng mật khẩu cũ, xác nhận không khớp, và đổi thành công', async ({ page }) => {
+    await page.goto('/dashboard/profile');
+    const passwordInputs = page.locator('form').nth(1).locator('input[type="password"]');
+    await expect(passwordInputs).toHaveCount(3);
+
+    const currentPwd = passwordInputs.nth(0);
+    const newPwd = passwordInputs.nth(1);
+    const confirmPwd = passwordInputs.nth(2);
+    const submitPwdBtn = page.locator('form').nth(1).locator('button[type="submit"]');
+
+    // 1. Mật khẩu mới trùng mật khẩu hiện tại -> báo lỗi và nút lưu bị khóa
+    await currentPwd.fill('AdminPass123');
+    await newPwd.fill('AdminPass123');
+    await confirmPwd.fill('AdminPass123');
+    await expect(page.getByText(/không được trùng mật khẩu cũ|cannot be the same/i)).toBeVisible();
+    await expect(submitPwdBtn).toBeDisabled();
+
+    // 2. Xác nhận mật khẩu mới không khớp -> báo lỗi và nút lưu bị khóa
+    await newPwd.fill('NewAdminPass123');
+    await confirmPwd.fill('MismatchPass123');
+    await expect(page.getByText(/không khớp|does not match/i)).toBeVisible();
+    await expect(submitPwdBtn).toBeDisabled();
+
+    // 3. Nhập hợp lệ và khớp -> nút lưu được mở khóa và lưu thành công
+    await confirmPwd.fill('NewAdminPass123');
+    await expect(submitPwdBtn).toBeEnabled();
+    await submitPwdBtn.click();
+    await expect(page.getByText(/Đổi mật khẩu thành công|Password updated successfully/i)).toBeVisible({ timeout: 5000 });
+  });
+
+  test('PRO_07: Kiểm tra validation tải ảnh đại diện (chặn file không phải ảnh) và chuyển đổi giao diện Sáng / Tối', async ({ page }) => {
+    await page.goto('/dashboard/profile');
+
+    // 1. Tải file không phải định dạng ảnh -> hiển thị thông báo lỗi định dạng
+    const fileInput = page.locator('input[type="file"]');
+    await fileInput.setInputFiles({
+      name: 'malicious.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('not an image'),
+    });
+    await expect(page.getByText(/JPG, PNG, WEBP/i).nth(1)).toBeVisible();
+
+    // 2. Chuyển đổi giao diện Dark / Light
+    const darkBtn = page.locator('button').filter({ hasText: /Chế độ Tối|Dark Mode/i }).first();
+    await darkBtn.click();
+    await expect(page.locator('html')).toHaveClass(/dark/);
+
+    const lightBtn = page.locator('button').filter({ hasText: /Chế độ Sáng|Light Mode/i }).first();
+    await lightBtn.click();
+    await expect(page.locator('html')).not.toHaveClass(/dark/);
   });
 });

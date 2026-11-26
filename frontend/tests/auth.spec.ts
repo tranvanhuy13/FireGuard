@@ -9,7 +9,6 @@ import {
   forgotPasswordUI,
   enableMockMode,
   enableRealMode,
-  MOCK_ADMIN,
   REAL_USER,
 } from './helpers';
 
@@ -133,7 +132,7 @@ test.describe('2. Xác thực OTP (Verify OTP)', () => {
     const otpInputs = page.locator('input[type="text"]');
     await expect(otpInputs).toHaveCount(6);
     await expect(otpInputs.first()).toBeVisible();
-    await page.waitForTimeout(600);
+    await expect(otpInputs.first()).toBeEditable();
 
     await verifyOtpUI(page, '123456');
     await expect(otpInputs.first()).toHaveValue('1');
@@ -146,6 +145,50 @@ test.describe('2. Xác thực OTP (Verify OTP)', () => {
 
     const timerText = page.locator('div:has-text("Mã hết hạn sau"), div:has-text("expires"), div:has-text("Hết hạn")');
     await expect(timerText.first()).toBeVisible();
+  });
+
+  test('OTP_04: Nhập mã OTP sai báo lỗi, quá 5 lần bị khóa (429), nhấn Gửi lại mã mở khóa và xác thực thành công', async ({ page }) => {
+    await enableRealMode(page);
+    let mode: 'invalid' | 'locked' | 'ok' = 'invalid';
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+    await page.route(/.*(18080|:8000)\/auth\/(verify-otp|resend-otp)/, async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 200, headers });
+        return;
+      }
+      if (route.request().url().includes('/resend-otp')) {
+        mode = 'ok';
+        await route.fulfill({ status: 200, headers, json: { message: 'OTP sent' } });
+        return;
+      }
+      if (mode === 'invalid') {
+        await route.fulfill({ status: 400, headers, json: { detail: 'Invalid OTP' } });
+      } else if (mode === 'locked') {
+        await route.fulfill({ status: 429, headers, json: { detail: 'Too many attempts. Please request a new code.' } });
+      } else {
+        await route.fulfill({ status: 200, headers, json: { message: 'Account verified' } });
+      }
+    });
+
+    await page.goto('/verify-otp?target=otpcheck@gmail.com');
+    const otpInputs = page.locator('input[type="text"]');
+    await expect(otpInputs).toHaveCount(6);
+
+    // 1. Nhập sai OTP -> Hiển thị lỗi
+    for (let i = 0; i < 6; i++) await otpInputs.nth(i).fill('1');
+    await expect(page.locator('div.bg-red-50')).toBeVisible();
+
+    // 2. Nhập sai lần nữa gặp HTTP 429 -> Khóa nhập OTP và hiển thị nút Gửi lại mã
+    mode = 'locked';
+    await otpInputs.first().fill('2');
+    const resendBtn = page.getByRole('button', { name: /Gửi lại mã|Resend/i });
+    await expect(resendBtn).toBeVisible();
+
+    // 3. Nhấn Gửi lại mã -> mở khóa ô OTP, nhập mã đúng -> Điều hướng về /login?verified=true
+    await resendBtn.click();
+    await expect(otpInputs.first()).toHaveValue('');
+    for (let i = 0; i < 6; i++) await otpInputs.nth(i).fill(String(i + 1));
+    await expect(page).toHaveURL(/\/login\?verified=true/, { timeout: 10000 });
   });
 });
 
@@ -177,7 +220,7 @@ test.describe('3. Đăng nhập (Login)', () => {
 
   test('LOG_04: Sai mật khẩu -> Báo lỗi không chính xác', async ({ page }) => {
     await enableMockMode(page);
-    await loginUI(page, 'admin', 'WrongPassword123');
+    await loginUI(page, 'admin', 'WrongPassword123', false, false);
 
     const alert = page.locator('div.bg-red-50, div.text-red-600');
     await expect(alert.first()).toBeVisible({ timeout: 5000 });
@@ -186,10 +229,48 @@ test.describe('3. Đăng nhập (Login)', () => {
 
   test('LOG_05: Tài khoản không tồn tại -> Báo lỗi bảo mật', async ({ page }) => {
     await enableMockMode(page);
-    await loginUI(page, 'non_existing_user_999', 'Password123');
+    await loginUI(page, 'non_existing_user_999', 'Password123', false, false);
 
     const alert = page.locator('div.bg-red-50, div.text-red-600');
     await expect(alert.first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test('LOG_11: Bị giới hạn tốc độ đăng nhập (429 Rate Limit) -> Khóa nút đăng nhập và hiển thị đếm ngược', async ({ page }) => {
+    await enableRealMode(page);
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'retry-after': '45' };
+    await page.route(/.*(18080|:8000)\/auth\/login/, async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 200, headers });
+        return;
+      }
+      await route.fulfill({ status: 429, headers, json: { detail: 'LOGIN_RATE_LIMITED' } });
+    });
+
+    await loginUI(page, 'ratelimited_user', 'Password123', false, false);
+    await expect(page.getByRole('status')).toBeVisible();
+    await expect(page.locator('button[type="submit"]')).toBeDisabled();
+  });
+
+  test('LOG_12: Tài khoản bị khóa (403 Account blocked) hoặc chưa xác thực (403 Account not verified) hiển thị thông báo lỗi phù hợp', async ({ page }) => {
+    await enableRealMode(page);
+    const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+    let detail = 'Account blocked';
+    await page.route(/.*(18080|:8000)\/auth\/login/, async (route) => {
+      if (route.request().method() === 'OPTIONS') {
+        await route.fulfill({ status: 200, headers });
+        return;
+      }
+      await route.fulfill({ status: 403, headers, json: { detail } });
+    });
+
+    await loginUI(page, 'blocked_user', 'Password123', false, false);
+    const alert = page.locator('div.bg-red-50, div.text-red-600').first();
+    await expect(alert).toBeVisible();
+
+    detail = 'Account not verified';
+    await loginUI(page, 'pending@gmail.com', 'Password123', false, false);
+    await expect(alert).toBeVisible();
+    await expect(page).toHaveURL(/.*\/login/);
   });
 
   test('LOG_06: Bật/tắt hiển thị mật khẩu (Eye Toggle)', async ({ page }) => {
@@ -205,16 +286,18 @@ test.describe('3. Đăng nhập (Login)', () => {
     await expect(passInput).toHaveAttribute('type', 'text');
   });
 
-  test('LOG_07: Ghi nhớ đăng nhập (Remember me) lưu username vào localStorage', async ({ page }) => {
+  test('LOG_07: Ghi nhớ đăng nhập (Remember me) lưu username vào localStorage và tự điền lại khi quay về /login', async ({ page }) => {
     await page.goto('/login');
     await page.fill('#identifier', 'rememberedUser');
     await page.fill('#password', 'Password123');
     await page.check('#remember-me');
     await page.click('button[type="submit"]');
 
-    // Kiểm tra localStorage
+    // Kiểm tra localStorage và tự điền lại khi mở lại /login
     const saved = await page.evaluate(() => localStorage.getItem('remembered_username'));
     expect(saved).toBe('rememberedUser');
+    await page.goto('/login');
+    await expect(page.locator('#identifier')).toHaveValue('rememberedUser');
   });
 
   test('LOG_08: Click link "Quên mật khẩu?" -> Chuyển đến /forgot-password', async ({ page }) => {
