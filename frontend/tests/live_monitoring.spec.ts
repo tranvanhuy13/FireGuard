@@ -72,9 +72,9 @@ test.describe('real monitoring', () => {
     await page.goto('/dashboard/cameras');
     await page.getByRole('button', { name: 'Add Camera', exact: true }).first().click();
     await page.getByPlaceholder('Main Gate').fill('Gate');
-    await page.getByRole('textbox', { name: 'Source' }).fill('https://camera.local/live.m3u8');
+    await page.getByRole('textbox', { name: 'Source' }).fill('http://camera.local/live');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => submitted).toEqual({ name: 'Gate', source: 'https://camera.local/live.m3u8', is_active: false });
+    await expect.poll(() => submitted).toEqual({ name: 'Gate', source: 'http://camera.local/live', is_active: false });
     await expect(page.getByRole('alert').filter({ hasText: 'Unable to save camera' })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Source' })).toBeVisible();
     await expect(page.getByText('Connection successful', { exact: true })).toHaveCount(0);

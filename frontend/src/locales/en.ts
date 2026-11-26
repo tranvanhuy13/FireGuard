@@ -1,5 +1,5 @@
 export const en = {
-  monitoring: {"sourceHint": "USB webcam index (0–63) on the backend host, or an RTSP/RTSPS/HTTP(S) video stream URL reachable by the backend. Use the stream URL, not the camera web page.", "verifyAfterSave": "Save and enable the camera, then check its live picture on the dashboard.", "saveFailed": "Unable to save camera. Check the source URL and try again.", "viewerClock": "Viewer system time; shown only while frames are fresh", "noFrames": "No fresh picture", "previousPage": "Previous camera page", "nextPage": "Next camera page", "page": "Page", "connectionLost": "Connection lost"},
+  monitoring: {"sourceHint": "USB webcam index (0–63) on the backend host, or an HTTP(S) video stream URL reachable by the backend. Use the stream URL, not the camera web page.", "verifyAfterSave": "Save and enable the camera, then check its live picture on the dashboard.", "saveFailed": "Unable to save camera. Check the source URL and try again.", "viewerClock": "Viewer system time; shown only while frames are fresh", "noFrames": "No fresh picture", "previousPage": "Previous camera page", "nextPage": "Next camera page", "page": "Page", "connectionLost": "Connection lost"},
   review: { requestFailed: "Unable to complete the request. Please try again.", unknownCamera: "Unknown camera" },
   header: {
     title: "FIRE GUARD AI",
@@ -46,7 +46,7 @@ export const en = {
       title: "How FireGuard Works",
       subtitle: "Set up in minutes. Protected forever.",
       s1_title: "Add Cameras",
-      s1_desc: "Connect any IP camera supporting RTSP/HTTP streams.",
+      s1_desc: "Connect any IP camera supporting HTTP/HTTPS streams.",
       s2_title: "AI Analysis",
       s2_desc: "Our edge/cloud AI instantly analyzes every frame.",
       s3_title: "Immediate Detection",
@@ -253,7 +253,7 @@ export const en = {
     cancel: "Cancel",
     add: "Add",
     cameraName: "Camera Name",
-    cameraSource: "Camera Source (0, 1 or RTSP URL)",
+    cameraSource: "Camera Source (0, 1 or HTTP/HTTPS URL)",
     adding: "Adding...",
     analyzeVideo: "Analyze Video",
     inactive: "(Inactive)",

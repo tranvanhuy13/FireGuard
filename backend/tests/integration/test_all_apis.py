@@ -40,7 +40,7 @@ async def test_cameras_crud_and_toggle():
 
         # POST thêm camera mới
         new_cam_payload = {
-            "source": "https://camera.example/live.m3u8",
+            "source": "http://192.168.1.200/mjpeg",
             "name": "Camera AutoTest"
         }
         res_add = await client.post("/cameras", json=new_cam_payload)
@@ -184,6 +184,26 @@ async def test_otp_verification_edge_cases():
         assert res_resend_active.status_code == 400
         assert "Account already verified" in res_resend_active.json().get("detail", "")
 
+
+@pytest.mark.asyncio
+async def test_edge_case_camera_source_preserved():
+    """7. Truong hop bien: Kiem tra them camera voi luong HTTP"""
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post("/cameras", json={
+            "source": "http://192.168.1.100/mjpeg",
+            "name": "Camera HTTP Ngoai Vi",
+            "is_active": False
+        })
+        assert res.status_code == 200
+        cam_id = res.json().get("id")
+        try:
+            cams_res = await client.get("/cameras")
+            cam = next((c for c in cams_res.json().get("cameras", []) if c["id"] == cam_id), None)
+            assert cam is not None
+            # Keep the configured network stream URL.
+            assert cam["source"] == "http://192.168.1.100/mjpeg"
+        finally:
+            await client.delete(f"/cameras/{cam_id}")
 
 @pytest.mark.asyncio
 async def test_edge_case_unauthenticated_endpoints():
