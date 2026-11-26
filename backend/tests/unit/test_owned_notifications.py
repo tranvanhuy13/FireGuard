@@ -81,6 +81,23 @@ class OwnedNotificationsTests(unittest.TestCase):
         self.assertEqual(sender.call_count, 1)
         self.assertEqual(sender.call_args.kwargs['chat_id'], self.body.chatId)
 
+    def test_camera_delivery_resumes_at_fifteen_seconds_for_both_channels(self):
+        config = {'enabled': True, 'configured': True,
+                  'targets': [{'id': 'test', 'chatId': '123'}]}
+        with patch.object(notification, 'last_notification', {}), \
+             patch.object(notification, '_in_flight', set()), \
+             patch.object(notification, 'channel_config', return_value=config), \
+             patch.object(notification, 'send_telegram', return_value=True) as telegram, \
+             patch.object(notification, 'send_zalo', return_value=True) as zalo, \
+             patch.object(notification.time, 'monotonic', return_value=100) as now:
+            for timestamp, expected in ((100, 'sent'), (114.999, 'cooldown'), (115, 'sent')):
+                now.return_value = timestamp
+                result = notification.trigger_notifications('fire', .9, owner_user_id=1)
+                for channel in ('telegram', 'zalo'):
+                    self.assertEqual(result[channel]['status'], expected)
+            self.assertEqual(telegram.call_count, 2)
+            self.assertEqual(zalo.call_count, 2)
+
     def test_active_switch_and_cooldown_are_independent_between_accounts(self):
         first = targets.save_target('accounts', self.body, owner_user_id=1)
         targets.save_target('accounts', self.body, owner_user_id=2)
