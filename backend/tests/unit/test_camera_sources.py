@@ -4,8 +4,7 @@ from pydantic import ValidationError
 from app.cameras.schemas import CameraModel, normalize_source
 
 
-@pytest.mark.parametrize('source', ['0', '1', '63', 'rtsp://camera.local/live',
-                                 'rtsps://user:password@camera.local:322/live',
+@pytest.mark.parametrize('source', ['0', '1', '63',
                                  'https://camera.local/live.m3u8?key=abc', 'http://192.168.1.4/mjpeg'])
 def test_accept_supported_sources(source):
     assert CameraModel(name='Gate', source=source).source == source

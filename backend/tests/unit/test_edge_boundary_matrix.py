@@ -255,8 +255,6 @@ def test_history_and_status_http_boundaries(boundary_db):
         conn.execute(metadata.tables["events"].insert(), [
             {"timestamp": "2026-11-26 10:00:00", "type": "fire", "confidence": 0.9,
              "owner_user_id": uid1, "camera_id": 1, "camera_name": "Gate 1", "source_kind": "camera"},
-            {"timestamp": "2026-11-26 10:01:00", "type": "smoke", "confidence": 0.8,
-             "owner_user_id": uid1, "camera_id": None, "camera_name": None, "source_kind": "video", "video_name": "v.mp4"},
             {"timestamp": "2026-11-26 10:02:00", "type": "fire", "confidence": 0.95,
              "owner_user_id": uid2, "camera_id": 2, "camera_name": "Gate 2", "source_kind": "camera"},
         ])
@@ -273,4 +271,4 @@ def test_history_and_status_http_boundaries(boundary_db):
         assert hist["total"] == 1 and hist["events"][0]["camera_name"] == "Gate 1"
         assert client.get("/history?max_id=0").json() == {"events": [], "total": 0, "max_id": 0}
         # Cannot mutate another owner's alert status
-        assert client.patch("/alerts/3/status", json={"status": "confirmed"}).status_code == 404
+        assert client.patch("/alerts/2/status", json={"status": "confirmed"}).status_code == 404

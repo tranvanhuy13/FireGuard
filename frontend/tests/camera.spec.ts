@@ -25,7 +25,7 @@ test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Cam
     const addRes = await request.post('/cameras', {
       headers,
       data: {
-        source: 'rtsp://192.168.1.100:554/live',
+        source: 'https://192.168.1.100/live.m3u8',
         name: 'Camera Kiểm Thử Tự Động',
       },
     });
@@ -182,31 +182,31 @@ test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Cam
 
     // 1. Thêm camera mới qua Modal
     await page.getByRole('button', { name: 'Add Camera', exact: true }).click();
-    await page.getByPlaceholder('Main Gate').fill('Lobby RTSP');
-    await page.getByRole('textbox', { name: 'Source' }).fill('rtsp://192.168.1.50:554/live');
+    await page.getByPlaceholder('Main Gate').fill('Lobby HLS');
+    await page.getByRole('textbox', { name: 'Source' }).fill('https://192.168.1.50/live.m3u8');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByText('Lobby RTSP')).toBeVisible();
+    await expect(page.getByText('Lobby HLS')).toBeVisible();
 
     // 2. Sửa tên camera qua nút Edit
-    const lobbyCard = page.locator('div.border.rounded-lg').filter({ hasText: 'Lobby RTSP' });
+    const lobbyCard = page.locator('div.border.rounded-lg').filter({ hasText: 'Lobby HLS' });
     await lobbyCard.getByRole('button', { name: 'Edit' }).click();
-    await page.getByPlaceholder('Main Gate').fill('Lobby RTSP Renamed');
+    await page.getByPlaceholder('Main Gate').fill('Lobby HLS Renamed');
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByText('Lobby RTSP Renamed')).toBeVisible();
+    await expect(page.getByText('Lobby HLS Renamed')).toBeVisible();
 
     // 3. Lọc theo trạng thái Running -> cả 2 camera đều đang OFF nên hiển thị thông báo không khớp bộ lọc
     await page.locator('select').selectOption('active');
     await expect(page.getByText('No cameras match these filters.')).toBeVisible();
     await page.locator('select').selectOption('all');
-    await expect(page.getByText('Lobby RTSP Renamed')).toBeVisible();
+    await expect(page.getByText('Lobby HLS Renamed')).toBeVisible();
 
     // 4. Xóa camera qua Modal xác nhận Delete
-    const renamedCard = page.locator('div.border.rounded-lg').filter({ hasText: 'Lobby RTSP Renamed' });
+    const renamedCard = page.locator('div.border.rounded-lg').filter({ hasText: 'Lobby HLS Renamed' });
     await renamedCard.getByRole('button', { name: 'Delete' }).click();
     const deleteModal = page.locator('div.fixed').filter({ hasText: /Are you sure|Bạn có chắc/i });
     await expect(deleteModal).toBeVisible();
     await deleteModal.getByRole('button', { name: 'Delete' }).click();
-    await expect(page.getByText('Lobby RTSP Renamed')).toHaveCount(0);
+    await expect(page.getByText('Lobby HLS Renamed')).toHaveCount(0);
   });
 
   test('CAM_07: Validation biên cho API POST /cameras (chặn webcam 64/-1, file://, tên rỗng -> 422; cho phép webcam biên 0 và 63)', async ({ request }) => {

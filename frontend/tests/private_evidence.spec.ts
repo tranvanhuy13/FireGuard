@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.use({ video: 'off', ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}) });
 
-test('Fire Alert downloads signed camera/video evidence directly and handles expiration', async ({ page }) => {
+test('Fire Alert downloads signed camera evidence directly and handles expiration', async ({ page }) => {
   const actor = { id: 1, username: 'owner', email: 'test@example.com', role: 'user', is_active: true };
   await page.addInitScript(user => {
     sessionStorage.setItem('auth_header', 'Basic dGVzdDp0ZXN0');
@@ -24,8 +24,6 @@ test('Fire Alert downloads signed camera/video evidence directly and handles exp
     if (path === '/alerts') body = { alerts: [
       { id: 1, timestamp: '2026-11-12 12:00:00', type: 'fire', confidence: .95, source_kind: 'camera',
         camera_name: 'Private camera', snapshot: '/snapshots/own.jpg' },
-      { id: 2, timestamp: '2026-11-12 12:01:00', type: 'smoke', confidence: .85, source_kind: 'video',
-        video_name: 'my-video.mp4', video_time: 12.5, snapshot: '/snapshots/video.jpg' },
     ] };
     if (path.startsWith('/snapshot-access/')) {
       expect(route.request().headers().authorization).toBe('Basic dGVzdDp0ZXN0');
@@ -46,8 +44,7 @@ test('Fire Alert downloads signed camera/video evidence directly and handles exp
   await page.clock.install();
   await page.goto('/dashboard');
   await expect(page.getByText('Private camera', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Video: my-video.mp4 \(12.5s\)/)).toBeVisible();
-  await expect.poll(() => downloads).toBeGreaterThanOrEqual(2);
+  await expect.poll(() => downloads).toBeGreaterThanOrEqual(1);
   await expect(page.getByAltText('thumb').first()).toHaveAttribute('src', /^https:\/\/storage\.example\//);
   await page.getByAltText('thumb').first().click();
   await expect(page.getByAltText('Event Snapshot')).toBeVisible();

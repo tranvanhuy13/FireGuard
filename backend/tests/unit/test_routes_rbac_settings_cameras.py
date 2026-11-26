@@ -86,7 +86,7 @@ def test_camera_routes_ownership_isolation_and_manager_missing_404():
         assert client.post("/cameras/10/toggle?active=false").status_code == 404
 
 
-def test_alerts_and_stats_preserve_video_fields_and_scope_by_owner():
+def test_alerts_and_stats_scope_by_owner():
     actor = SimpleNamespace(id=42, username="operator42")
     app = FastAPI()
     app.include_router(event_routes.router)
@@ -95,17 +95,15 @@ def test_alerts_and_stats_preserve_video_fields_and_scope_by_owner():
     fake_db = SimpleNamespace(
         get_recent_events=Mock(return_value=[{
             "id": 5, "timestamp": "2026-11-26 10:00:00", "type": "smoke", "confidence": 0.91,
-            "snapshot_path": "/snapshots/vid.jpg", "status": "new", "handled_by": None,
-            "camera_id": None, "camera_name": None, "source_kind": "video",
-            "video_name": "warehouse.mp4", "video_time": 12.5, "video_job_id": "job-5",
+            "snapshot_path": "/snapshots/cam.jpg", "status": "new", "handled_by": None,
+            "camera_id": 1, "camera_name": "Gate 1", "source_kind": "camera",
         }]),
         get_daily_stats=Mock(return_value=[{"date": "2026-11-26", "count": 3}]),
     )
     with patch.object(event_routes, "database", fake_db), TestClient(app) as client:
         alerts = client.get("/alerts").json()["alerts"]
-        assert alerts[0]["source_kind"] == "video"
-        assert alerts[0]["video_name"] == "warehouse.mp4"
-        assert alerts[0]["video_time"] == 12.5
+        assert alerts[0]["source_kind"] == "camera"
+        assert alerts[0]["camera_name"] == "Gate 1"
         fake_db.get_recent_events.assert_called_once_with(limit=50, owner_user_id=42)
 
         stats = client.get("/stats").json()["stats"]

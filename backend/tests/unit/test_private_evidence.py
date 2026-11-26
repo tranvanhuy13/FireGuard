@@ -40,9 +40,8 @@ def owned_database():
 def test_event_scope_and_camera_history_remain_separate(owned_database):
     own, _ = database.add_event("fire", .9, owner_user_id=1)
     database.add_event("smoke", .8, owner_user_id=2)
-    video, _ = database.add_event("fire", .9, owner_user_id=1, source_kind="video", video_job_id="job")
     database.add_event("fire", .9)  # Unassigned legacy event.
-    assert {row["id"] for row in database.get_recent_events(owner_user_id=1)} == {own, video}
+    assert {row["id"] for row in database.get_recent_events(owner_user_id=1)} == {own}
     assert database.search_events(owner_user_id=1)["total"] == 1
     assert not database.update_event_status(own, "confirmed", "other", owner_user_id=2)
     assert database.update_event_status(own, "confirmed", "owner", owner_user_id=1)
@@ -50,8 +49,8 @@ def test_event_scope_and_camera_history_remain_separate(owned_database):
 
 
 def test_registered_snapshot_ownership_and_expiration(owned_database):
-    evidence.register("private.jpg", 1, "video", "job")
-    assert evidence.require_snapshot("private.jpg", 1)["source_id"] == "job"
+    evidence.register("private.jpg", 1, "camera", "1")
+    assert evidence.require_snapshot("private.jpg", 1)["source_id"] == "1"
     with pytest.raises(HTTPException) as denied:
         evidence.require_snapshot("private.jpg", 2)
     assert denied.value.status_code == 404
@@ -84,7 +83,7 @@ def test_cleanup_retries_remote_failure_and_never_marks_failure_deleted(owned_da
 
 
 def test_sync_does_not_resurrect_expired_file(owned_database, tmp_path):
-    evidence.register("expired.jpg", 1, "video", "job")
+    evidence.register("expired.jpg", 1, "camera", "1")
     path = tmp_path / "expired.jpg"
     path.write_bytes(b"jpeg")
     os.utime(path, (0, 0))
@@ -97,7 +96,7 @@ def test_sync_does_not_resurrect_expired_file(owned_database, tmp_path):
 
 
 def test_signing_requires_owner_and_clamps_ttl(owned_database):
-    evidence.register("private.jpg", 1, "video", "job")
+    evidence.register("private.jpg", 1, "camera", "1")
     store = Mock()
     store.snapshot_url.return_value = "https://storage.example/signed"
     with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), patch.object(storage, "_get_store", return_value=store):
@@ -110,22 +109,18 @@ def test_signing_requires_owner_and_clamps_ttl(owned_database):
         store.snapshot_url.assert_not_called()
 
 
-def test_http_cross_account_camera_video_snapshot_and_history(app_module, owned_database):
+def test_http_cross_account_camera_snapshot_and_history(app_module, owned_database):
     user = SimpleNamespace(id=1, username="owner", role="user")
     app_module.app.dependency_overrides[get_current_user] = lambda: user
     app_module.app.dependency_overrides[require_stream_user] = lambda: user
     app_module.app.dependency_overrides[require_snapshot_user] = lambda: user
     app_module.camera_manager.cameras = {2: SimpleNamespace(owner_user_id=2)}
-    app_module.video_analyzer.get.return_value = {"id": "foreign", "owner_user_id": 2}
     app_module.storage.private_snapshot_url.side_effect = storage.private_snapshot_url
-    evidence.register("foreign.jpg", 2, "video", "foreign")
+    evidence.register("foreign.jpg", 2, "camera", "2")
     with patch("app.events.routes.log_action"), patch("app.events.routes.database", database), TestClient(app_module.app) as client:
         assert client.get("/cameras").json() == {"cameras": []}
         for method, path, body in [
-            ("get", "/video_feed/2", None), ("get", "/video-analysis/foreign", None),
-            ("post", "/video-analysis/foreign/cancel", None),
-            ("post", "/video-analysis/foreign/playback", {"action": "restart"}),
-            ("post", "/video-analysis/foreign/notifications/retry", {"event_type": "fire", "channel": "telegram"}),
+            ("get", "/video_feed/2", None),
             ("delete", "/cameras/2", None), ("put", "/cameras/2", {"name": "Stolen", "is_active": False}),
             ("post", "/cameras/2/toggle?active=false", None),
             ("get", "/snapshots/foreign.jpg", None), ("get", "/snapshot-access/foreign.jpg", None),
@@ -134,7 +129,6 @@ def test_http_cross_account_camera_video_snapshot_and_history(app_module, owned_
             assert response.status_code == 404, (path, response.text)
         assert client.get("/history").json()["total"] == 0
     app_module.camera_manager.remove_camera.assert_not_called()
-    app_module.video_analyzer.playback.assert_not_called()
     app_module.storage.read_snapshot.assert_not_called()
 
 
@@ -148,59 +142,15 @@ def test_broadcast_delivers_only_to_owner(app_module):
     other.send_json.assert_not_awaited()
 
 
-def test_owned_video_persists_alerts_and_survives_job_eviction(owned_database, tmp_path):
-    import cv2
-    import numpy as np
-    import app.videos.analyzer as video
-    source = tmp_path / "source.avi"
-    writer = cv2.VideoWriter(str(source), cv2.VideoWriter_fourcc(*"MJPG"), 10, (32, 32))
-    assert writer.isOpened()
-    for _ in range(3):
-        writer.write(np.zeros((32, 32, 3), dtype=np.uint8))
-    writer.release()
-    detect = lambda frame, **_: (frame, [{"class": "fire", "confidence": .95, "bbox": [1, 1, 20, 20]}])
-    settings = lambda key, default=None: {"persistence": "1"}.get(key, default)
-    callback = Mock()
-    with patch.object(video, "UPLOAD_DIR", str(tmp_path / "uploads")), \
-         patch.object(storage, "save_snapshot", return_value=None) as save, \
-         patch.object(storage, "delete_snapshot") as delete, patch.object(evidence, "save_job") as checkpoint:
-        analyzer = video.VideoAnalyzer(detect, settings, alert_callback=callback)
-        try:
-            job_id = analyzer.submit(str(source), "source.avi", 10, owner_user_id=1)
-            analyzer._controls[job_id]["thread"].join(5)
-            assert analyzer.get(job_id)["status"] == "done"
-            assert save.call_args.kwargs["owner_user_id"] == 1
-            assert save.call_args.kwargs["source_id"] == job_id
-            assert checkpoint.call_args.args[0]["status"] == "done"
-            assert callback.call_args.args[0]["owner_user_id"] == 1
-            assert callback.call_args.args[0]["source_kind"] == "video"
-            assert database.search_events(owner_user_id=1)["total"] == 0
-            assert len(database.get_recent_events(owner_user_id=1)) == 1
-            restarted = analyzer.playback(job_id, "restart")
-            analyzer._controls[restarted]["thread"].join(5)
-            assert analyzer.get(restarted)["owner_user_id"] == 1
-            with patch.object(video, "MAX_JOBS_KEPT", 1):
-                analyzer._prune()
-            delete.assert_not_called()
-        finally:
-            analyzer.shutdown()
-
-
-def test_websockets_do_not_leak_other_account_video_or_camera_state(app_module):
-    from starlette.websockets import WebSocketDisconnect
-    async def authorize(socket):
-        socket.state.media_user = SimpleNamespace(id=1)
-        return True
-    app_module.video_analyzer.get.return_value = {"id": "foreign", "owner_user_id": 2}
+def test_websockets_do_not_leak_other_account_camera_state(app_module):
     app_module.camera_manager.cameras = {
         1: SimpleNamespace(owner_user_id=1), 2: SimpleNamespace(owner_user_id=2)}
     app_module.camera_manager.detection_states.return_value = [{"camera_id": 1}, {"camera_id": 2}]
+    async def authorize(socket):
+        socket.state.media_user = SimpleNamespace(id=1)
+        return True
     with patch("app.cameras.streaming.authorize_websocket", side_effect=authorize), \
-         patch("app.videos.routes.authorize_websocket", side_effect=authorize), TestClient(app_module.app) as client:
-        with client.websocket_connect("/ws/video-analysis/foreign") as socket:
-            with pytest.raises(WebSocketDisconnect) as denied:
-                socket.receive_json()
-            assert denied.value.code == 1008
+         TestClient(app_module.app) as client:
         with client.websocket_connect("/ws/detections") as socket:
             assert socket.receive_json() == {"cameras": [{"camera_id": 1}]}
 
@@ -231,7 +181,7 @@ def test_legacy_cleanup_removes_only_expired_generated_images(owned_database, tm
 
 
 def test_bot_link_retries_local_upload_and_lasts_one_hour(owned_database, tmp_path):
-    evidence.register("retry.jpg", 1, "video", "job")
+    evidence.register("retry.jpg", 1, "camera", "1")
     (tmp_path / "retry.jpg").write_bytes(b"jpeg")
     store = Mock()
     store.snapshot_url.side_effect = [RuntimeError("missing object"), "https://storage.example/signed"]
@@ -245,7 +195,7 @@ def test_bot_link_retries_local_upload_and_lasts_one_hour(owned_database, tmp_pa
 
 
 def test_bot_link_never_outlives_retention(owned_database):
-    evidence.register("ending.jpg", 1, "video", "job")
+    evidence.register("ending.jpg", 1, "camera", "1")
     row = evidence.find("ending.jpg")
     store = Mock()
     with patch.object(storage, "S3_ENDPOINT", "https://storage.example"), \

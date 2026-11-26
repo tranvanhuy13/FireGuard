@@ -38,9 +38,10 @@ def update_users_me(update: ProfileUpdate, current_user: UserModel = Depends(get
         full_name = full_name.strip()
 
     phone = update.phone if update.phone is not None else current_user.phone
-    if phone:
+    if phone is not None:
         phone = phone.strip()
-        if not re.match(r"^\d{9,11}$", phone):
+    if phone:
+        if not re.fullmatch(r"[0-9]{9,11}", phone):
             raise HTTPException(status_code=400, detail="Số điện thoại không hợp lệ (9-11 chữ số)")
 
     avatar_url = update.avatar_url if update.avatar_url is not None else update.avatarUrl

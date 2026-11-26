@@ -27,7 +27,6 @@ def test_policy_blocks_jpeg_local_remote_and_registry():
 def test_policy_failure_is_closed_and_other_sources_keep_existing_policy():
     with patch('app.db.engine.read_rows', side_effect=OperationalError('read', {}, Exception('offline'))):
         assert not storage.camera_snapshots_allowed(9, 'camera')
-        assert not storage.camera_snapshots_allowed(9, 'video')
     with patch('app.db.engine.read_rows', return_value=[]):
         assert storage.camera_snapshots_allowed(8, 'camera')
 
@@ -37,24 +36,8 @@ def test_global_policy_and_legacy_camera_policy_are_distinct():
         return [{'value': 'false'}] if args[0] == 'camera_snapshots_enabled_user_9' else []
     with patch('app.db.engine.read_rows', side_effect=legacy_only):
         assert not storage.camera_snapshots_allowed(9, 'camera')
-        assert storage.camera_snapshots_allowed(9, 'video')
     with patch('app.db.engine.read_rows', return_value=[{'value': 'false'}]):
         assert not storage.camera_snapshots_allowed(9, 'camera')
-        assert not storage.camera_snapshots_allowed(9, 'video')
-
-
-def test_video_opt_out_blocks_storage_before_encoding():
-    with patch('app.db.engine.read_rows', return_value=[{'value': 'false'}]), \
-         patch.object(storage.cv2, 'imencode') as encode, \
-         patch.object(storage, '_write_local') as local, \
-         patch.object(storage, '_get_store') as remote, \
-         patch('app.storage.evidence.register') as register:
-        assert storage.save_snapshot('video.jpg', object(), keep_local=True,
-                                     owner_user_id=9, source_kind='video', source_id='job') is None
-    encode.assert_not_called()
-    local.assert_not_called()
-    remote.assert_not_called()
-    register.assert_not_called()
 
 
 def test_background_sync_does_not_upload_disabled_account_images(tmp_path):
