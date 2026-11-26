@@ -19,6 +19,11 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 
 ## Backend variables
 
+Local webcams (numeric sources `0`–`63`) start disabled when loaded from the
+database, even if their saved `is_active` is enabled. Enable them explicitly in
+the camera UI after backend startup. Network cameras retain their saved state.
+This startup policy does not rewrite camera records in the shared database.
+
 | Variable | Use/default |
 | --- | --- |
 | `MODEL_PATH` | YOLO weights; defaults to `best.pt` in the backend directory |
@@ -47,6 +52,10 @@ It sets `MODEL_PATH=best.pt`. Relative model paths are anchored to the backend d
 | `AUTH_DEV_MODE` | Local OTP logging behavior; see `auth/utils.py` |
 
 Alarm confidence, persistence, cooldown and Zalo/Telegram settings are stored in the settings database. They are not all environment variables. See [the detection guide](../REALTIME_DETECTION.md) for numeric settings and fallbacks.
+
+Camera bot delivery has a separate 15-second cooldown per account and channel
+(Telegram/Zalo), measured from successful delivery. This limit is independent
+of the AI event cooldown in the database.
 
 ## Local startup
 

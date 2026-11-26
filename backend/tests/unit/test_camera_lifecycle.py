@@ -54,6 +54,21 @@ class CameraLifecycleTests(unittest.TestCase):
         cm.storage.save_snapshot.assert_not_called()
         self.assertEqual(camera.status, "disconnected")
 
+    def test_database_restore_requires_explicit_webcam_enable(self):
+        manager = cm.CameraManager.__new__(cm.CameraManager)
+        manager.cameras = {}
+        database = Mock()
+        database.get_all_db_cameras.return_value = [
+            {"id": 1, "name": "Laptop", "source": "0", "is_active": 1, "owner_user_id": 1},
+            {"id": 2, "name": "Network", "source": "rtsp://camera.local/live", "is_active": 1, "owner_user_id": 1},
+        ]
+        with module_mocks({'app.db.repositories.operations': database}):
+            with patch.object(cm, "Camera") as camera_factory:
+                manager.load_cameras_from_db()
+                self.assertFalse(camera_factory.call_args_list[0].args[3])
+                self.assertTrue(camera_factory.call_args_list[1].args[3])
+        database.set_db_camera_status.assert_not_called()
+
     def test_capture_recovers_after_opencv_open_error(self):
         self.open_capture.side_effect = [cm.cv2.error('open failed'), self.capture]
         with patch.object(cm, 'RECONNECT_DELAY_SECONDS', 0.01):
