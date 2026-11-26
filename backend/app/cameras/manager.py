@@ -422,6 +422,10 @@ class CameraManager:
                 if cam_id in self.cameras:
                     self.cameras[cam_id].configure(name, source, is_active)
                 else:
+                    # Device indices refer to this host's webcams. Require an
+                    # explicit toggle after startup rather than restoring capture.
+                    if source.isascii() and source.isdecimal():
+                        is_active = False
                     self.cameras[cam_id] = Camera(cam_id, source, name, is_active, db_cam["owner_user_id"])
             print(f"Loaded {len(db_cams)} cameras from database.")
         except Exception as e:
