@@ -144,6 +144,8 @@ test.describe('Phân quyền & Kiểm soát truy cập (Access Control & Protect
       // 2. User truy cập trang chỉ dành cho Admin (/dashboard/users, /dashboard/ai-settings, /dashboard/audit-log) bị RequireRole chặn
       for (const restrictedPath of ['/dashboard/users', '/dashboard/ai-settings', '/dashboard/audit-log']) {
         await page.goto(`${FRONTEND_URL}${restrictedPath}`);
+        await expect(page.getByRole('heading', { name: '403' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Access Denied' })).toBeVisible();
         await expect(page.locator('table')).toHaveCount(0);
         await expect(page.locator('input[type="range"]')).toHaveCount(0);
       }

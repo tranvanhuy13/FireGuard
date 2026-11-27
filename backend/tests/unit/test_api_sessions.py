@@ -102,10 +102,13 @@ def test_session_boundary_length_claim_types_and_missing_user():
         assert caught.value.status_code == 401
 
     # Deleted user in database after session token was issued
+    fresh_token = sessions.create_session(SimpleNamespace(**row))
+    db.execute.reset_mock()
     db.execute.return_value.fetchone.return_value = None
     with pytest.raises(auth.HTTPException) as caught:
-        sessions.verify_session(token, db)
+        sessions.verify_session(fresh_token, db)
     assert caught.value.status_code == 401
+    db.execute.assert_called_once()
 
 
 def test_bearer_header_case_insensitivity_and_whitespace():

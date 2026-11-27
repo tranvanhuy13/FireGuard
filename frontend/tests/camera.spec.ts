@@ -3,6 +3,7 @@ import { BACKEND_URL, basicAuth, REAL_USER } from './helpers';
 
 test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Camera Management & Detection Status)', () => {
   test.use({ baseURL: BACKEND_URL });
+  const FRONTEND_URL = process.env.BASE_URL || 'http://localhost:3000';
 
   const headers = basicAuth(REAL_USER.username, REAL_USER.password);
 
@@ -106,7 +107,7 @@ test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Cam
       socket.onClose(() => clearInterval(timer));
     });
 
-    await page.goto('http://localhost:3000/dashboard');
+    await page.goto(new URL('/dashboard', FRONTEND_URL).toString());
     const tile = page.locator('#cam-container-1');
 
     // 1. Khi stale = true -> hiển thị waiting for fresh detection
@@ -177,7 +178,7 @@ test.describe('Quản lý Camera, Bật/Tắt & Trạng thái Nhận diện (Cam
     });
     await page.routeWebSocket('**/ws/**', () => {});
 
-    await page.goto('http://localhost:3000/dashboard/cameras');
+    await page.goto(new URL('/dashboard/cameras', FRONTEND_URL).toString());
     await expect(page.getByText('East Gate')).toBeVisible();
 
     // 1. Thêm camera mới qua Modal
