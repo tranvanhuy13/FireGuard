@@ -135,7 +135,7 @@ export default function HistoryPage() {
   if (loading && alerts.length === 0 && !requestError) return <div className="p-8"><div className="animate-pulse bg-gray-200 dark:bg-slate-800 h-64 rounded-md"></div></div>;
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{t.pages.history.title}</h1>
         <button disabled={exporting || search !== debouncedSearch} onClick={handleExportCsv} className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 px-4 py-2 rounded-xl shadow-sm transition-colors font-medium"><Download className="w-4 h-4" /> {t.pages.history.exportCsv}</button>
