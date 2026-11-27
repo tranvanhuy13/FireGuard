@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ClockAlert, ImageOff } from "lucide-react";
 import { API_URL } from "@/config";
 import { authFetch } from "@/lib/api/authFetch";
 import { mediaUrl } from "@/lib/api/client";
@@ -8,8 +9,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 
 /** Account-authorized URL issuance; image bytes travel directly from Storage. */
-export default function EvidenceImage({ snapshot, alt, className = "" }: {
-  snapshot?: string; alt: string; className?: string;
+export default function EvidenceImage({ snapshot, alt, className = "", compact = false }: {
+  snapshot?: string; alt: string; className?: string; compact?: boolean;
 }) {
   const { user, streamToken } = useAuth();
   const { t } = useLanguage();
@@ -45,6 +46,29 @@ export default function EvidenceImage({ snapshot, alt, className = "" }: {
     return () => { disposed = true; controller.abort(); clearTimeout(timer); };
   }, [key, snapshot, streamToken, retry]);
   if (image.key !== key || !image.url) {
+    if (compact) {
+      if (image.key !== key) {
+        return (
+          <div
+            className={`flex items-center justify-center bg-gray-100 text-gray-500 text-xs text-center ${className}`}
+            role="img"
+            aria-label={alt}
+          />
+        );
+      }
+      const text = image.expired ? t.alerts.imageExpired : t.alerts.imageUnavailable;
+      const Icon = image.expired ? ClockAlert : ImageOff;
+      return (
+        <div
+          className={`flex items-center justify-center bg-gray-100 text-gray-500 text-xs text-center ${className}`}
+          role="img"
+          aria-label={text}
+          title={text}
+        >
+          <Icon className="w-5 h-5" aria-hidden="true" />
+        </div>
+      );
+    }
     return <div className={`flex items-center justify-center bg-gray-100 text-gray-500 text-xs text-center ${className}`} role="img" aria-label={alt}>
       {image.key === key && image.expired ? t.alerts.imageExpired : t.alerts.imageUnavailable}
     </div>;
