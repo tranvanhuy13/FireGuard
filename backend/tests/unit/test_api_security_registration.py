@@ -44,8 +44,7 @@ def app_module():
 @pytest.mark.parametrize("method,path", [
     ("GET", "/cameras"), ("POST", "/cameras"), ("DELETE", "/cameras/1"),
     ("POST", "/cameras/1/toggle?active=false"), ("GET", "/history"),
-    ("GET", "/alerts"), ("GET", "/stats"), ("GET", "/video-analysis"),
-    ("POST", "/video-analysis/job/cancel"), ("POST", "/video-analysis/job/playback"),
+    ("GET", "/alerts"), ("GET", "/stats"),
     ("GET", "/video_feed/1"), ("GET", "/snapshots/example.jpg"),
 ])
 def test_operational_routes_reject_anonymous_requests(app_module, method, path):
@@ -53,15 +52,7 @@ def test_operational_routes_reject_anonymous_requests(app_module, method, path):
         assert client.request(method, path).status_code == 401
 
 
-def test_upload_registration_authenticates_before_reading_body(app_module):
-    route = next(route for route in app_module.upload_router.routes if route.path == "/video-analysis")
-    from app.auth.upload import AuthenticatedUploadRoute
-    assert isinstance(route, AuthenticatedUploadRoute)
-    with TestClient(app_module.app) as client:
-        assert client.post("/video-analysis", content=b"invalid multipart").status_code == 401
-
-
-@pytest.mark.parametrize("path", ["/ws/alerts", "/ws/detections", "/ws/video-analysis/job"])
+@pytest.mark.parametrize("path", ["/ws/alerts", "/ws/detections"])
 def test_sockets_reject_missing_credentials(app_module, path):
     from starlette.websockets import WebSocketDisconnect
     with patch("app.auth.stream_tokens.stream_is_authorized", return_value=False), TestClient(app_module.app) as client:

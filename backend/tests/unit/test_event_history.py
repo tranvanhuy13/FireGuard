@@ -60,3 +60,20 @@ def test_status_endpoint_persists_actor_and_validates_contract(event_database):
         assert data["events"][0]["handled_by"] == "reviewer"
         assert client.get("/history?limit=0").status_code == 422
         assert client.get("/history?sort=bad").status_code == 422
+
+
+def test_history_empty_table_wildcard_escaping_and_invalid_sort(event_database):
+    # Wildcard escaping for %, _, ! and Unicode camera names
+    database.add_event("fire", 0.95, camera_id=77, camera_name="Kho_Hàng_100%!_A", owner_user_id=1)
+    assert database.search_events(search="100%!", owner_user_id=1)["total"] == 1
+    assert database.search_events(search="Kho_Hàng", owner_user_id=1)["total"] == 1
+    assert database.search_events(search="100%X", owner_user_id=1)["total"] == 0
+
+    # Invalid sort column or direction raises ValueError
+    for bad_sort, bad_dir in [("owner_user_id", "desc"), ("timestamp; DROP", "asc"), ("id", "up")]:
+        with pytest.raises(ValueError, match="Invalid history order"):
+            database.search_events(sort=bad_sort, direction=bad_dir)
+
+    # Empty result watermark boundary (max_id = 0 when no matching rows and max_id not provided)
+    none_found = database.search_events(owner_user_id=9999)
+    assert none_found == {"events": [], "total": 0, "max_id": 0}

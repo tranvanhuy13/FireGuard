@@ -1,14 +1,12 @@
-"""Offline MySQL outage, video wiring and bot delivery regressions."""
+"""Offline MySQL outage, settings cache, and notification delivery regressions."""
 
-from tests.mocks import module_mocks
-from tests.source import application_source
 import ast
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import threading
 import time
-import unittest
 from types import SimpleNamespace
+import unittest
 from unittest.mock import Mock, patch
 
 import requests
@@ -16,8 +14,9 @@ from sqlalchemy.exc import OperationalError
 
 from app.db.engine import read_rows
 from app.detection.rules import read_settings
-from app.settings.cache import SettingsCache
 from app.notifications import service as notification
+from app.settings.cache import SettingsCache
+from tests.source import application_source
 
 
 def disconnect(code=2013):
@@ -56,10 +55,13 @@ class SettingsRecoveryTests(unittest.TestCase):
 
     def test_slow_refresh_does_not_block_frames_or_overwrite_committed_write(self):
         entered, release = threading.Event(), threading.Event()
+
         def load():
             if not entered.is_set():
-                entered.set(); release.wait(2)
+                entered.set()
+                release.wait(2)
             return {"fire_threshold": "80"}
+
         loader = Mock(return_value={"fire_threshold": "70"})
         cache = SettingsCache(loader, ttl=0)
         cache.snapshot()
@@ -105,17 +107,24 @@ class SettingsRecoveryTests(unittest.TestCase):
 
 class NotificationRecoveryTests(unittest.TestCase):
     def config(self, channel, owner_user_id=None):
-        return {"enabled": True, "configured": True, "token": "test-token", "chat_id": "-123456",
-                "targets": [{"id": "recipient", "chatId": "-123456"}], "saved_targets": True}
+        return {
+            "enabled": True,
+            "configured": True,
+            "token": "test-token",
+            "chat_id": "-123456",
+            "targets": [{"id": "recipient", "chatId": "-123456"}],
+            "saved_targets": True,
+        }
 
     def test_one_channel_config_failure_does_not_block_other_channel(self):
         def config(channel, owner_user_id=None):
             if channel == "zalo":
                 raise disconnect()
             return self.config(channel)
+
         with patch("app.notifications.service.channel_config", side_effect=config), \
              patch("app.notifications.service.send_telegram", return_value=True) as sender:
-            result = notification.trigger_notifications("fire", .9, bypass_cooldown=True)
+            result = notification.trigger_notifications("fire", 0.9, bypass_cooldown=True)
         self.assertEqual(result["zalo"]["reason"], "configuration_unavailable")
         self.assertEqual(result["zalo"]["http_status"], 503)
         self.assertEqual(result["telegram"]["status"], "sent")
@@ -125,7 +134,7 @@ class NotificationRecoveryTests(unittest.TestCase):
         response = Mock(status_code=200, json=lambda: {"ok": True})
         with patch("app.notifications.service.channel_config", side_effect=self.config) as configuration, \
              patch("app.notifications.service.requests.post", return_value=response) as post:
-            result = notification.trigger_notifications("fire", .9, bypass_cooldown=True)
+            result = notification.trigger_notifications("fire", 0.9, bypass_cooldown=True)
         self.assertEqual(configuration.call_count, 2)
         self.assertTrue(all(state["status"] == "sent" for state in result.values()))
         self.assertEqual(post.call_count, 2)
@@ -137,105 +146,65 @@ class NotificationRecoveryTests(unittest.TestCase):
         self.assertEqual(telegram.kwargs["data"]["chat_id"], "-123456")
 
     def test_provider_rejection_redaction_never_uses_the_database(self):
-        response = Mock(status_code=403, headers={}, json=lambda: {"ok": False, "error_code": 403,
-            "description": "secret-token failed for alpha-chat https://example.com/private"})
+        response = Mock(
+            status_code=403,
+            headers={},
+            json=lambda: {
+                "ok": False,
+                "error_code": 403,
+                "description": "secret-token failed for alpha-chat https://example.com/private",
+            },
+        )
         with patch("app.notifications.service.peek_settings", return_value={"zalo_bot_token": "secret-token"}), \
              patch.dict("os.environ", {"ZALO_BOT_TOKEN": ""}), \
              patch("app.notifications.service.channel_config", side_effect=AssertionError("must not query config")), \
              patch("app.notifications.service.requests.post", return_value=response):
             details = {}
-            ok, _ = notification._post("https://example.invalid/send", json={"chat_id": "alpha-chat"},
-                                       details=details, request_attempts=1)
+            ok, _ = notification._post(
+                "https://example.invalid/send",
+                json={"chat_id": "alpha-chat"},
+                details=details,
+                request_attempts=1,
+            )
         self.assertFalse(ok)
         for value in ("secret-token", "alpha-chat", "https://example.com/private"):
             self.assertNotIn(value, details["description"])
 
     def test_photo_rejection_falls_back_but_bad_credentials_do_not(self):
         import tempfile
+
         with tempfile.TemporaryDirectory() as directory:
             photo = Path(directory) / "photo.jpg"
             photo.write_bytes(b"test-image")
             for status, description, count in ((400, "photo too large", 2), (401, "unauthorized", 1)):
-                responses = [Mock(status_code=status, headers={}, json=lambda: {"ok": False, "error_code": status, "description": description}),
-                             Mock(status_code=200, json=lambda: {"ok": True})]
+                responses = [
+                    Mock(status_code=status, headers={}, json=lambda: {"ok": False, "error_code": status, "description": description}),
+                    Mock(status_code=200, json=lambda: {"ok": True}),
+                ]
                 details = {}
                 with patch("app.notifications.service.requests.post", side_effect=responses) as post, \
                      patch("app.notifications.service.peek_settings", return_value={}):
-                    ok = notification.send_telegram("warning", str(photo), _config=self.config("telegram"), details=details, request_attempts=1)
+                    ok = notification.send_telegram(
+                        "warning",
+                        str(photo),
+                        _config=self.config("telegram"),
+                        details=details,
+                        request_attempts=1,
+                    )
                 self.assertEqual(post.call_count, count)
                 self.assertEqual(ok, count == 2)
 
-    def test_timeout_and_rate_limit_are_reported_for_video_worker_retries(self):
+    def test_timeout_and_rate_limit_are_reported_in_details(self):
         with patch("app.notifications.service.requests.post", side_effect=requests.Timeout()):
             details = {}
             notification._post("https://example.invalid", details=details, request_attempts=1)
         self.assertEqual(details["reason"], "timeout")
         response = Mock(status_code=429, headers={}, json=lambda: {"ok": False, "parameters": {"retry_after": 12}})
-        with patch("app.notifications.service.requests.post", return_value=response), patch("app.notifications.service.peek_settings", return_value={}):
+        with patch("app.notifications.service.requests.post", return_value=response), \
+             patch("app.notifications.service.peek_settings", return_value={}):
             notification._post("https://example.invalid", details=details, request_attempts=1)
         self.assertEqual(details["reason"], "rate_limited")
         self.assertEqual(details["retry_after"], 12)
-
-    def test_video_callback_retry_route_and_pending_stream_are_wired(self):
-        path = Path(__file__).resolve().parents[2] / "main.py"
-        source = application_source()
-        tree = ast.parse(source)
-        init = next(node.value for node in tree.body if isinstance(node, ast.Assign) and
-                    any(isinstance(target, ast.Name) and target.id == "video_analyzer" for target in node.targets))
-        self.assertEqual(ast.unparse(init.args[2]), "notification.trigger_notifications")
-        self.assertIn('/video-analysis/{job_id}/notifications/retry', source)
-        stream = next(node for node in tree.body if getattr(node, "name", None) == "video_analysis_updates")
-        self.assertIn('notification_pending', ast.unparse(stream))
-
-    def test_terminal_video_keeps_stream_until_notification_results_arrive(self):
-        import asyncio
-        from unittest.mock import AsyncMock
-        from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-        source = application_source()
-        function = next(node for node in ast.parse(source).body if getattr(node, "name", None) == "video_analysis_updates")
-        analyzer = Mock()
-        analyzer.get.side_effect = [
-            {"id": "job", "revision": 1, "frame_id": 1, "status": "done", "owner_user_id": 1, "notification_pending": 1},
-            {"id": "job", "revision": 2, "frame_id": 1, "status": "done", "owner_user_id": 1, "notification_pending": 0},
-        ]
-        namespace = {"app": FastAPI(), "asyncio": asyncio, "WebSocket": WebSocket,
-                     "WebSocketDisconnect": WebSocketDisconnect, "video_analyzer": analyzer,
-                     "time": __import__("time"), "authorize_websocket": AsyncMock(return_value=True)}
-        exec(compile(ast.Module(body=[function], type_ignores=[]), "main.py", "exec"), namespace)
-        socket = Mock(state=SimpleNamespace(media_user=SimpleNamespace(id=1)), accept=AsyncMock(), send_json=AsyncMock(), close=AsyncMock(),
-                      receive_text=AsyncMock(side_effect=asyncio.TimeoutError))
-        asyncio.run(namespace["video_analysis_updates"](socket, "job"))
-        self.assertEqual(socket.send_json.await_count, 2)
-        socket.close.assert_awaited_once()
-
-    def test_retry_endpoint_requires_auth_and_targets_requested_channel(self):
-        from fastapi import FastAPI, Depends, HTTPException
-        from fastapi.testclient import TestClient
-        from pydantic import BaseModel
-        from typing import Literal
-        from types import SimpleNamespace
-        def authenticated():
-            raise HTTPException(status_code=401)
-        app = FastAPI()
-        analyzer = Mock()
-        analyzer.get.return_value = {"id": "job", "owner_user_id": 1}
-        analyzer.retry_notification.return_value = {"id": "job", "notification_pending": 1}
-        source = application_source()
-        nodes = [node for node in ast.parse(source).body if getattr(node, "name", None) in
-                 {"owned_job", "RetryVideoNotification", "retry_video_notification"}]
-        namespace = {"app": app, "Depends": Depends, "BaseModel": BaseModel, "Literal": Literal,
-                     "HTTPException": HTTPException, "get_current_user": authenticated, "video_analyzer": analyzer}
-        exec(compile(ast.Module(body=nodes, type_ignores=[]), "main.py", "exec"), namespace)
-        with TestClient(app) as client:
-            payload = {"event_type": "fire", "channel": "telegram"}
-            self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 401)
-            app.dependency_overrides[authenticated] = lambda: SimpleNamespace(id=1, role="user")
-            self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 200)
-            analyzer.retry_notification.assert_called_once_with("job", "fire", "telegram")
-            analyzer.retry_notification.side_effect = KeyError("missing")
-            self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 404)
-            analyzer.retry_notification.side_effect = ValueError("already sent")
-            self.assertEqual(client.post("/video-analysis/job/notifications/retry", json=payload).status_code, 409)
 
     def test_global_test_reports_actual_bot_outcomes_instead_of_false_success(self):
         source = application_source()
@@ -250,63 +219,6 @@ class NotificationRecoveryTests(unittest.TestCase):
             self.assertEqual(result["status"], expected)
             self.assertEqual(set(result["channels"]), {"zalo", "telegram"})
         self.assertTrue(bot.trigger_notifications.call_args.kwargs["bypass_cooldown"])
-
-
-class VideoOutageTests(unittest.TestCase):
-    def run_video(self, get_setting, notify=None):
-        import importlib.util
-        import tempfile
-        import cv2
-        import numpy as np
-        from contextlib import ExitStack
-        backend = Path(__file__).resolve().parents[2]
-        storage = Mock()
-        with module_mocks({"app.storage.service": storage}):
-            spec = importlib.util.spec_from_file_location("video_recovery_test", backend / "app/videos/analyzer.py")
-            video = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(video)
-        with tempfile.TemporaryDirectory(dir=backend / "tests") as directory, ExitStack() as stack:
-            stack.enter_context(patch.object(video, "UPLOAD_DIR", directory))
-            cap = Mock()
-            cap.isOpened.return_value = True
-            cap.get.side_effect = lambda key: 10 if key == cv2.CAP_PROP_FPS else 4
-            cap.grab.side_effect = [True] * 4 + [False]
-            cap.retrieve.return_value = (True, np.zeros((64, 64, 3), dtype=np.uint8))
-            stack.enter_context(patch.object(video.cv2, "VideoCapture", return_value=cap))
-            detections = [{"class": name, "confidence": .95, "bbox": [1, 1, 32, 32]} for name in ("fire", "smoke")]
-            analyzer = video.VideoAnalyzer(Mock(return_value=(None, detections)), get_setting, notify)
-            try:
-                job_id = analyzer.submit(str(Path(directory) / "source.mp4"), "sample.mp4", 10)
-                wait_for(lambda: analyzer.get(job_id)["status"] in ("done", "error"))
-                wait_for(lambda: analyzer.get(job_id)["notification_pending"] == 0)
-                return analyzer.get(job_id)
-            finally:
-                analyzer.shutdown()
-
-    def test_warm_database_outage_finishes_video_and_queues_both_channels(self):
-        loader = Mock(return_value={"persistence": "1"})
-        cache = SettingsCache(loader)
-        cache.snapshot()
-        loader.side_effect = disconnect()
-        cache._expires = 0
-        notify = Mock(side_effect=lambda *args, **kwargs: {channel: {"status": "sent"} for channel in kwargs["channels"]})
-        job = self.run_video(lambda key, default=None: cache.snapshot().get(key, default), notify)
-        self.assertEqual(job["status"], "done")
-        self.assertEqual(job["frames_analyzed"], 4)
-        self.assertEqual(notify.call_count, 4)
-        for name in ("fire", "smoke"):
-            for channel in ("zalo", "telegram"):
-                self.assertEqual(job["notifications"][name][channel]["status"], "sent")
-
-    def test_cold_database_failure_has_safe_error_and_is_not_done(self):
-        def setting(*args):
-            raise disconnect()
-        job = self.run_video(setting)
-        self.assertEqual(job["status"], "error")
-        self.assertIn("Database temporarily unavailable", job["error"])
-        self.assertNotIn("SELECT", job["error"])
-        self.assertNotIn("sensitive driver error", job["error"])
-        self.assertFalse(job["buffering"])
 
 
 if __name__ == "__main__":

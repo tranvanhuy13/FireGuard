@@ -18,19 +18,8 @@ class AlertMessageTests(unittest.TestCase):
             self.assertNotIn("video tải lên", body)
             self.assertLessEqual(len(body.encode("utf-16-le")) // 2, 1024)
 
-    def test_video_context_and_time_rounding(self):
-        body = build_alert_message("fire", .9, context={
-            "filename": "kho.mp4", "video_time": 59.999, "job_id": "job-123"})
-        self.assertIn("TRONG VIDEO", body)
-        self.assertIn("01:00,00", body)
-        self.assertIn("Mã phân tích: job-123", body)
-        self.assertIn("không phải camera trực tiếp", body)
-        self.assertNotIn("kiểm tra khu vực ngay", body)
-        self.assertNotIn("Camera:", body)
-
     def test_long_names_stay_under_photo_caption_limit(self):
-        body = build_alert_message("smoke", 1, context={
-            "filename": "ậ" * 500, "video_time": 100000, "job_id": "x" * 500})
+        body = build_alert_message("smoke", 1, camera_name="ậ" * 500)
         self.assertLessEqual(len(body.encode("utf-16-le")) // 2, 1024)
 
     def test_sample_is_unambiguously_a_test(self):

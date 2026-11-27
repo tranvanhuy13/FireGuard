@@ -93,6 +93,16 @@ class S3UrlStoreTests(unittest.TestCase):
         with patch.dict(os.environ, {"S3_SNAPSHOT_URL_TTL_SECONDS": "604801"}):
             with self.assertRaises(ValueError):
                 self.store.snapshot_url("snapshots/a.jpg")
+        for bad_ttl in ("0", "-10", "not-an-int"):
+            with self.subTest(ttl=bad_ttl), patch.dict(os.environ, {"S3_SNAPSHOT_URL_TTL_SECONDS": bad_ttl}):
+                with self.assertRaises(ValueError):
+                    self.store.snapshot_url("snapshots/a.jpg")
+        # Boundary TTLs: 1 second (min) and 604800 seconds (7 days max)
+        for boundary_ttl in ("1", "3600", "604800"):
+            with self.subTest(ttl=boundary_ttl), patch.dict(os.environ, {"S3_SNAPSHOT_URL_TTL_SECONDS": boundary_ttl}):
+                self.stub.add_response("head_object", {}, {"Bucket": "fireguard", "Key": "snapshots/a.jpg"})
+                signed = urlsplit(self.store.snapshot_url("snapshots/a.jpg"))
+                self.assertEqual(parse_qs(signed.query)["X-Amz-Expires"], [boundary_ttl])
 
 
 if __name__ == "__main__":

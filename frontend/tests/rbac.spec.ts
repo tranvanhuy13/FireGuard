@@ -92,81 +92,94 @@ test.describe('Phân quyền & Kiểm soát truy cập (Access Control & Protect
   });
 
   // --------------------------------------------------------------------------
-  // 4. KIỂM THỬ QUY TẮC PHÂN QUYỀN MỚI (PR #13, PR #14)
-  // Gộp role operator vào viewer; Cho phép mọi vai trò (kể cả viewer) bật/tắt camera
+  // 4. KIỂM THỬ QUY TẮC PHÂN QUYỀN TRỰC TIẾP TRÊN GIAO DIỆN (PR #13, PR #14 & PR #19)
   // --------------------------------------------------------------------------
-  test.describe('Cơ chế Chuẩn Hóa Role & Quyền Hạn (PR #13, PR #14 & PR #19)', () => {
-    test('Hàm normalizeUser: operator / viewer / các role khác được tự động chuyển thành user (PR #19)', () => {
-      const normalizeUser = (u: unknown) => {
-        if (!u || typeof u !== 'object') return null;
-        const role = 'role' in u ? u.role : undefined;
-        return {
-          ...u,
-          role: role === 'admin' ? 'admin' : 'user',
-        };
-      };
+  test.describe('Cơ chế Chuẩn Hóa Role & Quyền Hạn Trên Giao Diện (PR #13, PR #14 & PR #19)', () => {
+    const FRONTEND_URL = process.env.BASE_URL || 'http://localhost:3000';
 
-      expect(normalizeUser({ username: 'test_admin', role: 'admin' })?.role).toBe('admin');
-      expect(normalizeUser({ username: 'test_user', role: 'user' })?.role).toBe('user');
-      expect(normalizeUser({ username: 'test_viewer', role: 'viewer' })?.role).toBe('user');
-      expect(normalizeUser({ username: 'test_operator', role: 'operator' })?.role).toBe('user');
-      expect(normalizeUser({ username: 'test_unknown', role: 'guest' })?.role).toBe('user');
+    test('AuthContext tự động chuẩn hóa role cũ (operator / viewer) thành user trên giao diện Profile', async ({ page }) => {
+      const legacyOperator = { id: 2, username: 'legacy_operator', email: 'op@example.com', role: 'operator', is_active: true };
+      const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+      await page.addInitScript(profile => {
+        sessionStorage.setItem('auth_header', 'Bearer legacy-role-token');
+        sessionStorage.setItem('user_profile', JSON.stringify(profile));
+        localStorage.setItem('language', 'en');
+      }, legacyOperator);
+      await page.route(/.*(18080|:8000)\/.*/, async route => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 200, headers });
+        const path = new URL(route.request().url()).pathname;
+        const body = path === '/users/me' ? legacyOperator : { token: 'test', expires_in: 3600 };
+        await route.fulfill({ status: 200, headers, json: body });
+      });
+      await page.routeWebSocket('**/ws/**', () => {});
+
+      await page.goto(`${FRONTEND_URL}/dashboard/profile`);
+      await expect(page.locator('span').filter({ hasText: /^user$/i }).first()).toBeVisible();
     });
 
-    test('Quyền hạn của User (Viewer cũ): Cho phép toggle camera, xem stream, phân tích video', () => {
-      const can = (user: { role: string }, permission: string) => {
-        if (!user) return false;
-        if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
-        if (user.role === 'admin') return true;
-        if (user.role === 'user' || user.role === 'viewer') {
-          const adminOnly = ['manage_users', 'manage_settings', 'add_camera', 'edit_camera', 'delete_camera', 'audit_log'];
-          return !adminOnly.includes(permission);
-        }
-        return false;
-      };
+    test('Quyền hạn của User: Được quản lý camera cá nhân nhưng bị RequireRole chặn tại /users, /ai-settings, /audit-log', async ({ page }) => {
+      const standardUser = { id: 3, username: 'standard_member', email: 'member@example.com', role: 'user', is_active: true };
+      const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+      await page.addInitScript(profile => {
+        sessionStorage.setItem('auth_header', 'Bearer user-role-token');
+        sessionStorage.setItem('user_profile', JSON.stringify(profile));
+        localStorage.setItem('language', 'en');
+      }, standardUser);
+      await page.route(/.*(18080|:8000)\/.*/, async route => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 200, headers });
+        const path = new URL(route.request().url()).pathname;
+        const body = path === '/users/me' ? standardUser
+          : path === '/auth/stream-token' ? { token: 'test', expires_in: 3600 }
+          : path === '/cameras' ? { cameras: [{ id: 1, name: 'User Cam', source: '0', is_active: false, status: 'disconnected' }] }
+          : {};
+        await route.fulfill({ status: 200, headers, json: body });
+      });
+      await page.routeWebSocket('**/ws/**', () => {});
 
-      const user = { role: 'user' };
-      // Quyền được phép
-      expect(can(user, 'toggle_camera')).toBe(true);
-      expect(can(user, 'toggle:camera')).toBe(true);
-      expect(can(user, 'view_stream')).toBe(true);
-      expect(can(user, 'analyze_video')).toBe(true);
-      expect(can(user, 'ack_alert')).toBe(true);
+      // 1. User được phép bật/tắt và thêm/sửa/xóa camera thuộc sở hữu của mình
+      await page.goto(`${FRONTEND_URL}/dashboard/cameras`);
+      await expect(page.getByRole('button', { name: /Add Camera|Thêm Camera/i })).toBeVisible();
+      await expect(page.getByRole('switch', { name: /Camera power: User Cam/i })).toBeVisible();
 
-      // Quyền bị cấm
-      expect(can(user, 'manage_users')).toBe(false);
-      expect(can(user, 'manage_settings')).toBe(false);
-      expect(can(user, 'add_camera')).toBe(false);
-      expect(can(user, 'edit_camera')).toBe(false);
-      expect(can(user, 'delete_camera')).toBe(false);
-      expect(can(user, 'audit_log')).toBe(false);
-    });
-
-    test('Quyền hạn của Admin: Có toàn quyền trên mọi chức năng', () => {
-      const can = (user: { role: string }, permission: string) => {
-        if (!user) return false;
-        if (permission === 'toggle_camera' || permission === 'toggle:camera') return true;
-        if (user.role === 'admin') return true;
-        return false;
-      };
-
-      const admin = { role: 'admin' };
-      const allPermissions = [
-        'toggle_camera',
-        'view_stream',
-        'analyze_video',
-        'ack_alert',
-        'manage_users',
-        'manage_settings',
-        'add_camera',
-        'edit_camera',
-        'delete_camera',
-        'audit_log',
-      ];
-
-      for (const perm of allPermissions) {
-        expect(can(admin, perm)).toBe(true);
+      // 2. User truy cập trang chỉ dành cho Admin (/dashboard/users, /dashboard/ai-settings, /dashboard/audit-log) bị RequireRole chặn
+      for (const restrictedPath of ['/dashboard/users', '/dashboard/ai-settings', '/dashboard/audit-log']) {
+        await page.goto(`${FRONTEND_URL}${restrictedPath}`);
+        await expect(page.getByRole('heading', { name: '403' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Access Denied' })).toBeVisible();
+        await expect(page.locator('table')).toHaveCount(0);
+        await expect(page.locator('input[type="range"]')).toHaveCount(0);
       }
+    });
+
+    test('Quyền hạn của Admin: Truy cập đầy đủ các trang quản trị /users, /ai-settings và /audit-log', async ({ page }) => {
+      const adminUser = { id: 1, username: 'admin_master', email: 'admin@example.com', role: 'admin', is_active: true };
+      const headers = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' };
+      await page.addInitScript(profile => {
+        sessionStorage.setItem('auth_header', 'Bearer admin-role-token');
+        sessionStorage.setItem('user_profile', JSON.stringify(profile));
+        localStorage.setItem('language', 'en');
+      }, adminUser);
+      await page.route(/.*(18080|:8000)\/.*/, async route => {
+        if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 200, headers });
+        const path = new URL(route.request().url()).pathname;
+        const body = path === '/users/me' ? adminUser
+          : path === '/auth/stream-token' ? { token: 'test', expires_in: 3600 }
+          : path === '/users' ? { users: [{ id: '1', name: 'Admin', username: 'admin_master', role: 'admin', status: 'active' }] }
+          : path === '/settings' ? { settings: { fire_threshold: '75', smoke_threshold: '70', persistence: '5', cooldown: '60' } }
+          : path === '/audit-log' ? { logs: [{ id: 1, timestamp: '2026-11-26T00:00:00Z', username: 'admin_master', action: 'camera.add', target: 'camera:1' }], total: 1, max_id: 1 }
+          : {};
+        await route.fulfill({ status: 200, headers, json: body });
+      });
+      await page.routeWebSocket('**/ws/**', () => {});
+
+      await page.goto(`${FRONTEND_URL}/dashboard/users`);
+      await expect(page.locator('table')).toBeVisible();
+
+      await page.goto(`${FRONTEND_URL}/dashboard/ai-settings`);
+      await expect(page.locator('input[type="range"]').first()).toBeVisible();
+
+      await page.goto(`${FRONTEND_URL}/dashboard/audit-log`);
+      await expect(page.locator('table')).toBeVisible();
     });
   });
 });

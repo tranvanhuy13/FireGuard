@@ -90,3 +90,55 @@ def test_unexpected_existing_index_definition_is_rejected():
         with pytest.raises(RuntimeError, match="Unexpected definition"):
             module.upgrade()
         create.assert_not_called()
+
+
+@pytest.mark.parametrize("bad_port,exc_type", [
+    ("0", ValueError),
+    ("-1", ValueError),
+    ("65536", ValueError),
+    ("99999", ValueError),
+    ("not-a-port", ValueError),
+])
+def test_startup_rejects_out_of_range_or_non_integer_ports(monkeypatch, bad_port, exc_type):
+    monkeypatch.setenv("PORT", bad_port)
+    with patch.object(start_server.os, "chdir"), \
+         patch.object(start_server, "migrate") as run_migrate, \
+         patch.object(start_server.os, "execv") as execute:
+        with pytest.raises(exc_type):
+            start_server.main()
+        run_migrate.assert_not_called()
+        execute.assert_not_called()
+
+
+@pytest.mark.parametrize("valid_port", ["1", "8000", "65535"])
+def test_startup_accepts_boundary_ports(monkeypatch, valid_port):
+    monkeypatch.setenv("PORT", valid_port)
+    with patch.object(start_server.os, "chdir"), \
+         patch.object(start_server, "migrate"), \
+         patch.object(start_server.os, "execv") as execute:
+        start_server.main()
+    assert valid_port in execute.call_args.args[1]
+
+
+def test_lock_null_return_is_rejected_and_offline_mode_creates_both_indexes():
+    # GET_LOCK returning None (e.g. null scalar) must also raise RuntimeError
+    engine = MagicMock()
+    engine.connect.return_value.__enter__.return_value.execute.return_value.scalar.return_value = None
+    with patch("app.db.engine.get_engine", return_value=engine), \
+         patch("app.db.engine.dispose_engine") as dispose, patch("alembic.command.upgrade") as upgrade:
+        with pytest.raises(RuntimeError, match="migration lock"):
+            start_server.migrate()
+        upgrade.assert_not_called()
+        dispose.assert_called_once()
+
+    # Offline mode migration creates both indexes without inspecting live connection
+    module = migration()
+    with patch.object(module.context, "is_offline_mode", return_value=True), \
+         patch.object(module, "inspect") as inspect_fn, \
+         patch.object(module.op, "create_index") as create, \
+         patch.object(module.op, "drop_index") as drop:
+        module.upgrade()
+        inspect_fn.assert_not_called()
+        assert create.call_count == 2
+        module.downgrade()
+        assert drop.call_count == 2

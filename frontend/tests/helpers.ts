@@ -132,7 +132,8 @@ export async function loginUI(
   page: Page,
   identifier: string,
   password: string,
-  rememberMe: boolean = false
+  rememberMe: boolean = false,
+  expectSuccess: boolean = true
 ) {
   await page.goto('/login');
   await page.fill('#identifier', identifier);
@@ -144,7 +145,9 @@ export async function loginUI(
     }
   }
   await page.click('button[type="submit"]');
-  await page.waitForURL(/.*\/dashboard/, { timeout: 10000 }).catch(() => {});
+  if (expectSuccess) {
+    await expect(page).toHaveURL(/.*\/dashboard/, { timeout: 10000 });
+  }
 }
 
 /** Thao tác đăng xuất từ Sidebar Dashboard */
