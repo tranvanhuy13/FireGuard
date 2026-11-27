@@ -3,7 +3,6 @@ import {
   newUser,
   fillRegister,
   submitRegister,
-  verifyOtpUI,
   loginUI,
   logoutUI,
   forgotPasswordUI,
@@ -127,16 +126,25 @@ test.describe('2. Xác thực OTP (Verify OTP)', () => {
   test('OTP_02: Giao diện hiển thị đủ 6 ô số và có thể điền mã OTP', async ({ page }) => {
     const u = newUser();
     await page.goto(`/verify-otp?target=${encodeURIComponent(u.email)}`);
-    await page.waitForLoadState('domcontentloaded');
 
     const otpInputs = page.locator('input[type="text"]');
     await expect(otpInputs).toHaveCount(6);
-    await expect(otpInputs.first()).toBeVisible();
-    await expect(otpInputs.first()).toBeEditable();
 
-    await verifyOtpUI(page, '123456');
-    await expect(otpInputs.first()).toHaveValue('1');
-    await expect(otpInputs.last()).toHaveValue('6');
+    // target được gán trong useEffect, sau khi React khởi tạo.
+    const [localPart, domain] = u.email.split('@');
+    await expect(page.locator('p span.font-semibold')).toHaveText(
+      `${localPart.charAt(0)}***@${domain}`
+    );
+
+    // Kiểm tra từng ký tự trước khi auto-submit được kích hoạt.
+    for (let i = 0; i < 5; i++) {
+      await otpInputs.nth(i).fill(String(i + 1));
+      await expect(otpInputs.nth(i)).toHaveValue(String(i + 1));
+    }
+    await otpInputs.nth(5).fill('6');
+    await expect(page).toHaveURL(/\/login\?verified=true$/, {
+      timeout: 10000,
+    });
   });
 
   test('OTP_03: Hiển thị bộ đếm thời gian hết hạn mã OTP', async ({ page }) => {
