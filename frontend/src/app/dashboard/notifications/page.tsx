@@ -322,7 +322,7 @@ export default function NotificationsPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)]">
+    <div className="space-y-6">
       <SettingsModal isOpen={showSettings && canManageSystem} onClose={() => setShowSettings(false)} />
       {loadingRecipients && <p role="status" className="mb-4 text-slate-500">{n.loadingRecipients}</p>}
       {pageError && <p role="alert" className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg">{pageError}</p>}

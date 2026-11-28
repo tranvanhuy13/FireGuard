@@ -152,7 +152,7 @@ export default function CamerasPage() {
   if (error) return <div className="p-8 text-center"><p role="alert" className="mb-4 text-red-500">{accessError ? t.pages.cameras.accessDenied : t.pages.cameras.loadFailed}</p><Button onClick={fetchCameras}>{t.pages.common.retry}</Button></div>;
 
   return (
-    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="p-8 space-y-6">
+    <motion.div initial={{opacity:0}} animate={{opacity:1}} className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <h1 className="text-2xl font-bold">{t.pages.cameras.title}</h1>
         <div className="flex gap-2 items-center">

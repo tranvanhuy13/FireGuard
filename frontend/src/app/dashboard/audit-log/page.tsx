@@ -304,7 +304,7 @@ function AuditLogContent() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col h-full bg-slate-50/30 p-4 pt-20 md:p-8 md:pt-24 rounded-3xl min-h-[calc(100vh-64px)]">
+    <div className="space-y-6">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">{n.title}</h1>
