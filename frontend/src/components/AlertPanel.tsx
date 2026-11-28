@@ -283,7 +283,7 @@ const AlertPanel = ({ alerts, error }: AlertPanelProps) => {
                 onClick={() => setSelectedAlert(alert)}
               >
                 {alert.snapshot ? (
-                  <EvidenceImage snapshot={alert.snapshot} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" />
+                  <EvidenceImage snapshot={alert.snapshot} alt="thumb" className="w-12 h-12 rounded-lg object-cover border border-gray-200 shrink-0" compact />
                 ) : (
                   <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${alert.type === "fire" ? "bg-red-50 text-red-500" : "bg-yellow-50 text-yellow-600"}`}>
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
