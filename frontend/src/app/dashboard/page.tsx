@@ -167,7 +167,7 @@ export default function Home() {
         </button>
       </div>
       <div ref={workspaceRef} data-testid="monitoring-workspace"
-        className="flex flex-1 min-h-[640px] lg:min-h-0 flex-col lg:flex-row overflow-hidden"
+        className="flex flex-1 min-h-[640px] lg:min-h-[440px] flex-col lg:flex-row overflow-hidden"
         style={{ "--alert-width": `${alertWidth}%` } as React.CSSProperties}>
         <div ref={cameraColumnRef} className="flex-1 min-w-0 lg:min-w-[300px] min-h-0 flex flex-col overflow-hidden">
           <div id="live-camera-panel" data-testid="live-camera-panel" className="flex-1 min-h-[280px] lg:min-h-0 rounded-2xl overflow-hidden bg-[#0B2540] border border-sky-100 relative p-2 shadow-sm">
